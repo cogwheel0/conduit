@@ -1169,6 +1169,75 @@ mod chat_menu_tests {
         daemon
     }
 
+    /// `conduit://clipboard`, then a chat link, in one batch: the chat
+    /// opened after the new chat keeps its own draft, and the clipboard's
+    /// text goes nowhere (its new chat isn't shown any more).
+    #[gpui_kit::test]
+    fn a_link_after_a_new_chat_in_one_batch_keeps_its_own_draft(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, settings, view, vcx) = bench_with_settings(&daemon, cx);
+        crate::install_main_for_test(stores.clone(), settings, view.clone(), vcx);
+        vcx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+            "Copied packing list".into(),
+        ));
+        // From the app, as a link arrives: inside `vcx.update` the window is
+        // taken, and the request can't reach the main view.
+        vcx.cx
+            .update(|cx| crate::desktop::handle_urls(vec!["conduit://clipboard".into()], cx));
+        vcx.run_until_parked();
+        let text = |vcx: &mut VisualTestContext| {
+            view.read_with(vcx, |v, cx| v.chat_pane.read(cx).composer.read(cx).text(cx))
+        };
+        assert_eq!(text(vcx), "Copied packing list", "alone, it lands");
+        vcx.cx.update(|cx| {
+            crate::desktop::handle_urls(
+                vec!["conduit://clipboard".into(), "conduit://chat/chat-a".into()],
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(stores.navigation.read(cx).selected_chat(), Some("chat-a"));
+            assert_eq!(v.chat_pane.read(cx).composer.read(cx).text(cx), "");
+        });
+    }
+
+    /// Open With's files are looked at off the UI thread; the user moves to
+    /// Notes meanwhile: the files go nowhere, though the composer still
+    /// holds the new chat's draft.
+    #[gpui_kit::test]
+    fn open_with_files_go_nowhere_after_a_move_to_notes(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, settings, view, vcx) = bench_with_settings(&daemon, cx);
+        crate::install_main_for_test(stores.clone(), settings, view.clone(), vcx);
+        let dir = std::env::temp_dir().join(format!("conduit-open-with-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let file = dir.join("Packing list.txt");
+        let _ = std::fs::write(&file, b"Tent, stove");
+        let link = url::Url::from_file_path(&file).unwrap().to_string();
+        let has_files = |vcx: &mut VisualTestContext| {
+            view.read_with(vcx, |v, cx| {
+                !v.chat_pane
+                    .read(cx)
+                    .composer_store
+                    .read(cx)
+                    .attachments
+                    .is_empty()
+            })
+        };
+        vcx.cx
+            .update(|cx| crate::desktop::handle_urls(vec![link.clone()], cx));
+        stores.navigation.update(vcx, |n, cx| {
+            n.open_item(crate::stores::navigation::AreaItem::AllNotes, cx)
+        });
+        vcx.run_until_parked();
+        assert!(!has_files(vcx), "the files landed after the move to Notes");
+        vcx.cx
+            .update(|cx| crate::desktop::handle_urls(vec![link], cx));
+        vcx.run_until_parked();
+        assert!(has_files(vcx), "left alone, they land");
+    }
+
     fn bench<'a>(
         daemon: &FakeDaemon,
         cx: &'a mut TestAppContext,

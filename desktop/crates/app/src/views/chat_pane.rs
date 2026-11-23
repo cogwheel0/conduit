@@ -71,6 +71,14 @@ pub struct OpenChat {
     _subscriptions: Vec<Subscription>,
 }
 
+/// The new chat a request opened ([`ChatPane::new_chat_ticket`]): the
+/// selection, still that chat, and the composer's draft in its account.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewChatTicket {
+    selection: crate::stores::navigation::Selection,
+    composition: crate::stores::composer::CompositionTicket,
+}
+
 /// What [`ChatPane::compose_new_chat`] writes into a new chat.
 #[derive(Default)]
 pub struct NewChatContent {
@@ -2170,21 +2178,24 @@ impl ChatPane {
     /// What a new chat opened from outside starts with (Send to Conduit,
     /// Send Link, Send Image, the widget's links, Open With, Quick Ask's Open
     /// in Conduit), once the pane has followed it: written only while the
-    /// new chat that request opened is still the one selected (`ticket`, the
-    /// selection it made). A link handled right after it in the same batch
-    /// (`conduit://chat/<id>`) keeps its own draft. Says whether it was
-    /// written.
+    /// new chat that request opened is still the one selected, on the same
+    /// draft (`ticket`, taken as the request opened it). A link handled
+    /// right after it in the same batch (`conduit://chat/<id>`) keeps its own
+    /// draft. Says whether it was written.
     pub fn compose_new_chat(
         &mut self,
-        ticket: crate::stores::composer::CompositionTicket,
+        ticket: &NewChatTicket,
         content: NewChatContent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        // The draft its request opened, in that account: another draft, a
+        // The new chat its request opened, still shown, and its draft, in
+        // that account: another chat or area (Notes), another draft, a
         // fresh one over it, another account, or a send since, and the
         // content belongs nowhere here.
-        if !self.composer_store.read(cx).holds(ticket) {
+        if self.stores.navigation.read(cx).selection() != &ticket.selection
+            || !self.composer_store.read(cx).holds(ticket.composition)
+        {
             log::info!("new chat: the draft it was for is gone; dropped");
             return false;
         }
@@ -2241,10 +2252,20 @@ impl ChatPane {
         true
     }
 
-    /// The composition shown now (its draft, in this account), for content
-    /// that arrives later ([`Self::compose_new_chat`]).
-    pub fn composition_ticket(&self, cx: &App) -> crate::stores::composer::CompositionTicket {
-        self.composer_store.read(cx).ticket()
+    /// The selection and the composition shown now (its draft, in this
+    /// account), for content that arrives later ([`Self::compose_new_chat`]).
+    pub fn new_chat_ticket(&self, cx: &App) -> NewChatTicket {
+        NewChatTicket {
+            selection: self.stores.navigation.read(cx).selection().clone(),
+            composition: self.composer_store.read(cx).ticket(),
+        }
+    }
+
+    /// Follows the selection now, not when the update that changed it ends
+    /// (its observer runs then): a request that opens a new chat takes that
+    /// draft's ticket before the next request in its batch moves on.
+    pub fn follow_navigation(&mut self, cx: &mut Context<Self>) {
+        self.sync_selection(cx);
     }
 
     /// The ticket a Continuity Camera photo asked for now would carry: this
@@ -4052,11 +4073,11 @@ mod tests {
                 ..NewChatContent::default()
             };
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
-            let ticket = pane.read_with(vcx, |p, cx| p.composition_ticket(cx));
+            let ticket = pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx));
             stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
             vcx.run_until_parked();
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(ticket, content(), window, cx)
+                p.compose_new_chat(&ticket, content(), window, cx)
             });
             vcx.run_until_parked();
             assert!(!wrote, "written into the chat opened after it");
@@ -4068,9 +4089,9 @@ mod tests {
             // Still on the new chat it opened: written.
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            let ticket = pane.read_with(vcx, |p, cx| p.composition_ticket(cx));
+            let ticket = pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx));
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(ticket, content(), window, cx)
+                p.compose_new_chat(&ticket, content(), window, cx)
             });
             vcx.run_until_parked();
             assert!(wrote);
@@ -4087,10 +4108,10 @@ mod tests {
             stores: &Stores,
             pane: &Entity<ChatPane>,
             vcx: &mut VisualTestContext,
-        ) -> crate::stores::composer::CompositionTicket {
+        ) -> crate::views::chat_pane::NewChatTicket {
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            pane.read_with(vcx, |p, cx| p.composition_ticket(cx))
+            pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx))
         }
 
         fn late_files(name: &str) -> crate::views::chat_pane::NewChatContent {
@@ -4123,7 +4144,7 @@ mod tests {
             });
             vcx.run_until_parked();
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(ticket, late_files("Packing list.txt"), window, cx)
+                p.compose_new_chat(&ticket, late_files("Packing list.txt"), window, cx)
             });
             vcx.run_until_parked();
             assert!(!wrote, "a's files went to b's composer");
@@ -4145,11 +4166,11 @@ mod tests {
                 ..NewChatContent::default()
             };
             assert!(pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(second, shared, window, cx)
+                p.compose_new_chat(&second, shared, window, cx)
             }));
             vcx.run_until_parked();
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(first, late_files("Packing list.txt"), window, cx)
+                p.compose_new_chat(&first, late_files("Packing list.txt"), window, cx)
             });
             vcx.run_until_parked();
             assert!(!wrote, "the first request's files reached the fresh draft");
@@ -4160,7 +4181,7 @@ mod tests {
             );
             let own = open_with_request(&stores, &pane, vcx);
             assert!(pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(own, late_files("Packing list.txt"), window, cx)
+                p.compose_new_chat(&own, late_files("Packing list.txt"), window, cx)
             }));
             vcx.run_until_parked();
             assert!(has_files(&pane, vcx), "its own draft gets its files");
@@ -4184,7 +4205,7 @@ mod tests {
                 .update(vcx, |n, cx| n.go_forward(|_| true, cx));
             vcx.run_until_parked();
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(ticket, late_files("Packing list.txt"), window, cx)
+                p.compose_new_chat(&ticket, late_files("Packing list.txt"), window, cx)
             });
             vcx.run_until_parked();
             assert!(!wrote, "the files came back after Back and Forward");
@@ -4199,7 +4220,7 @@ mod tests {
             let (_daemon, stores, pane, vcx) = bench(cx);
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            let ticket = pane.read_with(vcx, |p, cx| p.composition_ticket(cx));
+            let ticket = pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx));
             let page = |owner: &str| NewChatContent {
                 text: Some("Summarize this page".into()),
                 fresh: true,
@@ -4207,7 +4228,7 @@ mod tests {
                 ..NewChatContent::default()
             };
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(ticket, page("b"), window, cx)
+                p.compose_new_chat(&ticket, page("b"), window, cx)
             });
             assert!(!wrote, "account b's page written while a is in charge");
             assert_eq!(
@@ -4215,7 +4236,7 @@ mod tests {
                 ""
             );
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(ticket, page("a"), window, cx)
+                p.compose_new_chat(&ticket, page("a"), window, cx)
             });
             assert!(wrote);
             assert_eq!(
@@ -4241,12 +4262,12 @@ mod tests {
             let ticket = |vcx: &mut VisualTestContext| {
                 stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
                 vcx.run_until_parked();
-                pane.read_with(vcx, |p, cx| p.composition_ticket(cx))
+                pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx))
             };
             // An account is in charge: a page read with none is refused.
             let t = ticket(vcx);
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(t, page(), window, cx)
+                p.compose_new_chat(&t, page(), window, cx)
             });
             assert!(
                 !wrote,
@@ -4260,7 +4281,7 @@ mod tests {
             assert_eq!(stores.accounts.read_with(vcx, |a, _| a.scope_key()), None);
             let t = ticket(vcx);
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(t, page(), window, cx)
+                p.compose_new_chat(&t, page(), window, cx)
             });
             assert!(wrote, "a page read with no account was refused with none");
             assert_eq!(

@@ -506,22 +506,23 @@ fn open_new_chat(
         });
         view.new_chat(false, window, cx);
         let pane = view.chat_pane.clone();
+        // The new chat shown now, not as this batch ends, and its ticket
+        // taken: a request after this one in the batch (a chat link) moves
+        // on, and this one's content then lands nowhere.
+        let ticket = pane.update(cx, |p, cx| {
+            p.follow_navigation(cx);
+            p.new_chat_ticket(cx)
+        });
         // Looking at the files can wait on a network share (`\\server\share`):
         // off the UI thread.
         let planned = (!files.is_empty()).then(|| {
             cx.background_executor()
                 .spawn(async move { open_files::plan(&files, open_files::file_size) })
         });
-        // After this update: the pane follows the new selection as it ends,
-        // and its draft switch empties the message box (a chat was open
-        // before), so the text goes in after that.
+        // The draft switch empties the message box as this update ends
+        // (its event), so the content goes in after that, while the
+        // ticket holds.
         cx.spawn_in(window, async move |_, cx| {
-            // The draft this request opened, as the pane shows it now (it
-            // followed the new selection as the update ended): the only one
-            // its content, the files included, ever goes to. Another link,
-            // the user's own navigation, a fresh draft or another account
-            // meanwhile, and it goes nowhere.
-            let ticket = pane.read_with(cx, |p, cx| p.composition_ticket(cx));
             let plan = match planned {
                 Some(planned) => planned.await,
                 None => open_files::OpenFilesPlan::default(),
@@ -541,7 +542,7 @@ fn open_new_chat(
                 owner,
             };
             let _ = pane.update_in(cx, |p, window, cx| {
-                p.compose_new_chat(ticket, content, window, cx)
+                p.compose_new_chat(&ticket, content, window, cx)
             });
             let _ = cx.update(|_, cx| refused_files(too_many, &too_large, cx));
         })

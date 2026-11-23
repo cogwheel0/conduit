@@ -308,6 +308,40 @@ fn prefer_xwayland(
     set(display) && set(wayland) && keep_wayland != Some(std::ffi::OsStr::new("1"))
 }
 
+/// The app's state around a main window a test made, with the links' queue,
+/// so requests run through `desktop::handle_urls` as they do in the app.
+#[cfg(test)]
+pub(crate) fn install_main_for_test(
+    stores: Stores,
+    settings: Entity<SettingsStore>,
+    view: Entity<MainWindow>,
+    vcx: &mut gpui_kit::VisualTestContext,
+) {
+    use gpui_kit::VisualContext as _;
+    let handle = vcx.window_handle();
+    let scratch = std::env::temp_dir().join(format!("conduit-main-{}", std::process::id()));
+    vcx.update(|_, cx| {
+        let layout = cx.new(|_| LayoutStore::load(scratch.join("window-state.json")));
+        cx.set_global(AppState {
+            paths: AppPaths {
+                flavor: Flavor::Dev,
+                user_data: scratch.join("user-data"),
+                logs: scratch.join("logs"),
+            },
+            connection: stores.connection.clone(),
+            stores,
+            settings,
+            layout,
+            main_window: Some(handle),
+            main_view: Some(view),
+            setup_window: None,
+            settings_window: None,
+            _network: None,
+        });
+        desktop::install_without_services(cx);
+    });
+}
+
 /// Ends a launch the profile's app didn't take, saying why on stderr and
 /// in [`REFUSED_LOG`]: the log file is the running app's, never touched
 /// from here.
