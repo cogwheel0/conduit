@@ -9,8 +9,8 @@
 # With a .deb:
 # 1. Installs it with apt (which resolves its dependencies), and checks the
 #    install folder (winlinux.py layout), the /usr/bin link, the desktop
-#    entry (conduit:// registered in mimeinfo.cache) and the icons; every
-#    library the binaries need is found.
+#    entry (conduit:// registered in mimeinfo.cache), the icons and the
+#    third-party notices; every library the binaries need is found.
 # 2. The installed app refuses the test harness's flags (exit 64), and runs
 #    its --smoke pass under Xvfb, on a session bus of its own with GNOME
 #    Keyring as the Secret Service the app keeps its key in, on a profile of
@@ -38,8 +38,9 @@ app_dir=/usr/lib/conduit
 app=$app_dir/conduit-desktop
 daemon=$app_dir/conduitd/bin/conduitd
 entry=/usr/share/applications/conduit-desktop.desktop
+notices=/usr/share/doc/conduit-desktop/THIRD_PARTY_NOTICES.md
 icon_sizes="16 24 32 48 64 128 256 512"
-installed=("$app_dir" /usr/bin/conduit-desktop "$entry")
+installed=("$app_dir" /usr/bin/conduit-desktop "$entry" "$notices")
 for n in $icon_sizes; do installed+=("/usr/share/icons/hicolor/${n}x$n/apps/conduit-desktop.png"); done
 
 # Every library the package's binaries need is found.
@@ -51,6 +52,13 @@ libraries_resolve() {
   [ -z "$missing" ] || die "libraries not found:
 $missing"
   log "every library the binaries need resolves"
+}
+
+# The package carries the Linux build's third-party notices.
+has_notices() {
+  [ "$(head -n 1 "$notices" 2>/dev/null)" = "# Third-party notices: Conduit Desktop for Linux" ] ||
+    die "no Linux third-party notices at $notices"
+  log "the third-party notices are in $notices"
 }
 
 # Each harness flag ends the launch with 64 before anything opens.
@@ -88,6 +96,7 @@ if [ "${1:-}" = --container ]; then
   esac
   log "installed $(basename "$package") ($(. /etc/os-release && printf '%s' "$PRETTY_NAME"))"
   libraries_resolve
+  has_notices
   refuses_harness_flags "$(mktemp -d)"
   case "$package" in
     *.deb) DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq conduit-desktop >/dev/null ;;
@@ -121,6 +130,7 @@ for n in $icon_sizes; do
 done
 log "the /usr/bin link, the desktop entry (conduit:// registered) and the icons"
 libraries_resolve
+has_notices
 
 # 2. The installed app.
 refuses_harness_flags "$work/harness-check"

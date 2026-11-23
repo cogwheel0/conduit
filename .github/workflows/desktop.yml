@@ -487,10 +487,59 @@ jobs:
   # and the binaries' glibc are that release's, the oldest the packages
   # support (glibc 2.35). Should the runner image retire, the same steps
   # run in an ubuntu:22.04 container.
-  package-linux:
-    name: Linux packages (rehearsal)
+  # The third-party notices both packages carry, made once for each target
+  # (packaging/notices/notices.sh --target): cargo-about and cargo tree read
+  # the target's dependency graph, so Linux makes Windows' too.
+  notices:
+    name: Third-party notices (Windows, Linux)
     needs: changes
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.packages != 'false') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Restore the Cargo registry
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: desktop-registry-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock') }}
+          restore-keys: desktop-registry-${{ runner.os }}-
+      - name: Install cargo-about
+        run: cargo install cargo-about --locked --features cli --version 0.9.3
+      - name: Make the notices and check the licence sets
+        run: |
+          desktop/packaging/notices/notices.sh --target x86_64-pc-windows-msvc \
+            --out notices/windows/THIRD_PARTY_NOTICES.md
+          desktop/packaging/notices/notices.sh --target x86_64-unknown-linux-gnu \
+            --out notices/linux/THIRD_PARTY_NOTICES.md
+      - name: Keep the notices
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conduit-desktop-notices-${{ github.sha }}
+          path: notices
+          if-no-files-found: error
+          retention-days: 5
+
+  package-linux:
+    name: Linux packages (rehearsal)
+    needs: notices
+    # The notices job runs where these do; without its notices, no package.
+    if: ${{ !cancelled() && needs.notices.result == 'success' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
@@ -540,8 +589,14 @@ jobs:
           restore-keys: desktop-registry-${{ runner.os }}-
       - name: Packaging helper tests
         run: python3 desktop/packaging/winlinux_test.py
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conduit-desktop-notices-${{ github.sha }}
+          path: notices
       - name: Build the .deb and the .rpm
-        run: desktop/packaging/linux/package.sh --version 0.0.0
+        run: >-
+          desktop/packaging/linux/package.sh --version 0.0.0
+          --notices notices/linux/THIRD_PARTY_NOTICES.md
       # What Debian's and Fedora's linters say, for the record: neither
       # fails the job yet (these packages aren't Debian's or Fedora's own).
       - name: lintian and rpmlint (informational)
@@ -628,8 +683,9 @@ jobs:
   # the release tools.env pins (packaging/windows/build.ps1).
   package-windows:
     name: Windows installer (rehearsal)
-    needs: changes
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.packages != 'false') }}
+    needs: notices
+    # The notices job runs where these do; without its notices, no package.
+    if: ${{ !cancelled() && needs.notices.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
@@ -667,9 +723,15 @@ jobs:
           restore-keys: desktop-registry-${{ runner.os }}-
       - name: Packaging helper tests
         run: python desktop/packaging/winlinux_test.py
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conduit-desktop-notices-${{ github.sha }}
+          path: notices
       - name: Build the installer
         shell: pwsh
-        run: ./desktop/packaging/windows/build.ps1 -Version 0.0.0
+        run: >-
+          ./desktop/packaging/windows/build.ps1 -Version 0.0.0
+          -Notices notices/windows/THIRD_PARTY_NOTICES.md
       - name: Disk left
         if: always()
         shell: bash

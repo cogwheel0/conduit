@@ -14,13 +14,17 @@ library only, so it runs on every build and test machine.
                                    one): the app, conduitd beside it as
                                    paths::packaged_daemon_for expects, its
                                    SQLite and the model logo catalog; no test
-                                   harness in the app; on Windows, no PE that
+                                   harness in the app; on Windows, its
+                                   THIRD_PARTY_NOTICES.md, and no PE that
                                    needs a C/C++ runtime DLL Windows lacks
                                    unless it sits beside the executable of
                                    the process that loads that PE
   winlinux.py rpm-requires DIR     the rpm requirements of the ELF files under
                                    DIR (sonames and glibc symbol versions, as
                                    rpmbuild finds them), from readelf
+  winlinux.py notices FILE --os windows|linux
+                                   checks third-party notices were made for
+                                   that OS (notices.sh --target)
   winlinux.py gone PATH...         fails, listing them, if any of the files
                                    or folders is still there (an uninstall)
   winlinux.py ico OUT PNG...       packs square PNGs of up to 256 px into OUT
@@ -199,6 +203,21 @@ def _has_marker(path):
             return m.find(HARNESS_MARKER) != -1
 
 
+def notices_problems(path, os_name):
+    """What's wrong with the third-party notices at `path` for `os_name`'s
+    package: they must be there, made for that target (notices.sh
+    --target), not the Mac's or another OS's."""
+    path = Path(path)
+    heading = f"# Third-party notices: Conduit Desktop for {'Windows' if os_name == 'windows' else 'Linux'}"
+    if not path.is_file():
+        return [f"no {path.name} (the licences of what the package includes)"]
+    with open(path, encoding="utf-8", errors="replace") as f:
+        first = f.readline().rstrip("\n")
+    if first != heading:
+        return [f"{path.name} begins '{first}', not '{heading}' (notices.sh --target)"]
+    return []
+
+
 def layout_problems(root, os_name):
     """What's wrong with the install folder `root` (empty when nothing is)."""
     root = Path(root)
@@ -219,6 +238,8 @@ def layout_problems(root, os_name):
         problems.append("no conduitd/model_logos/catalog.json (the model logo catalog)")
     if windows and not (root / "conduit.ico").is_file():
         problems.append("no conduit.ico (the Start menu and link icon)")
+    if windows:
+        problems += notices_problems(root / "THIRD_PARTY_NOTICES.md", "windows")
     if app.is_file() and _has_marker(app):
         problems.append(f"{app.name} was built with the test harness (the `harness` feature): never shipped")
     if windows:
@@ -346,6 +367,9 @@ def main(argv):
     p = sub.add_parser("layout")
     p.add_argument("dir")
     p.add_argument("--os", required=True, choices=["windows", "linux"])
+    p = sub.add_parser("notices")
+    p.add_argument("file")
+    p.add_argument("--os", required=True, choices=["windows", "linux"])
     p = sub.add_parser("rpm-requires")
     p.add_argument("dir")
     p = sub.add_parser("gone")
@@ -367,6 +391,12 @@ def main(argv):
             if problems:
                 return 1
             print(f"{args.dir}: the {args.os} install layout is complete")
+        elif args.command == "notices":
+            problems = notices_problems(args.file, args.os)
+            for problem in problems:
+                print(f"error: {problem}", file=sys.stderr)
+            if problems:
+                return 1
         elif args.command == "rpm-requires":
             outputs = [_readelf(p) for p in _elf_files(args.dir)]
             shipped = shipped_sonames(outputs) | {p.name for p in Path(args.dir).rglob("*.so*")}

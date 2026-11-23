@@ -1,7 +1,8 @@
 <#
 Builds Conduit Desktop's Windows installer (x64, per user, unsigned):
 
-  desktop\packaging\windows\build.ps1 [-Version 1.2.0] [-Out <folder>] [-SkipRust] [-SkipDaemon]
+  desktop\packaging\windows\build.ps1 -Notices <THIRD_PARTY_NOTICES.md> [-Version 1.2.0] [-Out <folder>]
+                                      [-SkipRust] [-SkipDaemon]
 
 1. The app: cargo build --release for x86_64-pc-windows-msvc, without the
    test harness (no `harness` feature), CONDUIT_VERSION set, and the C
@@ -11,8 +12,9 @@ Builds Conduit Desktop's Windows installer (x64, per user, unsigned):
    sqlite3.dll), with the Dart code generated first when it isn't.
 3. The install folder, staged in <out>\stage: conduit-desktop.exe,
    conduitd\ beside it (where paths::packaged_daemon_for looks), the model
-   logo catalog conduitd reads, and the icon; then checked (winlinux.py
-   layout: complete, no test harness, no runtime DLL Windows lacks).
+   logo catalog conduitd reads, the icon and the third-party notices; then
+   checked (winlinux.py layout: complete, no test harness, no runtime DLL
+   Windows lacks).
 4. Inno Setup compiles conduit.iss into
    <out>\Conduit-<version>-windows-x64-setup.exe.
 
@@ -21,6 +23,10 @@ Builds Conduit Desktop's Windows installer (x64, per user, unsigned):
 -Out: default desktop\target\windows\Conduit-<version>. An earlier one is
 moved aside, never deleted.
 -SkipRust, -SkipDaemon: reuse what an earlier build left.
+-Notices: the licences of what the Windows build includes, made on a Mac or
+Linux with packaging/notices/notices.sh --target x86_64-pc-windows-msvc
+--out <file> (it needs bash and cargo-about); checked before anything
+builds.
 
 Inno Setup: ISCC in the environment, else the release tools.env pins,
 downloaded once into desktop\target\inno\<version>, checked against its
@@ -31,6 +37,7 @@ the repository root, and Python 3.
 #>
 #Requires -Version 7.4
 param(
+  [string]$Notices,
   [string]$Version = '0.0.0',
   [string]$Out,
   [switch]$SkipRust,
@@ -133,6 +140,11 @@ function Get-Iscc {
 }
 
 $fileVersion = & python $winlinux version $Version --windows
+if (-not $Notices) {
+  throw '-Notices <file>: make it with packaging/notices/notices.sh --target x86_64-pc-windows-msvc --out <file>'
+}
+$Notices = (Resolve-Path -LiteralPath $Notices).ProviderPath
+& python $winlinux notices $Notices --os windows
 if (-not $Out) { $Out = Join-Path $desktop "target\windows\Conduit-$Version" }
 $Out = [IO.Path]::GetFullPath($Out)
 
@@ -178,6 +190,7 @@ $logos = Join-Path $stage 'conduitd\model_logos'
 New-Item -ItemType Directory -Force -Path $logos | Out-Null
 Copy-Item -LiteralPath (Join-Path $repo 'assets\model_logos\catalog.json') -Destination $logos
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'conduit.ico') -Destination $stage
+Copy-Item -LiteralPath $Notices -Destination (Join-Path $stage 'THIRD_PARTY_NOTICES.md')
 & python $winlinux layout $stage --os windows
 
 # 4. The installer.

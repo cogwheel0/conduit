@@ -2,7 +2,8 @@
 # Builds Conduit Desktop's Linux packages (x86_64, unsigned): a .deb and an
 # .rpm from one build.
 #
-#   desktop/packaging/linux/package.sh [--version V] [--out DIR] [--skip-rust] [--skip-daemon]
+#   desktop/packaging/linux/package.sh [--version V] [--out DIR] [--notices FILE]
+#                                      [--skip-rust] [--skip-daemon]
 #
 # 1. The app: cargo build --release, without the test harness (no
 #    `harness` feature), CONDUIT_VERSION set.
@@ -25,8 +26,14 @@
 # The packages install /usr/lib/conduit/, the link /usr/bin/conduit-desktop,
 # /usr/share/applications/conduit-desktop.desktop (conduit:// links, and
 # Open With for the Mac's document types: never their default app), the
-# hicolor icons and the licence. Nothing goes in a home folder, so removing
-# a package leaves its users' data.
+# hicolor icons, the licence and the third-party notices
+# (/usr/share/doc/conduit-desktop/). Nothing goes in a home folder, so
+# removing a package leaves its users' data.
+#
+# --notices: the Linux third-party notices, made by
+# packaging/notices/notices.sh --target x86_64-unknown-linux-gnu (CI makes
+# them in a job of their own); without it this script runs notices.sh,
+# which needs cargo-about. Either way they are checked to be Linux's.
 #
 # --version: X.Y.Z (default 0.0.0), checked as the Mac's (macos/lib.sh).
 # --out: default desktop/target/linux/Conduit-<version>; an earlier one is
@@ -47,12 +54,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 version=0.0.0
 out=""
+notices=""
 skip_rust=0
 skip_daemon=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) version="$2"; shift ;;
     --out) out="$2"; shift ;;
+    --notices) notices="$2"; shift ;;
     --skip-rust) skip_rust=1 ;;
     --skip-daemon) skip_daemon=1 ;;
     -h | --help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
@@ -179,6 +188,12 @@ cp -R "$daemon_bundle/." "$app_dir/conduitd/"
 # The models.dev logo catalog: conduitd looks for it beside its bin/.
 cp "$REPO_ROOT/assets/model_logos/catalog.json" "$app_dir/conduitd/model_logos/"
 python3 -I "$winlinux" layout "$app_dir" --os linux
+if [ -n "$notices" ]; then
+  cp "$notices" "$stage/THIRD_PARTY_NOTICES.md"
+else
+  "$here/../notices/notices.sh" --target x86_64-unknown-linux-gnu --out "$stage/THIRD_PARTY_NOTICES.md"
+fi
+python3 -I "$winlinux" notices "$stage/THIRD_PARTY_NOTICES.md" --os linux
 if command -v desktop-file-validate >/dev/null; then
   desktop-file-validate "$here/conduit-desktop.desktop"
   log "desktop-file-validate: conduit-desktop.desktop"
@@ -236,6 +251,10 @@ contents:
     type: symlink
   - src: $here/conduit-desktop.desktop
     dst: /usr/share/applications/conduit-desktop.desktop
+    file_info:
+      mode: 0644
+  - src: $stage/THIRD_PARTY_NOTICES.md
+    dst: /usr/share/doc/conduit-desktop/THIRD_PARTY_NOTICES.md
     file_info:
       mode: 0644
   - src: $REPO_ROOT/LICENSE
