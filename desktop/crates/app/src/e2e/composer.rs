@@ -119,6 +119,18 @@ pub(super) async fn new_chat(cx: &mut AsyncApp) {
     settle(cx, 300).await;
 }
 
+/// How many streamed requests the fake model's log holds.
+fn streamed_count(path: &Path) -> usize {
+    std::fs::read_to_string(path)
+        .map(|text| {
+            text.lines()
+                .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+                .filter(|v| v.get("stream").and_then(Value::as_bool) == Some(true))
+                .count()
+        })
+        .unwrap_or(0)
+}
+
 /// The fake model's newest streamed request, as its log has it.
 fn last_request(path: &Path) -> Option<Value> {
     let text = std::fs::read_to_string(path).ok()?;
@@ -657,7 +669,8 @@ async fn code_interpreter(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> 
         menu_action(ComposerMenu::CodeInterpreter, cx).await;
         return ok("FAKE_MODEL_LOG in the env file", false);
     };
-    let carried = || tools_of(&last_request(Path::new(&log)));
+    let log = Path::new(&log);
+    let carried = || tools_of(&last_request(log));
     let tools = carried();
     pass &= ok(
         &format!("the request carried the code interpreter ({tools:?})"),
@@ -667,6 +680,7 @@ async fn code_interpreter(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> 
     // turn ends, and nothing shortens it): the switch is the composer's,
     // not the scope's, so the request still carries it.
     settle(cx, 35_000).await;
+    let before = streamed_count(log);
     if let Some((key, _)) = cx.update(|cx| last_of(Role::Assistant, cx))
         && let Some(store) = cx.update(chat_store)
     {
@@ -675,6 +689,14 @@ async fn code_interpreter(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> 
     pass &= ok(
         "the regenerated answer settles",
         wait_answer(cx, Duration::from_secs(60)).await,
+    );
+    // Its own request, not the last one read again.
+    pass &= ok(
+        "Regenerate sent a new request",
+        wait_until(cx, Duration::from_secs(30), |_| {
+            streamed_count(log) > before
+        })
+        .await,
     );
     let tools = carried();
     pass &= ok(
@@ -687,6 +709,7 @@ async fn code_interpreter(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> 
         pane(cx).is_some_and(|p| !p.read(cx).composer_store.read(cx).code_interpreter)
     });
     pass &= ok("the switch is off", off);
+    let before = streamed_count(log);
     if let Some((key, _)) = cx.update(|cx| last_of(Role::User, cx))
         && let Some(store) = cx.update(chat_store)
     {
@@ -695,6 +718,13 @@ async fn code_interpreter(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> 
     pass &= ok(
         "the edited question is answered",
         wait_answer(cx, Duration::from_secs(60)).await,
+    );
+    pass &= ok(
+        "Edit sent a new request",
+        wait_until(cx, Duration::from_secs(30), |_| {
+            streamed_count(log) > before
+        })
+        .await,
     );
     let tools = carried();
     pass &= ok(
