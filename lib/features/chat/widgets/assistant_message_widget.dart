@@ -63,9 +63,12 @@ import '../../hermes/widgets/hermes_history_actions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/web_content_embed.dart';
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show chatModelPickProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatForkAvailability,
+        comparisonColumnModelId,
         errorMentionsReasoningEffort,
         isReasoningEffortRejection,
         isUnconfirmedLibreChatMessage,
@@ -159,6 +162,10 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
 
+  /// Regenerates another column of a comparison, named by the answer its tab
+  /// shows; [onRegenerate] regenerates the column of the message itself.
+  final ValueChanged<String>? onRegenerateColumn;
+
   /// Whether the reply may be regenerated (or retried) at all. False in a
   /// coding agent's chat, where only a new message continues it: the action
   /// is then not offered, rather than offered and refused.
@@ -193,6 +200,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.suppressStreamingHaptics = false,
     this.onCopy,
     this.onRegenerate,
+    this.onRegenerateColumn,
     this.allowsRegenerate = true,
     this.onDelete,
     this.onLike,
@@ -686,6 +694,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return [for (final slot in group.slots) ...slot.answers]
         .where((a) => a.messageId == activeId)
         .firstOrNull;
+  }
+
+  /// The answer a comparison's tab shows when it is another column than the
+  /// message's, and so the one Regenerate and its retries act on; null for
+  /// the message's own column. Everything that regenerates reads this.
+  ChatComparisonAnswer? get _otherColumnAnswer {
+    final group = _comparisonGroup;
+    if (group == null ||
+        !group.isComparison ||
+        widget.onRegenerateColumn == null) {
+      return null;
+    }
+    final shown = _shownAnswer(group);
+    if (shown == null || shown.slot == group.displayedSlot.index) return null;
+    return shown;
+  }
+
+  /// Regenerate for the answer shown: its own column's
+  /// ([_otherColumnAnswer]), else the message's.
+  VoidCallback? get _regenerate {
+    final other = _otherColumnAnswer;
+    final column = widget.onRegenerateColumn;
+    if (other == null || column == null) return widget.onRegenerate;
+    return () => column(other.messageId);
   }
 
   /// The finished answers of this turn a merge may read: the shown answer
@@ -2679,7 +2711,26 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (group == null || !group.isComparison) {
       return ref.read(selectedModelProvider);
     }
-    return _modelByIdOrSelected(_answerModelId);
+    // As the core regenerates it: the column's own model, or one picked in
+    // the chat since its turn was sent.
+    final answer = widget.message as ChatMessage;
+    final question = ref
+        .read(chatMessagesProvider)
+        .where((message) => message.id == group.parentId)
+        .firstOrNull;
+    final pick = ref.read(chatModelPickProvider);
+    final chatId = ref.read(activeConversationProvider)?.id;
+    final modelId = question == null
+        ? null
+        : comparisonColumnModelId(
+            question: question,
+            answer: answer,
+            picked: pick != null && pick.chatId == chatId ? pick : null,
+            answerId: _otherColumnAnswer?.messageId,
+          );
+    return _modelByIdOrSelected(
+      modelId ?? _otherColumnAnswer?.model ?? _answerModelId,
+    );
   }
 
   /// The model the queued completion replays under: always the one the
@@ -2738,7 +2789,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       );
       return;
     }
-    widget.onRegenerate?.call();
+    _regenerate?.call();
   }
 
   List<_AssistantFooterAction> _buildFooterActions() {
@@ -2791,7 +2842,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         widget.isStreaming && _responseCompleted;
     final bool canRegenerate =
         widget.allowsRegenerate &&
-        widget.onRegenerate != null &&
+        _regenerate != null &&
         (!isChatStreaming || currentStreamingMessageCompleted);
     final bool canRetryWithoutEffort =
         isErrorMessage &&
@@ -2896,7 +2947,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           id: isErrorMessage ? 'retry' : 'regenerate',
           icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
           label: isErrorMessage ? l10n.retry : l10n.regenerate,
-          onTap: canRegenerate ? widget.onRegenerate : null,
+          onTap: canRegenerate ? _regenerate : null,
           sfSymbol: 'arrow.clockwise',
         ),
       if (canRetryWithoutEffort)

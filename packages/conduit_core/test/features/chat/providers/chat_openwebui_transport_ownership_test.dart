@@ -38,6 +38,8 @@ import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show libreChatCatalog;
 import 'package:conduit_core/features/chat/providers/remap_route_sync_provider.dart';
 import 'package:conduit_core/testing.dart'
     show FakeOpenWebUiServer, FakeSyncApiClient, openWebUiStorageOpenOverrides;
@@ -51,6 +53,7 @@ import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.d
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
+import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -1587,6 +1590,7 @@ ProviderContainer _container({
   bool modelSelectable = false,
   String? terminalId,
   bool webSearchAvailable = false,
+  bool imageGenerationAvailable = false,
   PersonalConnectionsAccess personalConnections =
       const PersonalConnectionsAccess.allowed(),
 }) {
@@ -1607,7 +1611,9 @@ ProviderContainer _container({
       webSearchEnabledProvider.overrideWith(_FalseWebSearch.new),
       imageGenerationEnabledProvider.overrideWith(_FalseImageGeneration.new),
       webSearchAvailableProvider.overrideWithValue(webSearchAvailable),
-      imageGenerationAvailableProvider.overrideWithValue(false),
+      imageGenerationAvailableProvider.overrideWithValue(
+        imageGenerationAvailable,
+      ),
       selectedFilterIdsProvider.overrideWithValue(const <String>[]),
       selectedTerminalIdProvider.overrideWithValue(terminalId),
       syncEngineProvider.overrideWith(() => syncEngine),
@@ -8730,8 +8736,10 @@ void main() {
       Map<String, dynamic>? storedBlob,
       User? account,
       bool webSearchAvailable = false,
+      bool imageGenerationAvailable = false,
       bool modelSelectable = false,
       WorkerPort? worker,
+      List<Override> overrides = const [],
     }) async {
       if (storedBlob == null) {
         await _seedChat(db, chatId, storedParams: storedParams);
@@ -8759,6 +8767,7 @@ void main() {
         syncEngine: engine?.call(db, api) ?? _QuietSyncEngine(db, api),
         socket: socket,
         webSearchAvailable: webSearchAvailable,
+        imageGenerationAvailable: imageGenerationAvailable,
         modelSelectable: modelSelectable,
         extraOverrides: [
           modelsProvider.overrideWith(() => _ListedModels(available)),
@@ -8778,6 +8787,7 @@ void main() {
             workerManagerProvider.overrideWithValue(
               WorkerManager(worker: worker),
             ),
+          ...overrides,
         ],
       );
       addTearDown(container.dispose);
@@ -10270,11 +10280,123 @@ void main() {
       }
     });
 
-    test('regenerating the second answer asks for ONLY that answer, in its own '
-        'column, with its own model', () async {
+    // Whichever backend's model the composer holds, a compared answer is
+    // asked of the chat's server, on its own model, in its own column.
+    for (final (composerName, composerOf)
+        in <(String, (Model, List<Override>) Function())>[
+          ('the first model', () => (duplicate, const <Override>[])),
+          // Refused outright before: a LibreChat model continues no other
+          // chat.
+          (
+            'a LibreChat model',
+            () => (
+              libreChatCatalog(
+                startupConfig: const <String, dynamic>{},
+                endpoints: const <String, dynamic>{
+                  'Sample': <String, dynamic>{'order': 0},
+                },
+                models: const <String, List<String>>{
+                  'Sample': <String>['sample-model'],
+                },
+              ).single,
+              const <Override>[],
+            ),
+          ),
+          // A connection kept in the server: before, the answer was asked of
+          // the connection's own model.
+          (
+            'a Direct model kept in the server',
+            () {
+              final profile = DirectConnectionProfile(
+                id: 'kept-profile',
+                name: 'Kept in the server',
+                adapterKey: kOpenAiCompatibleAdapterKey,
+                baseUrl: 'https://provider.example.test/v1',
+                modelIdPrefix: 'kept',
+              );
+              final registry = DirectModelRegistry();
+              final kept = registry
+                  .replaceProfileModels(
+                    profile,
+                    <DirectRemoteModel>[
+                      DirectRemoteModel(
+                        id: 'provider/model',
+                        name: 'Provider model',
+                      ),
+                    ],
+                    source: DirectModelSource.openWebUi,
+                    openWebUiUrlIndex: 0,
+                  )
+                  .single;
+              return (
+                kept,
+                <Override>[
+                  directModelRegistryProvider.overrideWithValue(registry),
+                  effectiveDirectConnectionProfilesFutureProvider.overrideWith(
+                    (ref) async => <DirectConnectionProfile>[profile],
+                  ),
+                ],
+              );
+            },
+          ),
+        ]) {
+      test('with $composerName in the composer, regenerating the second '
+          'answer asks for ONLY that answer, in its own column, with its own '
+          'model', () async {
+        const other = Model(id: 'model-2', name: 'Model 2');
+        final (composer, overrides) = composerOf();
+        final (:api, :socket, :container) = await open(
+          available: const [duplicate, other],
+          modelSelectable: true,
+          overrides: overrides,
+        );
+        final handles = await durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: const [duplicate, other],
+        );
+        final [a, b] = [for (final h in handles) h.assistantMessageId];
+        await replay(container);
+        socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
+        socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
+        check(api.requests).length.equals(1);
+        container.read(selectedModelProvider.notifier).set(composer);
+
+        // The answer being redone is the second slot's, so that model must
+        // be asked, in that column.
+        await regenerateMessage(container, 'compare these', null);
+
+        check(api.requests).length.equals(2);
+        final request = api.requests.last;
+        check(request.model).equals('model-2');
+        check(request.messageIds).isNotNull().length.equals(1);
+        check(request.messageIds!.single.modelId).equals('model-2');
+        check(request.messageIds!.single.modelIdx).equals(1);
+        final regenerated = container
+            .read(chatMessagesProvider)
+            .firstWhere((m) => m.id == request.messageIds!.single.messageId);
+        check(regenerated.modelSlot).equals(1);
+      });
+    }
+
+    /// A finished comparison of `model-1` and `model-2`, shown as the phone
+    /// shows a stored one (the second column's answer kept among the
+    /// first's alternatives, each with [firstFiles] and [secondFiles]), then
+    /// Regenerate on the second column's tab, or on the first's when not
+    /// [secondTab], with [composer] in the composer: the request that goes
+    /// out.
+    Future<_FanOutRequest> regenerateSecondColumnTab({
+      List<Map<String, dynamic>>? firstFiles,
+      List<Map<String, dynamic>>? secondFiles,
+      Model? composer = duplicate,
+      bool secondTab = true,
+    }) async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
         available: const [duplicate, other],
+        modelSelectable: true,
+        imageGenerationAvailable: true,
       );
       final handles = await durableCompareSend(
         container,
@@ -10286,22 +10408,76 @@ void main() {
       await replay(container);
       socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
       socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
-      check(api.requests).length.equals(1);
+      final shown = container.read(chatMessagesProvider);
+      final second = shown.singleWhere((m) => m.id == b);
+      container.read(chatMessagesProvider.notifier).setMessages([
+        for (final message in shown)
+          if (message.id == a)
+            message.copyWith(
+              files: firstFiles,
+              versions: [
+                ChatMessageVersion(
+                  id: b,
+                  content: second.content,
+                  timestamp: second.timestamp,
+                  model: second.model,
+                  modelIdx: 1,
+                  files: secondFiles,
+                ),
+              ],
+            )
+          else if (message.id != b)
+            message,
+      ]);
+      container.read(selectedModelProvider.notifier).set(composer);
 
-      // The picker holds the first model; the answer being redone is the
-      // second slot's, so that model must be asked, in that column.
-      await regenerateMessage(container, 'compare these', null);
+      await regenerateHistoricalMessageById(
+        container,
+        a,
+        columnAnswerId: secondTab ? b : null,
+      );
 
       check(api.requests).length.equals(2);
-      final request = api.requests.last;
+      return api.requests.last;
+    }
+
+    test("Regenerate on the second column's tab regenerates that column, "
+        'though the first column is the message shown', () async {
+      final request = await regenerateSecondColumnTab();
       check(request.model).equals('model-2');
-      check(request.messageIds).isNotNull().length.equals(1);
-      check(request.messageIds!.single.modelId).equals('model-2');
       check(request.messageIds!.single.modelIdx).equals(1);
-      final regenerated = container
-          .read(chatMessagesProvider)
-          .firstWhere((m) => m.id == request.messageIds!.single.messageId);
-      check(regenerated.modelSlot).equals(1);
+    });
+
+    test('with no model in the composer, Regenerate on the second column\'s '
+        "tab regenerates that column on its own model", () async {
+      final second = await regenerateSecondColumnTab(composer: null);
+      check(second.model).equals('model-2');
+      check(second.messageIds!.single.modelIdx).equals(1);
+    });
+
+    test('with no model in the composer, Regenerate on the first column\'s '
+        "tab regenerates it on its own model", () async {
+      final first = await regenerateSecondColumnTab(
+        composer: null,
+        secondTab: false,
+      );
+      check(first.model).equals('model-1');
+      check(first.messageIds!.single.modelIdx).equals(0);
+    });
+
+    // The composer's image toggle is off in both.
+    const image = <String, dynamic>{'type': 'image', 'url': 'generated.png'};
+
+    test("Regenerate on the second column's tab makes an image again when "
+        "that column's answer was one", () async {
+      final request = await regenerateSecondColumnTab(secondFiles: [image]);
+      check(request.imageGeneration).isTrue();
+    });
+
+    test("Regenerate on the second column's tab makes no image for the first "
+        "column's", () async {
+      final request = await regenerateSecondColumnTab(firstFiles: [image]);
+      check(request.imageGeneration).isFalse();
     });
 
     test('once another model is picked, regenerating a compared answer asks '
@@ -14873,6 +15049,7 @@ class _FanOutRequest {
     required this.messageIds,
     required this.userMessage,
     required this.chatParams,
+    this.imageGeneration = false,
   });
 
   final List<Map<String, dynamic>> messages;
@@ -14881,6 +15058,7 @@ class _FanOutRequest {
   final List<ChatCompletionTarget>? messageIds;
   final Map<String, dynamic>? userMessage;
   final Map<String, dynamic>? chatParams;
+  final bool imageGeneration;
 }
 
 /// An API double for a server that fans one request out to several tasks (or,
@@ -15175,6 +15353,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
         chatParams: chatParams == null
             ? null
             : Map<String, dynamic>.of(chatParams),
+        imageGeneration: enableImageGeneration,
       ),
     );
     onRequest?.call();

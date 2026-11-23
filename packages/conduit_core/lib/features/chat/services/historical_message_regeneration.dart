@@ -188,15 +188,14 @@ bool historicalRegenerationStateMatchesForTesting({
   return true;
 }
 
+/// [columnAnswerId]: in a comparison, the answer shown when it is another
+/// column's, kept among [assistantMessageId]'s alternatives; that column is
+/// the one regenerated.
 Future<void> regenerateHistoricalMessageById(
   dynamic ref,
-  String assistantMessageId,
-) async {
-  final selectedModel = ref.read(selectedModelProvider);
-  if (selectedModel == null) {
-    return;
-  }
-
+  String assistantMessageId, {
+  String? columnAnswerId,
+}) async {
   if (ref.read(isChatStreamingProvider)) {
     DebugLogger.log(
       'historical regenerate blocked while another message streams',
@@ -228,6 +227,17 @@ Future<void> regenerateHistoricalMessageById(
 
   final targetAssistant = target.assistantMessage;
   final targetUser = target.userMessage;
+  // Nothing in the composer: only a comparison's answer, which runs on its
+  // own column's model, has a model to regenerate with.
+  if (ref.read(selectedModelProvider) == null &&
+      comparisonColumnModelId(
+            question: targetUser,
+            answer: targetAssistant,
+            answerId: columnAnswerId,
+          ) ==
+          null) {
+    return;
+  }
   final truncatedMessages = truncateMessagesAfterId(
     originalMessages,
     assistantMessageId,
@@ -237,7 +247,16 @@ Future<void> regenerateHistoricalMessageById(
   final mutationOwner = captureChatMutationOwner(ref, activeAtStart);
   final mutationRegistry = ref.read(_historicalRegenerationRegistryProvider);
   final notifier = ref.read(chatMessagesProvider.notifier);
-  final isImageRegeneration = assistantHasNormalizedImageFiles(targetAssistant);
+  // Another column's answer, regenerated in its own column: its own files
+  // say whether it was an image.
+  final column = targetAssistant.versions
+      .where((version) => version.id == columnAnswerId)
+      .firstOrNull;
+  final isImageRegeneration = assistantHasNormalizedImageFiles(
+    column == null
+        ? targetAssistant
+        : targetAssistant.copyWith(files: column.files),
+  );
   final mutation = mutationRegistry.tryBegin(
     ref: ref,
     mutationOwner: mutationOwner,
@@ -282,6 +301,7 @@ Future<void> regenerateHistoricalMessageById(
           forceImageGeneration: isImageRegeneration,
           ownsPreparationState: () =>
               mutation.ownsCurrentState(ref, mutationRegistry),
+          comparisonAnswerId: columnAnswerId,
         );
       },
     );

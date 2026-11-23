@@ -87,6 +87,8 @@ Widget _harness(
   Set<String>? continuableIds,
   bool readOnly = false,
   List<Override> overrides = const <Override>[],
+  VoidCallback? onRegenerate,
+  ValueChanged<String>? onRegenerateColumn,
 }) {
   return ProviderScope(
     overrides: [
@@ -134,7 +136,8 @@ Widget _harness(
             animateOnMount: false,
             modelName: message.model,
             onCopy: () {},
-            onRegenerate: () {},
+            onRegenerate: onRegenerate ?? () {},
+            onRegenerateColumn: onRegenerateColumn,
             onDelete: () {},
           ),
         ),
@@ -272,6 +275,35 @@ void main() {
     check(find.text('13 is a prime number.').evaluate()).isNotEmpty();
     check(find.text('17 is prime.').evaluate()).isEmpty();
     semantics.dispose();
+  });
+
+  testWidgets("Regenerate under another column's tab regenerates that "
+      'column', (tester) async {
+    var regenerated = 0;
+    final columns = <String>[];
+    await tester.pumpWidget(
+      _harness(
+        _displayedAnswer('13_duplicate_model_comparison'),
+        onRegenerate: () => regenerated++,
+        onRegenerateColumn: columns.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(_tab('GPT-4o · 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.refresh));
+    await tester.pump();
+    check(columns).deepEquals(['b1b1b1b1-0000-4000-8000-000000000001']);
+    check(regenerated).equals(0);
+
+    // The message's own column is the message's own Regenerate.
+    await tester.tap(_tab('GPT-4o · 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.refresh));
+    await tester.pump();
+    check(columns).length.equals(1);
+    check(regenerated).equals(1);
   });
 
   testWidgets('choosing another answer is how the next turn continues from '
