@@ -460,6 +460,62 @@ void main() {
     await answered(edited.assistantMessageId, beforeEdit);
   });
 
+  test('regenerate and edit after the chat closed take the tools the '
+      'request names', () async {
+    open('named');
+    // Over once `turn.finished` says so, heard since [from].
+    Future<void> answered(String messageId, int from) => heard(
+      'named',
+      (envelope) =>
+          envelope.event == ConduitEvents.turnFinished &&
+          envelope.payload['messageId'] == messageId,
+      from: from,
+    );
+    int heardSoFar() => window('named').length;
+    // Closed once its stored copy has the answer: nothing of the last
+    // turn's composer is left to keep.
+    Future<void> close(String chatId) async {
+      await turns.settled(chatId);
+      turns.forgetIdle(chatId);
+      expect(turns.scopeOf(chatId), isNull);
+    }
+
+    final first = await turns.send(SendTurn(model: model, text: 'tools here'));
+    subscribeWindow(events, turns, 'named', <String>[first.chatId]);
+    await answered(first.assistantMessageId, 0);
+    await close(first.chatId);
+
+    final beforeRegenerate = heardSoFar();
+    final again = await turns.regenerate(
+      RegenerateTurn(
+        chatId: first.chatId,
+        messageId: first.assistantMessageId,
+        model: model,
+        toolIds: <String>['sample-tool'],
+      ),
+    );
+    final scope = turns.scopeOf(first.chatId)!;
+    expect(scope.read(selectedToolIdsProvider), <String>['sample-tool']);
+    await answered(again.assistantMessageId, beforeRegenerate);
+    await close(first.chatId);
+
+    final beforeEdit = heardSoFar();
+    final edited = await turns.edit(
+      EditTurn(
+        chatId: first.chatId,
+        messageId: first.userMessageId,
+        text: 'tools there',
+        model: model,
+        toolIds: <String>['other-tool'],
+      ),
+    );
+    expect(
+      turns.scopeOf(first.chatId)!.read(selectedToolIdsProvider),
+      <String>['other-tool'],
+    );
+    await answered(edited.assistantMessageId, beforeEdit);
+  });
+
   test('regenerate and edit refuse what they cannot act on', () async {
     open('refuse');
     final first = await turns.send(SendTurn(model: model, text: 'subject'));

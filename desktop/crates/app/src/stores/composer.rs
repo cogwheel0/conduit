@@ -31,6 +31,7 @@ use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -47,7 +48,7 @@ use gpui_kit::{
     AppContext as _, AsyncApp, Context, EventEmitter, Image, ImageFormat, Task, WeakEntity,
 };
 
-use super::chat::TurnOptions;
+use super::chat::{ReadSwitches, TurnOptions, TurnSwitches};
 use super::rpc::Rpc;
 
 /// The largest file the composer uploads (as Open with Conduit does).
@@ -2058,6 +2059,24 @@ impl ComposerStore {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Reads `composer`'s switches for a chat store's regenerate and edit
+    /// (none once it is gone): every view that pairs a chat with a composer
+    /// installs it.
+    pub fn switches_reader(composer: WeakEntity<ComposerStore>) -> ReadSwitches {
+        Rc::new(move |cx| composer.upgrade().map(|c| c.read(cx).switches()))
+    }
+
+    /// The switches and tools the composer shows, which a regenerate or an
+    /// edit takes as the next turn would.
+    pub fn switches(&self) -> TurnSwitches {
+        TurnSwitches {
+            web_search: self.web_search,
+            image_generation: self.image_generation,
+            code_interpreter: self.code_interpreter,
+            tool_ids: self.tool_ids.iter().cloned().collect(),
+        }
     }
 
     /// The options the next turn would take, with `mentions` from the text,

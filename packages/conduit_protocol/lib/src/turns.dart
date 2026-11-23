@@ -113,6 +113,13 @@ abstract class RegenerateTurn with _$RegenerateTurn {
     /// and the picker's pick for the model are set back to automatic first,
     /// so the retry sends none.
     @Default(false) bool withoutReasoningEffort,
+
+    /// The composer's switches and tools as the turn goes out. Null keeps
+    /// what the chat has, as a caller that names none gets.
+    bool? webSearch,
+    bool? imageGeneration,
+    bool? codeInterpreter,
+    List<String>? toolIds,
   }) = _RegenerateTurn;
 
   factory RegenerateTurn.fromJson(Map<String, dynamic> json) =>
@@ -153,6 +160,13 @@ abstract class EditTurn with _$EditTurn {
     required String messageId,
     required String text,
     String? model,
+
+    /// The composer's switches and tools as the turn goes out. Null keeps
+    /// what the chat has, as a caller that names none gets.
+    bool? webSearch,
+    bool? imageGeneration,
+    bool? codeInterpreter,
+    List<String>? toolIds,
   }) = _EditTurn;
 
   factory EditTurn.fromJson(Map<String, dynamic> json) =>

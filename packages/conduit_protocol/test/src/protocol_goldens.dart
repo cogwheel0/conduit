@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.78.0",
+  "protocolVersion": "1.79.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.78.0",
+  "protocolVersion": "1.79.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -5184,6 +5184,19 @@ const Map<String, String> protocolGoldens = <String, String>{
   "text": "What I meant to ask"
 }''',
 
+  'editTurnWithComposer': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-user-01",
+  "text": "What I meant to ask",
+  "webSearch": true,
+  "imageGeneration": false,
+  "codeInterpreter": false,
+  "toolIds": [
+    "tool-weather"
+  ]
+}''',
+
   'chatMessageVersionDto': r'''
 {
   "id": "msg-earlier",
@@ -5647,6 +5660,17 @@ const Map<String, String> protocolGoldens = <String, String>{
   "messageId": "msg-2f9d4c17",
   "model": "llama3.2:1b",
   "withoutReasoningEffort": false
+}''',
+
+  'regenerateTurnWithComposer': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-2f9d4c17",
+  "withoutReasoningEffort": false,
+  "webSearch": true,
+  "imageGeneration": false,
+  "codeInterpreter": true,
+  "toolIds": []
 }''',
 
   'chatSummary': r'''

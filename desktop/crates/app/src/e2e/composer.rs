@@ -12,7 +12,9 @@
 //! * each trigger: `$` skills (sent: the server gets the skill), `@` people
 //!   and channels, `#` notes, knowledge bases and their files, `/` prompts;
 //! * the server-file picker; a web page read as context;
-//! * the code interpreter switched on, and in the request the model got;
+//! * the code interpreter switched on, and in the request the model got,
+//!   still after the chat's scope closed (Regenerate) and gone once
+//!   switched off (Edit);
 //! * quick pills; the larger editor; Save as Note; Ask Conduit;
 //! * Settings › Chat driving the composer as it changes: Send with Enter
 //!   (on by default on the desktop), quick pills, Save as Note, and a new
@@ -32,6 +34,7 @@ use serde_json::Value;
 use super::chat::{chat_store, in_pane, pane, send, sign_in, wait_answer, wait_models};
 use super::*;
 use crate::stores::app_settings::AppSettingsStore;
+use crate::stores::chat::Role;
 use crate::stores::composer::{ComposerPrefs, TriggerKind, UploadState};
 use crate::views::chat::composer::{ComposerMenu, MenuRows, Panel};
 
@@ -114,6 +117,18 @@ pub(super) async fn new_chat(cx: &mut AsyncApp) {
     let nav = cx.update(navigation);
     nav.update(cx, |n, cx| n.new_chat(false, cx));
     settle(cx, 300).await;
+}
+
+/// How many streamed requests the fake model's log holds.
+fn streamed_count(path: &Path) -> usize {
+    std::fs::read_to_string(path)
+        .map(|text| {
+            text.lines()
+                .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+                .filter(|v| v.get("stream").and_then(Value::as_bool) == Some(true))
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 /// The fake model's newest streamed request, as its log has it.
@@ -650,17 +665,85 @@ async fn code_interpreter(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> 
         p.composer.update(cx, |c, cx| c.submit(window, cx))
     });
     pass &= ok("answered", wait_answer(cx, Duration::from_secs(60)).await);
-    if let Some(log) = inputs.get("FAKE_MODEL_LOG") {
-        let tools = tools_of(&last_request(Path::new(&log)));
-        pass &= ok(
-            &format!("the request carried the code interpreter ({tools:?})"),
-            tools.iter().any(|t| t == "execute_code"),
-        );
-    } else {
-        pass &= ok("FAKE_MODEL_LOG in the env file", false);
+    let Some(log) = inputs.get("FAKE_MODEL_LOG") else {
+        menu_action(ComposerMenu::CodeInterpreter, cx).await;
+        return ok("FAKE_MODEL_LOG in the env file", false);
+    };
+    let log = Path::new(&log);
+    let carried = || tools_of(&last_request(log));
+    let tools = carried();
+    pass &= ok(
+        &format!("the request carried the code interpreter ({tools:?})"),
+        tools.iter().any(|t| t == "execute_code"),
+    );
+    // Regenerate once the daemon has let the chat's scope go (30 s after a
+    // turn ends, and nothing shortens it): the switch is the composer's,
+    // not the scope's, so the request still carries it.
+    settle(cx, 35_000).await;
+    let before = streamed_count(log);
+    if let Some((key, _)) = cx.update(|cx| last_of(Role::Assistant, cx))
+        && let Some(store) = cx.update(chat_store)
+    {
+        store.update(cx, |s, cx| s.regenerate(&key, None, cx));
     }
+    pass &= ok(
+        "the regenerated answer settles",
+        wait_answer(cx, Duration::from_secs(60)).await,
+    );
+    // Its own request, not the last one read again.
+    pass &= ok(
+        "Regenerate sent a new request",
+        wait_until(cx, Duration::from_secs(30), |_| {
+            streamed_count(log) > before
+        })
+        .await,
+    );
+    let tools = carried();
+    pass &= ok(
+        &format!("Regenerate carried the interpreter the composer shows ({tools:?})"),
+        tools.iter().any(|t| t == "execute_code"),
+    );
+    // Switched off, an edit goes without it.
     menu_action(ComposerMenu::CodeInterpreter, cx).await;
+    let off = cx.update(|cx| {
+        pane(cx).is_some_and(|p| !p.read(cx).composer_store.read(cx).code_interpreter)
+    });
+    pass &= ok("the switch is off", off);
+    let before = streamed_count(log);
+    if let Some((key, _)) = cx.update(|cx| last_of(Role::User, cx))
+        && let Some(store) = cx.update(chat_store)
+    {
+        store.update(cx, |s, cx| s.edit(&key, "Hello again".into(), cx));
+    }
+    pass &= ok(
+        "the edited question is answered",
+        wait_answer(cx, Duration::from_secs(60)).await,
+    );
+    pass &= ok(
+        "Edit sent a new request",
+        wait_until(cx, Duration::from_secs(30), |_| {
+            streamed_count(log) > before
+        })
+        .await,
+    );
+    let tools = carried();
+    pass &= ok(
+        &format!("Edit went without the interpreter switched off ({tools:?})"),
+        !tools.iter().any(|t| t == "execute_code"),
+    );
     pass
+}
+
+/// The open chat's newest row with `role`: its key and text.
+fn last_of(role: Role, cx: &mut App) -> Option<(String, String)> {
+    let store = chat_store(cx)?;
+    let s = store.read(cx);
+    s.rows()
+        .iter()
+        .rev()
+        .filter_map(|r| s.item(*r))
+        .find(|i| i.role == role)
+        .map(|i| (i.key, i.text))
 }
 
 fn app_settings(cx: &mut App) -> gpui_kit::Entity<AppSettingsStore> {

@@ -948,7 +948,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
         request.model ?? column ?? await selectedNow?.call(),
       );
       await _requireBackendFor(model);
-      _choose(session.scope.container, model);
+      _choose(
+        session.scope.container,
+        model,
+        webSearch: request.webSearch,
+        imageGeneration: request.imageGeneration,
+        codeInterpreter: request.codeInterpreter,
+        toolIds: request.toolIds,
+      );
       if (request.withoutReasoningEffort) {
         // "Automatic" clears the local pick and, for a model that was sent
         // it, the chat's saved override; the retry goes only once both are
@@ -1022,7 +1029,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       final model = await _resolveModel(request.model);
       await _requireBackendFor(model);
-      _choose(session.scope.container, model);
+      _choose(
+        session.scope.container,
+        model,
+        webSearch: request.webSearch,
+        imageGeneration: request.imageGeneration,
+        codeInterpreter: request.codeInterpreter,
+        toolIds: request.toolIds,
+      );
       return await _run(
         session,
         account: account,
@@ -3947,8 +3961,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
 
   /// Sets [scope]'s composer to what this turn asks for. Chosen by hand, so
   /// the core's default-model restore leaves it alone. A switch or list the
-  /// request names none of (regenerate, edit) stays as the chat has it, as
-  /// mobile's composer keeps them.
+  /// request does not name stays as the chat has it.
   void _choose(
     ProviderContainer scope,
     Model model, {

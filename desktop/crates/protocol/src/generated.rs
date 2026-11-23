@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.78.0";
+pub const PROTOCOL_VERSION: &str = "1.79.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -13512,6 +13512,16 @@ pub struct RegenerateTurn {
     /// so the retry sends none.
     #[serde(default)]
     pub without_reasoning_effort: bool,
+    /// The composer's switches and tools as the turn goes out. Null keeps
+    /// what the chat has, as a caller that names none gets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_generation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_interpreter: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_ids: Option<Vec<String>>,
 }
 
 /// Params for `turns.rate`: a thumb up or down on an answer.
@@ -13542,6 +13552,16 @@ pub struct EditTurn {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The composer's switches and tools as the turn goes out. Null keeps
+    /// what the chat has, as a caller that names none gets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_generation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_interpreter: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_ids: Option<Vec<String>>,
 }
 
 /// Payload of `turn.started`.

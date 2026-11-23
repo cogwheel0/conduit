@@ -504,6 +504,9 @@ impl QuickAskView {
         let rpc = self.stores.connection.read(cx).rpc();
         let subscribe = self.subscribe_hook();
         let store = cx.new(|cx| ChatStore::new(rpc, subscribe, id, cx));
+        // Regenerate and Edit go with this panel's own composer's switches.
+        let switches = ComposerStore::switches_reader(self.composer_store.downgrade());
+        store.update(cx, |s, _| s.set_switches(switches));
         let server_id = self
             .stores
             .accounts
@@ -1252,6 +1255,53 @@ mod tests {
     /// (the daemon's answer for the chat), never New Chat's regular model.
     /// The chat's list is asked for once, and until it answers a follow-up
     /// from the transcript waits in the field.
+    /// Regenerate and Edit in the panel's chat go with the panel's own
+    /// composer's switches and tools, as the main window's go with its.
+    #[gpui_kit::test]
+    fn its_chat_regenerates_with_the_panels_switches(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        daemon.on::<methods::ComposerOptions>(|_| Ok(serde_json::json!({})));
+        daemon.returns::<methods::ChatsGet>(
+            serde_json::from_value(serde_json::json!({"chat": {
+                "summary": {"id": "chat-q", "title": "Quick", "updatedAtMs": 1,
+                    "pinned": false, "archived": false, "tags": [], "shared": false,
+                    "readOnly": false},
+                "messages": [], "readOnly": false
+            }}))
+            .unwrap(),
+        );
+        daemon.on::<methods::TurnsSend>(|_| {
+            Ok(serde_json::json!({
+                "chatId": "chat-q", "userMessageId": "u1", "assistantMessageId": "a1"
+            }))
+        });
+        view.update(vcx, |v, cx| {
+            v.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+        });
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| {
+            v.send_text("First".into(), vec![], window, cx)
+        });
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| {
+            v.composer_store.update(cx, |c, _| {
+                c.web_search = true;
+                c.tool_ids.insert("sample-tool".into());
+            })
+        });
+        view.read_with(vcx, |v, cx| {
+            let store = &v.chat.as_ref().expect("the send opened its chat").store;
+            assert_eq!(
+                store.read(cx).switches(cx),
+                Some(crate::stores::chat::TurnSwitches {
+                    web_search: true,
+                    tool_ids: vec!["sample-tool".into()],
+                    ..Default::default()
+                })
+            );
+        });
+    }
+
     #[gpui_kit::test]
     fn a_follow_up_names_the_agent_its_chat_started_with(cx: &mut TestAppContext) {
         let (daemon, _stores, view, vcx) = bench(cx);
