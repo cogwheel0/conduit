@@ -488,15 +488,45 @@ fn open_new_chat(
     fresh: bool,
     cx: &mut App,
 ) {
+    show_main(cx);
+    if compose.files.is_empty() {
+        open_planned(
+            compose,
+            open_files::OpenFilesPlan::default(),
+            carried,
+            fresh,
+            cx,
+        );
+        return;
+    }
+    // Looking at the files can wait on a network share (`\\server\share`):
+    // off the UI thread, then the new chat on it.
+    let files = compose.files.clone();
+    let planned = cx
+        .background_executor()
+        .spawn(async move { open_files::plan(&files, open_files::file_size) });
+    cx.spawn(async move |cx| {
+        let plan = planned.await;
+        cx.update(|cx| open_planned(compose, plan, carried, fresh, cx));
+    })
+    .detach();
+}
+
+/// [`open_new_chat`] once its files are sorted ([`open_files::plan`]).
+fn open_planned(
+    compose: Compose,
+    plan: open_files::OpenFilesPlan,
+    carried: Vec<crate::stores::composer::Attachment>,
+    fresh: bool,
+    cx: &mut App,
+) {
     let Compose {
         text,
-        files,
+        files: _,
         images,
         context,
         owner,
     } = compose;
-    show_main(cx);
-    let plan = open_files::plan(&files, open_files::file_size);
     for path in &plan.skipped {
         log::info!("open with: skipped a folder or missing file");
         let _ = path;
