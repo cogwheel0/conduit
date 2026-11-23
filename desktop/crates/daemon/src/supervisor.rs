@@ -605,6 +605,17 @@ async fn stop_running(
     config: &SupervisorConfig,
     log: &SharedLog,
 ) -> StopOutcome {
+    // An exit already in had nothing to do with this stop: the run loop saw
+    // it and the stop at once, and the stop won. It reads as the run loop's
+    // exit branch would have it, a daemon that wasn't running.
+    if let Ok(exit) = running.exit.try_recv() {
+        drain(running).await;
+        log_line(
+            log,
+            &format!("[supervisor] conduitd had ended ({exit}) before the stop"),
+        );
+        return StopOutcome::NotRunning;
+    }
     drop(running.stdin.take());
     if let Ok(exit) = timeout(config.stop_grace, &mut running.exit).await {
         drain(running).await;
@@ -780,6 +791,37 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A daemon whose exit was already in when the stop came (both were
+    /// ready to the run loop, and the stop won) didn't stop because stdin
+    /// closed: it had ended before.
+    #[tokio::test]
+    async fn a_daemon_that_ended_before_the_stop_did_not_stop_gracefully() {
+        let (exit_tx, exit) = oneshot::channel();
+        exit_tx.send(ExitInfo::Code(0)).unwrap();
+        let (drained_tx, drained) = oneshot::channel();
+        drained_tx.send(()).unwrap();
+        let mut running = Running {
+            pid: 1,
+            stdin: None,
+            ready: oneshot::channel().1,
+            exit,
+            signals: mpsc::unbounded_channel().0,
+            drained: Some(drained),
+        };
+        let config = SupervisorConfig::new(
+            "conduitd".into(),
+            "userData".into(),
+            "logs".into(),
+            String::new(),
+            String::new(),
+        );
+        let log: SharedLog = Arc::new(Mutex::new(None));
+        assert_eq!(
+            stop_running(&mut running, &config, &log).await,
+            StopOutcome::NotRunning
+        );
+    }
 
     fn policy() -> RestartPolicy {
         RestartPolicy {
