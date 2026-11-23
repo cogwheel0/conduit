@@ -519,6 +519,9 @@ class _Session {
           .toList();
 }
 
+/// The [Ref] of a provider, for a wait that runs on one.
+final _refProbe = Provider<Ref>((ref) => ref);
+
 /// A comparison merge running until [end].
 class _Merging extends ComparisonMergeController {
   @override
@@ -2222,6 +2225,68 @@ void main() {
       final shown = s.container.read(chatMessagesProvider);
       check(shown.firstWhere((m) => m.id == 'a0').isStreaming).isFalse();
       check(shown.map((m) => m.content)).contains('queued');
+    });
+
+    // The delete stops the answer's task chat-wide; answered late, that stop
+    // would end the batch's own answer.
+    test('a refused delete holds the batch until the stop it sent is '
+        'answered', () async {
+      final s = await _Session.start();
+      final turn = _runningTurn();
+      s.switchTo(
+        _Session.chatId,
+        messages: [
+          turn.first,
+          turn.last.copyWith(
+            metadata: const {
+              'taskId': 'task-1',
+              'taskConversationId': _Session.chatId,
+            },
+          ),
+        ],
+      );
+      s.queue.enqueue('queued');
+      s.api
+        ..stopGate = Completer<void>()
+        ..deleteError = StateError('the server kept the message');
+
+      final deleting = deleteChatMessageGroup(s.container, ['a0']);
+      await pumpEventQueue();
+      check(s.api.stoppedChats).deepEquals([_Session.chatId]);
+      check(await s.sentUserRows()).isEmpty();
+
+      s.api.stopGate!.complete();
+      check(await deleting).equals(ChatMessageDeleteOutcome.persistFailed);
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['queued']);
+    });
+
+    // Its admission is not awaited: a wait whose chat goes away ends, it
+    // does not throw.
+    test('a hold wait whose provider goes away ends quietly', () async {
+      final container = ProviderContainer(
+        overrides: [
+          chatTurnGateSettingsProvider.overrideWithValue(
+            ChatTurnGateSettings.atOnce.withClock(
+              pause: (_) => Future<void>(() {}),
+            ),
+          ),
+        ],
+      );
+      final never = Completer<void>();
+      unawaited(
+        container
+            .read(chatTurnHoldsProvider.notifier)
+            .holding('chat-a', () => never.future),
+      );
+      final waiting = whileChatHeldByCore(
+        container.read(_refProbe),
+        chatId: 'chat-a',
+      );
+      await pumpEventQueue();
+      container.dispose();
+      await waiting;
     });
 
     test('a delete the server takes lets the batch go once it is done',

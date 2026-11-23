@@ -21,6 +21,7 @@ import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
 
@@ -72,9 +73,22 @@ Future<ChatMessageDeleteOutcome> deleteChatMessageGroup(
   if (messageIds.isEmpty) {
     return Future.value(ChatMessageDeleteOutcome.nothingToDelete);
   }
+  final stops = <Future<bool>>[];
   return (ref.read(chatTurnHoldsProvider.notifier) as ChatTurnHolds).holding(
     (ref.read(activeConversationProvider) as Conversation?)?.id,
-    () => _deleteChatMessageGroup(ref, messageIds, isStillCurrent),
+    () async {
+      try {
+        return await _deleteChatMessageGroup(
+          ref,
+          messageIds,
+          isStillCurrent,
+          stops,
+        );
+      } finally {
+        // Held until the server has answered the stop it was sent.
+        await Future.wait(stops);
+      }
+    },
   );
 }
 
@@ -82,6 +96,7 @@ Future<ChatMessageDeleteOutcome> _deleteChatMessageGroup(
   dynamic ref,
   List<String> messageIds,
   bool Function()? isStillCurrent,
+  List<Future<bool>> stops,
 ) async {
   final latestMessages = List<ChatMessage>.from(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
@@ -108,7 +123,16 @@ Future<ChatMessageDeleteOutcome> _deleteChatMessageGroup(
   final messagesNotifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
   if (removedStreamingMessage != null) {
-    stopActiveTransport(removedStreamingMessage, ref.read(apiServiceProvider));
+    final api = ref.read(apiServiceProvider) as ApiService?;
+    final chatId = (ref.read(activeConversationProvider) as Conversation?)?.id;
+    Future<bool> stop() => stopActiveTransport(removedStreamingMessage, api);
+    // The stop ends every task of the chat on the server: a request sent
+    // there before it is answered waits for it, as after a Stop.
+    stops.add(
+      api == null || chatId == null
+          ? stop()
+          : api.holdingChatCompletions(chatId, stop),
+    );
     messagesNotifier.cancelActiveMessageStream();
   }
   messagesNotifier.setMessages(updatedMessages);

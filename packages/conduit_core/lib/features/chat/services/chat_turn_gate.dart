@@ -133,9 +133,9 @@ bool chatTurnHeldByCore(dynamic ref, {String? chatId}) {
 
 /// Waits while [chatTurnHeldByCore] holds for [chatId].
 Future<void> whileChatHeldByCore(dynamic ref, {String? chatId}) async {
-  final pause = _Gate.of(ref).pause;
-  while (chatTurnHeldByCore(ref, chatId: chatId)) {
-    await pause(const Duration(milliseconds: 50));
+  final gate = _Gate.of(ref);
+  while (!gate.closed && chatTurnHeldByCore(ref, chatId: chatId)) {
+    await gate.pause(const Duration(milliseconds: 50));
   }
 }
 
