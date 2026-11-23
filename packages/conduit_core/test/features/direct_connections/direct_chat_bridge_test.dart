@@ -2188,6 +2188,9 @@ void main() {
         '- item `one`\n    indented < code & more\n\n    real indented <b>\n\n'
             'para after\n',
         'Start of `a multi\nline span < x` and after & more\n\nnext para `x`\n',
+        // A line of non-breaking spaces is not blank to Markdown, so the span
+        // still closes across it.
+        'Start `a < b\n\u00a0\nc` after & more\n',
         '~~~\ntilde <fence> & stuff\n~~~\n````md\n```\ninner < x\n```\n````\n'
             'done & dusted\n',
         '``double `tick` span`` then < and `unclosed <x\nnext line > y\n',

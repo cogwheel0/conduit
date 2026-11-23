@@ -22,6 +22,9 @@ final _cursorDetailsTag = RegExp('<details', caseSensitive: false);
 final _cursorInlineSensitive = RegExp('[`<>&]');
 const int _cursorMaxUnstableRender = 4096;
 final _cursorLineContentStart = RegExp(r'[^ \t>]');
+// Markdown's blank line: only spaces and tabs. A line of other whitespace,
+// such as non-breaking spaces, continues the paragraph and any code span.
+final _cursorBlankLine = RegExp(r'^[ \t]*$');
 
 /// Follows the end of a streamed answer text block so code-bearing text can
 /// keep appending without a full re-render.
@@ -243,7 +246,7 @@ final class _AnswerTailLine {
         htmlSeen: html,
       );
     }
-    if (line.trim().isEmpty) return _AnswerTailLine(htmlSeen: html);
+    if (_cursorBlankLine.hasMatch(line)) return _AnswerTailLine(htmlSeen: html);
     return _AnswerTailLine(
       paragraphMayContinueCodeSpan:
           paragraphMayContinueCodeSpan ||
