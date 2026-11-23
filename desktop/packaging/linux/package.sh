@@ -80,10 +80,12 @@ case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
 winlinux="$here/../winlinux.py"
 if [ -n "$notices" ]; then
   [ -f "$notices" ] || die "--notices $notices: no such file"
-  notices="$(cd "$(dirname "$notices")" && pwd)/$(basename "$notices")"
-  # The build moves an earlier --out aside, notices in it included.
+  notices="$(realpath -- "$notices")"
+  # The build moves an earlier --out aside, notices in it included; both
+  # resolved (.., symlinks), --out whether it exists yet or not.
   case "$notices" in
-    "$out"/*) die "--notices $notices is inside --out $out, which the build moves aside first: put the notices elsewhere" ;;
+    "$(realpath -m -- "$out")"/*)
+      die "--notices $notices is inside --out $out, which the build moves aside first: put the notices elsewhere" ;;
   esac
 fi
 
