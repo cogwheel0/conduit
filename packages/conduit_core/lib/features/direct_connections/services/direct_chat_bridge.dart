@@ -1100,8 +1100,9 @@ const int _kDirectMaxGeneratedImages = 10;
 /// which the chat publishes streamed text (`streamingContentUpdateInterval`).
 const Duration kDirectFullProjectionMinInterval = Duration(milliseconds: 100);
 
-/// Characters a second that full streaming projections may render: 7–13% of
-/// an M-series Mac core when an answer with code needs them continually
+/// Characters a second that full streaming projections may render. When an
+/// answer with code needs them continually, they take 7–13% of the stream's
+/// duration on an M-series Mac
 /// (`tool/benchmarks/direct_streaming_projection.md`). The wait after a
 /// projection grows with its length once it exceeds what this budget allows in
 /// [kDirectFullProjectionMinInterval].
@@ -1135,7 +1136,8 @@ final class DirectStreamingAccumulator {
   int _projectedTextLength = 0;
   int _projectedReasoningLength = 0;
   int _nextFullProjectionLength = 1;
-  DateTime? _nextFullProjectionAt;
+  DateTime? _lastFullProjectionAt;
+  Duration _fullProjectionWait = Duration.zero;
   // While the answer carries code delimiters, the exact visible snapshot and a
   // cursor at the end of its answer text let deltas extend it without a full
   // render. Both are replaced by every full projection.
@@ -1402,9 +1404,13 @@ final class DirectStreamingAccumulator {
     }
   }
 
-  bool _fullProjectionIsDue(int logicalLength) =>
-      logicalLength >= _nextFullProjectionLength ||
-      !clock.now().isBefore(_nextFullProjectionAt!);
+  bool _fullProjectionIsDue(int logicalLength) {
+    if (logicalLength >= _nextFullProjectionLength) return true;
+    // A wall clock set back reads as a negative wait: render rather than wait
+    // for it to catch up.
+    final waited = clock.now().difference(_lastFullProjectionAt!);
+    return waited.isNegative || waited >= _fullProjectionWait;
+  }
 
   DirectStreamingReplace _fullStreamingProjection(int logicalLength) {
     final content = render(done: false);
@@ -1414,11 +1420,10 @@ final class DirectStreamingAccumulator {
           Duration.microsecondsPerSecond ~/
           kDirectFullProjectionCharactersPerSecond,
     );
-    _nextFullProjectionAt = clock.now().add(
-      wait > kDirectFullProjectionMinInterval
-          ? wait
-          : kDirectFullProjectionMinInterval,
-    );
+    _lastFullProjectionAt = clock.now();
+    _fullProjectionWait = wait > kDirectFullProjectionMinInterval
+        ? wait
+        : kDirectFullProjectionMinInterval;
     _hasStreamingProjection = true;
     _hasReasoningProjection = _reasoning.isNotEmpty;
     _reasoningProjectionIsVisible = _reasoningHasVisibleText;

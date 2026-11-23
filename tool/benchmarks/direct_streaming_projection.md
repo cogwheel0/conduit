@@ -38,8 +38,10 @@ Each case runs three times. The harness times only `apply` and
 longest simulated time between two updates.
 
 Dart native AOT on an M-series Mac, with other builds running on the machine.
-These are CPU measurements, not phone frame times. Ranges cover the three
-runs. The three builds are main before the fix, the time ceiling alone (the
+Times are elapsed time on a `Stopwatch` around the projection calls, so they
+include any time other processes took the core. They are not CPU time or phone
+frame times. A share of a core below means elapsed call time divided by the
+simulated duration of the stream. Ranges cover the three runs. The three builds are main before the fix, the time ceiling alone (the
 branch's first commit), and the time ceiling plus the cursor. The first table
 was measured on `6c935585ca`, and the long-line table on `d87ce41dfd`.
 
@@ -67,7 +69,7 @@ construct: a nested bullet indented four spaces outside a fence that has `<`,
 can't tell whether the parser keeps that line as indented code or as list
 text. So each such line costs a full render at the next ceiling, and on that
 shape the work stays near the time ceiling's budget. That is about 0.6 µs a
-character, or 7–13% of one core.
+character, or elapsed call time of 7–13% of the stream's duration.
 
 ## Long single lines
 
@@ -92,5 +94,5 @@ heavier for this run than for the table above.
 | json-unfenced, 204,800 chars, 73 s | time ceiling | 229 | 2 | 1,188–1,218 ms | 19.2–20.0 ms | 1,086 ms |
 | json-unfenced, 204,800 chars, 73 s | with cursor | 2 | 51,198 | 195–197 ms | 0.06–0.12 ms | 1.4 ms |
 
-At 204,800 characters, the cursor's copying costs about 0.2–0.3% of one core
-across the stream.
+At 204,800 characters, the cursor's copying takes elapsed call time of about
+0.2–0.3% of the stream's duration.

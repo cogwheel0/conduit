@@ -2133,21 +2133,56 @@ void main() {
                   3 * finalLength,
             ),
           );
-          expect(visible.toString(), isNotEmpty);
+          // The cursor took every delta, so the last one is on screen too.
+          expect(visible.toString(), accumulator.render(done: false));
 
+          // The reasoning duration comes from a real stopwatch, so compare
+          // the text and the answer's rendering, not the whole terminal render.
           expect(accumulator.apply(const DirectStreamDone()), isTrue);
-          final expected = DirectStreamingAccumulator()
-            ..apply(
-              DirectReasoningDelta(
-                List<String>.filled(reasoningDeltaCount, 'rest').join(),
-              ),
-            )
+          expect(
+            accumulator.reasoning,
+            List<String>.filled(reasoningDeltaCount, 'rest').join(),
+          );
+          expect(accumulator.text, answer);
+          final answerOnly = DirectStreamingAccumulator()
             ..apply(DirectContentDelta(answer))
             ..apply(const DirectStreamDone());
-          expect(accumulator.render(done: true), expected.render(done: true));
+          expect(
+            accumulator.render(done: true),
+            endsWith('\n${answerOnly.render(done: true)}'),
+          );
         });
       });
     }
+
+    test('a wall clock set back does not hold back the next projection', () {
+      var now = DateTime.utc(2026, 11, 23, 12);
+      withClock(Clock(() => now), () {
+        final accumulator = DirectStreamingAccumulator();
+        const first = DirectReasoningDelta('Weigh the tide tables.');
+        accumulator.apply(first);
+        expect(
+          accumulator.projectStreamingEvent(
+            first,
+            forceReplace: true,
+            canAppend: true,
+          ),
+          isA<DirectStreamingReplace>(),
+        );
+
+        now = now.subtract(const Duration(seconds: 30));
+        const next = DirectReasoningDelta(' Then');
+        accumulator.apply(next);
+        expect(
+          accumulator.projectStreamingEvent(
+            next,
+            forceReplace: false,
+            canAppend: true,
+          ),
+          isA<DirectStreamingReplace>(),
+        );
+      });
+    });
 
     test('plain answer deltas append without full projections', () {
       const answerDeltaCount = 4096;
