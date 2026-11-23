@@ -472,6 +472,14 @@ void main() {
       return databases;
     }
 
+    /// Completes once the close under way for [serverId] has ended, failed
+    /// or not, and the manager has recorded how.
+    Future<void> closeEnded(String serverId) async {
+      final attempt = manager.openForIfReady(_server(serverId));
+      check(attempt).isA<DatabaseOpenDeferred>();
+      await (attempt as DatabaseOpenDeferred).retryAfter;
+    }
+
     test('waits for a database a switch left leased, then closes it and the '
         'active one', () async {
       final alpha = manager.openFor(_server('alpha'));
@@ -482,9 +490,9 @@ void main() {
 
       var closed = false;
       final closing = manager.closeAll().whenComplete(() => closed = true);
-      await Future<void>.delayed(Duration.zero);
-      check(closed).isFalse();
+      await closeEnded('beta');
       check(await isClosed(alpha)).isFalse();
+      check(closed).isFalse();
 
       await lease.release();
       await closing;
@@ -505,11 +513,12 @@ void main() {
       alpha.closeGate = gate;
       final beta = manager.openFor(_server('beta'));
       await beta.customSelect('SELECT 1').get();
-      await _waitForCloseAttempts(alpha, 1);
+      await alpha.closeStarted.future;
 
       var closed = false;
       final closing = manager.closeAll().whenComplete(() => closed = true);
-      await Future<void>.delayed(Duration.zero);
+      await closeEnded('beta');
+      check(await isClosed(beta)).isTrue();
       check(closed).isFalse();
 
       gate.complete();
@@ -526,8 +535,7 @@ void main() {
       final alpha = databases['alpha']!..failClose = true;
       await alpha.customSelect('SELECT 1').get();
       manager.openFor(_server('beta'));
-      await _waitForCloseAttempts(alpha, 1);
-      await Future<void>.delayed(Duration.zero);
+      await closeEnded('alpha');
 
       await check(manager.closeAll()).throws<StateError>();
       check(alpha.closeAttempts).equals(2);
@@ -538,11 +546,9 @@ void main() {
       check(await isClosed(alpha)).isTrue();
     });
 
-    test('returns at once when nothing is open', () async {
-      var closed = false;
-      unawaited(manager.closeAll().whenComplete(() => closed = true));
-      await Future<void>.delayed(Duration.zero);
-      check(closed).isTrue();
+    test('completes with nothing open, and opens nothing', () async {
+      await manager.closeAll();
+      check(openedFileNames).isEmpty();
     });
   });
 
