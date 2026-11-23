@@ -6,6 +6,8 @@ import 'dart:io';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show modelForId, modelSavedWithChat;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ModelControlChoicesNotifier,
@@ -14,7 +16,11 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
-    show directModelRegistryProvider;
+    show
+        DirectModelDiscoveryController,
+        DirectModelDiscoveryState,
+        directModelDiscoveryProvider,
+        directModelRegistryProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
@@ -80,6 +86,13 @@ final class _Listed extends Models {
     core.Model(id: 'first-model', name: 'First model'),
     core.Model(id: 'preferred-model', name: 'Preferred'),
   ];
+}
+
+/// Direct discovery that has found nothing and changes no binding.
+final class _IdleDiscovery extends DirectModelDiscoveryController {
+  @override
+  Future<DirectModelDiscoveryState> build() async =>
+      DirectModelDiscoveryState();
 }
 
 /// [_Listed]'s models and [extra], read again on each build; a build waits
@@ -1746,6 +1759,56 @@ void main() {
           check(because: '$wait / $change', await answer).equals(expected);
         }
       }
+    });
+
+    test('a model named by its id is the one with that id, though an Open '
+        'WebUI Direct connection offers one of the same wire id; a chat saved '
+        'on that wire id still opens on the Direct one', () async {
+      // Kept in the server, with no prefix: Open WebUI stores its models by
+      // the provider's own ids, the server's models' ids here.
+      final registry = DirectModelRegistry();
+      final [preferred, hidden] = registry.replaceProfileModels(
+        DirectConnectionProfile(
+          id: 'kept-connection',
+          name: 'Kept connection',
+          adapterKey: kOpenAiCompatibleAdapterKey,
+          baseUrl: 'https://models.invalid/v1',
+        ),
+        [
+          DirectRemoteModel(id: 'preferred-model'),
+          DirectRemoteModel(id: 'hidden-model'),
+        ],
+        source: DirectModelSource.openWebUi,
+        openWebUiUrlIndex: 0,
+      );
+      final container = _agentContainer(
+        _AgentsApi(),
+        models: () => _These(<core.Model>[
+          const core.Model(id: 'first-model', name: 'First model'),
+          const core.Model(id: 'preferred-model', name: 'Preferred'),
+          preferred,
+          hidden,
+        ]),
+        extra: [
+          directModelRegistryProvider.overrideWithValue(registry),
+          // Discovery would drop the connection, which no profile here holds.
+          directModelDiscoveryProvider.overrideWith(_IdleDiscovery.new),
+        ],
+      );
+      final read = container.read;
+      // Asked before the list has loaded, then once it has.
+      check((await modelForId(read, 'preferred-model'))?.id)
+          .equals('preferred-model');
+      check((await modelForId(read, 'preferred-model'))?.id)
+          .equals('preferred-model');
+      // Hidden from the picker: the server's, not the connection's.
+      check((await modelForId(read, 'hidden-model'))?.id)
+          .equals('hidden-model');
+      // As the phone restores a chat saved on the wire id.
+      check((await modelSavedWithChat(read, 'preferred-model'))?.id)
+          .equals(preferred.id);
+      check((await modelSavedWithChat(read, 'hidden-model'))?.id)
+          .equals(hidden.id);
     });
 
     test("picking a chat's hidden model leaves the account's selection to "

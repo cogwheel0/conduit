@@ -43,12 +43,22 @@ Future<Model?> modelSavedWithChat(
   T Function<T>(ProviderListenable<T> provider) read,
   String modelId, {
   bool Function()? isCurrent,
+}) => _offeredModel(read, modelId, isCurrent: isCurrent, byWireId: true);
+
+/// The model [modelId] names: listed, else hidden from the picker but still
+/// offered. With [byWireId], a trusted direct model Open WebUI stores by
+/// that provider-facing id comes before a model whose own id it is.
+Future<Model?> _offeredModel(
+  T Function<T>(ProviderListenable<T> provider) read,
+  String modelId, {
+  required bool byWireId,
+  bool Function()? isCurrent,
 }) async {
   bool current() => isCurrent?.call() ?? true;
   final registry = read(directModelRegistryProvider);
   final api = read(apiServiceProvider);
   Model? listedIn(List<Model> models) =>
-      registry.resolveOpenWebUiWireModel(models, modelId) ??
+      (byWireId ? registry.resolveOpenWebUiWireModel(models, modelId) : null) ??
       models.where((model) => model.id == modelId).firstOrNull;
   // Already listed: found with no wait, whatever else is loading.
   final now = read(modelsProvider).value;
@@ -102,12 +112,14 @@ final _hiddenModelLookupsProvider =
 /// ([modelSavedWithChat]): a chat saved on it runs on it, as mobile's
 /// selection keeps it. Null for one the server no longer offers, even when
 /// it is still selected, or once [isCurrent] says the answer is no longer
-/// wanted. A coding agent is named by its terminal, not here.
+/// wanted. A coding agent is named by its terminal, not here. The id is
+/// the model's own: a direct model is named by its `direct:` id, never by
+/// the provider-facing id a server model may share.
 Future<Model?> modelForId(
   T Function<T>(ProviderListenable<T> provider) read,
   String id, {
   bool Function()? isCurrent,
-}) => modelSavedWithChat(read, id, isCurrent: isCurrent);
+}) => _offeredModel(read, id, isCurrent: isCurrent, byWireId: false);
 
 /// The model the user last picked in an open chat, with the ids of the
 /// prompts the chat held then. Open WebUI 0.12.5 regenerates an answer with
