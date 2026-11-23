@@ -216,7 +216,7 @@ Future<void> regenerateHistoricalMessageById(
   // Before the answer is archived: a backend that cannot take the turn
   // leaves the transcript as it was. Asked of the model that answers, which
   // for a comparison's column is the column's, not the composer's.
-  final ownerBeforeCheck = captureChatMutationOwner(ref, openChat);
+  final ownerBeforeCheck = captureChatSendOwner(ref);
   final pickedBeforeCheck = ref.read(selectedModelProvider);
   final shown = resolveAssistantRegenerationTarget(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
@@ -237,7 +237,7 @@ Future<void> regenerateHistoricalMessageById(
       await backendReady;
       // Another chat or model since: this regenerate was not for it; an
       // answer started meanwhile blocks it as one running before did.
-      if (!chatMutationTokenStillActive(ref, ownerBeforeCheck) ||
+      if (!chatSendOwnerIsCurrent(ref, ownerBeforeCheck) ||
           !identical(ref.read(selectedModelProvider), pickedBeforeCheck) ||
           ref.read(isChatStreamingProvider) == true) {
         return;

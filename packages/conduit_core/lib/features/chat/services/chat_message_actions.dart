@@ -227,7 +227,7 @@ Future<bool> resendEditedUserMessage(
   // leaves it as it was.
   final openAtStart = ref.read(activeConversationProvider) as Conversation?;
   final pickedAtStart = ref.read(selectedModelProvider) as Model?;
-  final ownerAtStart = captureChatMutationOwner(ref, openAtStart);
+  final ownerAtStart = captureChatSendOwner(ref);
   final backendReady = requireChatBackendReady(
     ref,
     pickedAtStart,
@@ -236,7 +236,7 @@ Future<bool> resendEditedUserMessage(
   if (backendReady != null) {
     await backendReady;
     // Another chat or model since: nothing of this edit's is left to do.
-    if (!chatMutationTokenStillActive(ref, ownerAtStart) ||
+    if (!chatSendOwnerIsCurrent(ref, ownerAtStart) ||
         !identical(ref.read(selectedModelProvider), pickedAtStart)) {
       return false;
     }

@@ -344,6 +344,7 @@ Future<void> durableSend(
   // Hermes session belongs to another saved connection is offered that
   // connection first, by the send itself.
   final modelAtSendStart = ref.read(selectedModelProvider) as Model?;
+  final sendOwner = captureChatSendOwner(ref);
   final backendReady = _hermesConnectionSwitchOffered(ref, modelAtSendStart)
       ? null
       : requireChatBackendReady(
@@ -353,7 +354,7 @@ Future<void> durableSend(
         );
   if (backendReady != null) {
     await backendReady;
-    if (!chatMutationTokenStillActive(ref, sendMutationOwner) ||
+    if (!chatSendOwnerIsCurrent(ref, sendOwner) ||
         !identical(ref.read(selectedModelProvider), modelAtSendStart)) {
       throw StateError('The conversation changed while preparing the message.');
     }

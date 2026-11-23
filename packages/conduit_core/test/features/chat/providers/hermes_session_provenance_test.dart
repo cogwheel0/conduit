@@ -13,6 +13,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/services/chat_backend_readiness.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -835,6 +836,27 @@ void main() {
 
       check(bound.asked).deepEquals(<String>['Other agent']);
       check(bound.config.switchedTo).deepEquals(<String>[otherId]);
+    });
+
+    // Declined, the send stays on the active connection: one that cannot
+    // answer refuses it before anything is written.
+    test('a declined switch on a connection that cannot answer writes '
+        'nothing', () async {
+      final bound = await bind(
+        accept: false,
+        connectionIdentity: otherIdentity,
+        activeAnswers: false,
+      );
+      addTearDown(bound.container.dispose);
+      final before = bound.container.read(chatMessagesProvider);
+
+      await check(
+        durableSend(bound.container, 'for the bound chat', null),
+      ).throws<ChatBackendNotReadyException>();
+
+      check(bound.asked).deepEquals(<String>['Other agent']);
+      check(bound.config.switchedTo).isEmpty();
+      check(bound.container.read(chatMessagesProvider)).deepEquals(before);
     });
 
     test('keeps the active connection when declined', () async {

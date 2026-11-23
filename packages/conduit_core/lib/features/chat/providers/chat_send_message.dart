@@ -54,6 +54,25 @@ Future<void> _sendMessageInternal(
           'The conversation changed while preparing the message.',
         );
       }
+      // The send's own preflight left the connection to the offer: the one
+      // it ended on, switched to or kept, is asked now, before anything is
+      // written.
+      final answering = ref.read(selectedModelProvider) as Model?;
+      final ownerAfterOffer = captureChatSendOwner(ref);
+      final ready = requireChatBackendReady(
+        ref,
+        answering,
+        conversation: ref.read(activeConversationProvider) as Conversation?,
+      );
+      if (ready != null) {
+        await ready;
+        if (!chatSendOwnerIsCurrent(ref, ownerAfterOffer) ||
+            !identical(ref.read(selectedModelProvider), answering)) {
+          throw StateError(
+            'The conversation changed while preparing the message.',
+          );
+        }
+      }
     }
   }
   final conversationAtSendStart =
