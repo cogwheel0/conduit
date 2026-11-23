@@ -47,10 +47,20 @@ Future<Model?> modelSavedWithChat(
   bool current() => isCurrent?.call() ?? true;
   final registry = read(directModelRegistryProvider);
   final api = read(apiServiceProvider);
+  Model? listedIn(List<Model> models) =>
+      registry.resolveOpenWebUiWireModel(models, modelId) ??
+      models.where((model) => model.id == modelId).firstOrNull;
+  // Already listed: found with no wait, whatever else is loading.
+  final now = read(modelsProvider).value;
+  if (now != null) {
+    if (listedIn(now) case final found?) return found;
+  }
   // The list does not wait for LibreChat's catalog: with LibreChat in
-  // charge, a chat saved on one of its models is looked for once the
-  // catalog has arrived, as a send waits for it ([modelForUnpickedSend]).
-  if (read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+  // charge and its catalog still on its way, a chat saved on one of its
+  // models is looked for once it has arrived, as a send waits for it
+  // ([modelForUnpickedSend]). Only then can the wait change the answer.
+  if (read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat &&
+      !read(libreChatModelCatalogProvider).hasValue) {
     try {
       await read(libreChatModelCatalogProvider.future);
     } catch (_) {
@@ -60,9 +70,7 @@ Future<Model?> modelSavedWithChat(
   }
   final List<Model> visible = await read(modelsProvider.future);
   if (!current()) return null;
-  final listed =
-      registry.resolveOpenWebUiWireModel(visible, modelId) ??
-      visible.where((model) => model.id == modelId).firstOrNull;
+  final listed = listedIn(visible);
   // A locally minted direct model lives only in the list and is never
   // replaced by an untrusted server object with the same id.
   if (listed != null || api == null) return listed;
