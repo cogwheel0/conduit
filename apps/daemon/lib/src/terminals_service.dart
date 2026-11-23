@@ -18,6 +18,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:crypto/crypto.dart' show sha1;
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:stream_channel/stream_channel.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -535,10 +536,10 @@ final class TerminalsService {
   /// up as binary frames, its `resize` and `ping` messages as text, and
   /// the shell's output comes back unchanged. Either end closing closes
   /// the other.
-  Future<void> tunnel(String handle, WebSocketChannel window) async {
+  Future<void> tunnel(String handle, StreamChannel<dynamic> window) async {
     final h = _handles[handle];
     if (h == null) {
-      await window.sink.close(4404, 'no such terminal');
+      await _closeWith(window, 4404, 'no such terminal');
       return;
     }
     // The credentials are the account's in use now, read before any await
@@ -581,7 +582,7 @@ final class TerminalsService {
           failed.sink.close().then<void>((_) {}, onError: (Object _) {}),
         );
       }
-      await window.sink.close(4502, 'could not reach the terminal');
+      await _closeWith(window, 4502, 'could not reach the terminal');
       return;
     }
     final up = upstream;
@@ -614,6 +615,17 @@ final class TerminalsService {
     await done.future;
     await fromWindow.cancel();
     await fromShell.cancel();
+  }
+
+  /// Closes [channel] with [code] where it is a WebSocket; any other
+  /// channel only closes.
+  static Future<void> _closeWith(
+    StreamChannel<dynamic> channel,
+    int code,
+    String reason,
+  ) {
+    final sink = channel.sink;
+    return sink is WebSocketSink ? sink.close(code, reason) : sink.close();
   }
 
   // ---------------------------------------------------------------------------
