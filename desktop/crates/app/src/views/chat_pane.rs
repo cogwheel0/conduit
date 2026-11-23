@@ -3218,14 +3218,25 @@ impl Render for ChatPane {
         let keys = conduit_components::views::focus::hints(cx);
         let reveal = SidebarReveal::of(sidebar_visible, cx);
         let shown = ((0.3 - reveal) / 0.25).clamp(0., 1.);
-        if reveal < 1. {
-            let covered = t.metrics.sidebar_width * reveal;
-            let inset = (conduit_components::window::TRAFFIC_LIGHTS_WIDTH + 8. - covered).max(10.);
-            toolbar = toolbar.leading_reveal(inset, shown).leading(
+        // GNOME's content header bar leads with the toggle whether or not
+        // the sidebar shows.
+        let gnome = conduit_components::chrome::style(cx)
+            == Some(conduit_components::chrome::ChromeStyle::Gnome);
+        if reveal < 1. || gnome {
+            if reveal < 1. {
+                let covered = t.metrics.sidebar_width * reveal;
+                let inset = (conduit_components::window::leading_room(cx) + 8. - covered).max(10.);
+                toolbar = toolbar.leading_reveal(inset, if gnome { 1. } else { shown });
+            }
+            toolbar = toolbar.leading(
                 IconButton::new(
                     "show-sidebar",
                     IconName::PanelLeft,
-                    l10n.desktop_menu_show_sidebar(),
+                    if sidebar_visible {
+                        l10n.desktop_menu_hide_sidebar()
+                    } else {
+                        l10n.desktop_menu_show_sidebar()
+                    },
                 )
                 .size(30., 16.)
                 .round()
@@ -3325,14 +3336,23 @@ impl Render for ChatPane {
                     );
                 }
                 toolbar = toolbar.trailing(
-                    IconButton::new("chat-more", IconName::Ellipsis, l10n.more())
-                        .size(30., 16.)
-                        .round()
-                        .on_click(Rc::new(move |e, window, cx| {
-                            let position = e.position();
-                            let id = chat_id.clone();
-                            show_chat_menu(id, position, window, cx);
-                        })),
+                    IconButton::new(
+                        "chat-more",
+                        // GNOME's chat menu is ⋮, beside its window controls.
+                        if gnome {
+                            IconName::EllipsisVertical
+                        } else {
+                            IconName::Ellipsis
+                        },
+                        l10n.more(),
+                    )
+                    .size(30., 16.)
+                    .round()
+                    .on_click(Rc::new(move |e, window, cx| {
+                        let position = e.position();
+                        let id = chat_id.clone();
+                        show_chat_menu(id, position, window, cx);
+                    })),
                 );
             }
             Some(_) => {}

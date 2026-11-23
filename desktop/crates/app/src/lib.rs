@@ -1174,6 +1174,14 @@ pub(crate) fn open_main(cx: &mut App) {
     };
     let mut options = cw::window_options("Conduit", rect, true, true);
     options.window_bounds = Some(bounds);
+    // GNOME-style header bars are the window's frame. The window manager
+    // may frame it anyway (no compositor); the chrome then draws no
+    // window controls.
+    if conduit_components::chrome::ChromeStyle::native()
+        == Some(conduit_components::chrome::ChromeStyle::Gnome)
+    {
+        options.window_decorations = Some(gpui_kit::WindowDecorations::Client);
+    }
     match cw::open_window_clear_root(options, cx, |window, cx| {
         cx.new(|cx| MainWindow::new(stores, settings, layout, window, cx))
     }) {

@@ -45,6 +45,9 @@ pub struct Report {
     pub controls: Vec<Control>,
     pub articles: Vec<String>,
     pub failures: Vec<String>,
+    /// What a screen reader is on: the active descendant's label, when one
+    /// is claimed under the focused node.
+    pub active: Option<String>,
     pub error: Option<String>,
 }
 
@@ -56,6 +59,7 @@ impl Report {
             controls: vec![],
             articles: vec![],
             failures: vec![],
+            active: None,
             error: Some(message.to_string()),
         }
     }
@@ -74,12 +78,19 @@ pub fn check(screen: &str, json: &str) -> Report {
     let Some(nodes) = doc.get("nodes").and_then(Value::as_object) else {
         return Report::error(screen, "tree JSON has no nodes");
     };
+    let active = doc
+        .get("active_descendant_focus")
+        .and_then(Value::as_str)
+        .and_then(|key| nodes.get(key))
+        .and_then(|node| node.get("aria")?.get("label")?.as_str())
+        .map(str::to_string);
     let mut report = Report {
         screen: screen.to_string(),
         nodes: nodes.len(),
         controls: vec![],
         articles: vec![],
         failures: vec![],
+        active,
         error: None,
     };
     for (key, node) in nodes {

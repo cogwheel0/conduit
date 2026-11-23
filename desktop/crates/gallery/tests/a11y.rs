@@ -111,3 +111,17 @@ fn screens_4_5_and_8_are_voiceover_operable() {
         assert_eq!(labels(&palette, "ListBoxOption").len(), results, "{screen}");
     }
 }
+
+#[test]
+fn a_screen_reader_follows_the_menus_highlight_into_a_submenu() {
+    if std::env::var_os("CONDUIT_SKIP_UI_TESTS").is_some() {
+        eprintln!("skipped: CONDUIT_SKIP_UI_TESTS is set");
+        return;
+    }
+    // Windows' ☰ with View's submenu open from a hovered row: the screen
+    // reader is on the submenu's highlighted row, not on View.
+    let windows = run("chrome-windows-menu");
+    assert_eq!(windows["active"], "Search Chats and Commands\u{2026}");
+    let gnome = run("chrome-gnome-menu-submenu");
+    assert_eq!(gnome["active"], "Conduit Help");
+}

@@ -8,11 +8,12 @@ use gpui_kit::{
 };
 
 use crate::assets::{IconName, icon};
+use crate::chrome::{self, Chrome, ChromeStyle};
 use crate::strings::ActiveStrings as _;
 use crate::theme::{ActiveConduitTheme, ToolbarLayout, ui_font, with_alpha};
 use crate::views::focus::{ControlExt as _, Ring};
 use crate::views::kit::{IconButton, heading};
-use crate::window::{TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, drag_region};
+use crate::window::{TOOLBAR_HEIGHT, leading_room, trailing_room};
 
 /// Width of the chat column's text.
 pub const CHAT_COLUMN: f32 = 720.;
@@ -55,6 +56,8 @@ impl MainWindowFrame {
 
 impl RenderOnce for MainWindowFrame {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let chrome = chrome::active(cx).cloned();
+        let corners = chrome.as_ref().map(Chrome::corners).unwrap_or_default();
         let t = cx.conduit();
         let st = cx.strings().clone();
         let r = t.roles;
@@ -108,10 +111,27 @@ impl RenderOnce for MainWindowFrame {
                     .flex()
                     .flex_col()
                     .bg(r.content)
+                    .rounded_tr(px(corners.top_right))
+                    .rounded_br(px(corners.bottom_right))
+                    .when(!has_sidebar, |d| {
+                        d.rounded_tl(px(corners.top_left))
+                            .rounded_bl(px(corners.bottom_left))
+                    })
                     .when(has_sidebar, |d| d.border_l_1().border_color(r.divider))
                     .child(self.content),
             )
+            .children(chrome.map(|c| chrome::corner_controls(&c, has_sidebar)))
             .children(self.overlays)
+    }
+}
+
+/// A toolbar's capsule: raised on the Mac and Windows; GNOME's header bars
+/// draw their buttons flat.
+fn header_capsule(t: &crate::ConduitTheme, cx: &App) -> Div {
+    if chrome::style(cx) == Some(ChromeStyle::Gnome) {
+        div().flex().items_center()
+    } else {
+        toolbar_capsule(t)
     }
 }
 
@@ -297,7 +317,7 @@ impl RenderOnce for TitlePill {
         if let Some(face) = self.face {
             // The phone's bot header: the bot's face and name, nothing to
             // pick.
-            return toolbar_capsule(&t)
+            return header_capsule(&t, cx)
                 .id("bot-title")
                 .role(Role::Heading)
                 .aria_label(self.label)
@@ -320,7 +340,7 @@ impl RenderOnce for TitlePill {
                 .into_any_element();
         }
         let has_title = self.title.is_some();
-        toolbar_capsule(&t)
+        header_capsule(&t, cx)
             .id("model-picker")
             .role(Role::Button)
             .aria_label(self.label)
@@ -504,12 +524,21 @@ impl ChatToolbar {
 }
 
 impl RenderOnce for ChatToolbar {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = cx.conduit().clone();
         let st = cx.strings().clone();
         let r = t.roles;
         let m = t.metrics;
         let has_title = !self.title.is_empty();
+        let style = chrome::style(cx);
+        // Off the Mac the toolbar takes presses as the title bar's (Windows'
+        // caption; GNOME's drag and double-click), so each control in it
+        // blocks that. GNOME draws its header bar flat.
+        let blocks = style.is_some();
+        let gnome = style == Some(ChromeStyle::Gnome);
+        let sidebar_hidden = self.inset_for_traffic_lights || self.leading_reveal.is_some();
+        let lead_room = leading_room(cx);
+        let trailing_pad = trailing_room(!sidebar_hidden, cx);
         if t.prefs.toolbar == ToolbarLayout::Pill {
             let pill = self.pill.unwrap_or_else(|| {
                 TitlePill::new(self.model.clone(), format!("Model: {}", self.model))
@@ -519,6 +548,14 @@ impl RenderOnce for ChatToolbar {
             });
             let trailing: Vec<AnyElement> = if self.bare || !self.trailing.is_empty() {
                 self.trailing
+            } else if gnome {
+                // The chat's menu; New Chat is the sidebar's header bar's.
+                vec![
+                    IconButton::new("chat-more", IconName::EllipsisVertical, st.more.clone())
+                        .size(30., 16.)
+                        .round()
+                        .into_any_element(),
+                ]
             } else {
                 vec![
                     IconButton::new("new-chat-toolbar", IconName::SquarePen, st.new_chat.clone())
@@ -531,7 +568,7 @@ impl RenderOnce for ChatToolbar {
                         .into_any_element(),
                 ]
             };
-            return drag_region("chat-toolbar")
+            return chrome::header_drag("chat-toolbar", style, window, cx)
                 .role(Role::Toolbar)
                 .aria_label(st.chat_toolbar.clone())
                 .relative()
@@ -542,15 +579,16 @@ impl RenderOnce for ChatToolbar {
                 .gap(px(8.))
                 .pl(px(match self.leading_reveal {
                     Some((inset, _)) => inset,
-                    None if self.inset_for_traffic_lights => TRAFFIC_LIGHTS_WIDTH + 8.,
+                    None if self.inset_for_traffic_lights => lead_room + 8.,
                     None => 10.,
                 }))
-                .pr(px(10.))
+                .pr(px(10. + trailing_pad))
                 .when(self.scrolled, |d| d.border_b_1().border_color(r.divider))
                 .when_some(self.leading, |d, leading| {
                     let opacity = self.leading_reveal.map_or(1., |(_, o)| o);
                     d.child(
-                        toolbar_capsule(&t)
+                        header_capsule(&t, cx)
+                            .when(blocks, |d| d.occlude())
                             .p(px(2.))
                             .opacity(opacity)
                             .child(leading),
@@ -569,7 +607,7 @@ impl RenderOnce for ChatToolbar {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(pill),
+                        .child(div().flex_none().when(blocks, |d| d.occlude()).child(pill)),
                 )
                 .child(div().flex_1())
                 // A status, not a control: the glyph and words in the
@@ -592,7 +630,13 @@ impl RenderOnce for ChatToolbar {
                     )
                 })
                 .when(!trailing.is_empty(), |d| {
-                    d.child(toolbar_capsule(&t).p(px(2.)).gap(px(2.)).children(trailing))
+                    d.child(
+                        header_capsule(&t, cx)
+                            .when(blocks, |d| d.occlude())
+                            .p(px(2.))
+                            .gap(px(2.))
+                            .children(trailing),
+                    )
                 })
                 .into_any_element();
         }
@@ -629,7 +673,7 @@ impl RenderOnce for ChatToolbar {
                 })
                 .into_any_element(),
         };
-        drag_region("chat-toolbar")
+        chrome::header_drag("chat-toolbar", style, window, cx)
             .role(Role::Toolbar)
             .aria_label(st.chat_toolbar.clone())
             .h(px(TOOLBAR_HEIGHT))
@@ -637,15 +681,21 @@ impl RenderOnce for ChatToolbar {
             .flex()
             .items_center()
             .gap(px(8.))
-            .pl(px(if self.inset_for_traffic_lights {
-                TRAFFIC_LIGHTS_WIDTH + 8.
-            } else {
-                10.
+            .pl(px(match self.leading_reveal {
+                Some((inset, _)) if style.is_some() => inset,
+                _ if self.inset_for_traffic_lights => lead_room + 8.,
+                _ => 10.,
             }))
-            .pr(px(12.))
+            .pr(px(12. + trailing_pad))
             .when(self.scrolled, |d| d.border_b_1().border_color(r.divider))
-            .children(self.leading)
-            .child(leading)
+            .map(|d| {
+                if blocks {
+                    d.children(self.leading.map(|l| div().flex_none().occlude().child(l)))
+                        .child(div().min_w_0().occlude().child(leading))
+                } else {
+                    d.children(self.leading).child(leading)
+                }
+            })
             .child(div().flex_1())
             .when_some(self.note, |d, note| {
                 d.child(
@@ -686,24 +736,25 @@ impl RenderOnce for ChatToolbar {
                 )
             })
             .when(!self.bare, |d| {
-                d.child(
+                let button = |b: IconButton| div().when(blocks, |d| d.occlude()).child(b);
+                d.child(button(
                     IconButton::new(
                         "temporary-chat",
                         IconName::ClockFading,
                         st.temporary_chat.clone(),
                     )
                     .active(self.temporary),
-                )
-                .child(IconButton::new(
+                ))
+                .child(button(IconButton::new(
                     "share-chat",
                     IconName::Share,
                     st.share_chat.clone(),
-                ))
-                .child(IconButton::new(
+                )))
+                .child(button(IconButton::new(
                     "chat-more",
                     IconName::Ellipsis,
                     st.more.clone(),
-                ))
+                )))
             })
             .into_any_element()
     }
