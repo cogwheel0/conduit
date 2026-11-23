@@ -23,7 +23,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 import 'support/scripted_openai.dart';
 import 'support/window.dart';
 
@@ -104,7 +104,7 @@ void main() {
   setUpAll(() async {
     TurnsService.lingerAfterTurn = const Duration(milliseconds: 300);
     temporary = Directory.systemTemp.createTempSync('turns-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     provider = await ScriptedOpenAi.start();
     final direct = DirectService(runtime.container);
     await direct.setPreferred(preferred: true);

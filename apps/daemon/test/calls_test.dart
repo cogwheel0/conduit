@@ -22,7 +22,7 @@ import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
 import 'support/call_window.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 import 'support/scripted_openai.dart';
 
 /// `calls.*`: a voice call runs in the daemon, in its chat's scope; a fake
@@ -45,7 +45,7 @@ void main() {
   setUpAll(() async {
     TurnsService.lingerAfterTurn = const Duration(milliseconds: 300);
     temporary = Directory.systemTemp.createTempSync('calls-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     provider = await ScriptedOpenAi.start();
     final direct = DirectService(runtime.container);
     await direct.setPreferred(preferred: true);

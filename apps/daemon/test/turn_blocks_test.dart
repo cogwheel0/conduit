@@ -10,7 +10,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/mcp_fixture.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 import 'support/thinking_openai.dart';
 import 'support/window.dart';
 
@@ -77,7 +77,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('turn-blocks-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     mcpServer = await McpFixture.start(requiredToken: 'mcp-token');
     provider = await ThinkingOpenAi.start();
     final direct = DirectService(runtime.container);

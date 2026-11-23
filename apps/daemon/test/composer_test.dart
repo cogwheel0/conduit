@@ -22,7 +22,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_openai.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// What the composer holds and draws on, past the protocol: its draft kept
 /// per chat, a message's mentions in Open WebUI's wire format, an upload's
@@ -258,7 +258,7 @@ void main() {
 
     setUpAll(() async {
       temporary = Directory.systemTemp.createTempSync('composer-test');
-      runtime = await startTestRuntime(temporary);
+      runtime = await startTestCore(temporary);
       provider = await FakeOpenAi.start();
       final direct = DirectService(runtime.container);
       await direct.setPreferred(preferred: true);

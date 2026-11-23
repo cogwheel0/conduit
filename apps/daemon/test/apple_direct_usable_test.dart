@@ -8,7 +8,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// With no Open WebUI account, Apple's on-device model alone carries the
 /// app when the Mac's model answers: the core hands a signed-out window
@@ -20,7 +20,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('apple-direct-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
   });
 
   tearDownAll(() async {

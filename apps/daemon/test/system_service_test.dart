@@ -7,7 +7,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// `system.handshake`'s onboarding answer and `system.shutdown`, without a
 /// socket in the way.

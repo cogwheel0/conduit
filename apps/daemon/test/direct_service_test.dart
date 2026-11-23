@@ -8,7 +8,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// `direct.*` over the real core: profiles land in the daemon's
 /// secure store, and nothing secret ever comes back out.
@@ -19,7 +19,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('direct-service-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     direct = DirectService(runtime.container);
   });
 

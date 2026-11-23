@@ -9,7 +9,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/mcp_fixture.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// `mcp.*` over the real core, against a real MCP server on a
 /// loopback port.
@@ -21,7 +21,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('mcp-service-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     mcp = McpService(runtime.container);
     fixture = await McpFixture.start(requiredToken: 'mcp-secret-token');
   });

@@ -30,7 +30,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_hermes_server.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 import 'support/window.dart';
 
 /// Hermes Agent, against a fake of its API server: the connection,
@@ -59,7 +59,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('hermes-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     hermesServer = await FakeHermesServer.start();
   });
 

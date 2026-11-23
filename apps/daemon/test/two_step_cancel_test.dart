@@ -11,7 +11,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// Back to Sign In while the core is still checking the session a second
 /// step issued: the core's own commit refuses it, so nobody is signed in,
@@ -29,7 +29,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('two-step-cancel-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     owui = await FakeOwuiAuthServer.start(
       users: const {
         'robin@example.com': (

@@ -8,7 +8,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/local_owui.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 import 'support/totp.dart';
 
 /// Signs in to a local Open WebUI with two-step verification on, through
@@ -39,7 +39,7 @@ void main() {
 
       setUpAll(() async {
         temporary = Directory.systemTemp.createTempSync('conduitd-two-step');
-        runtime = await startTestRuntime(temporary);
+        runtime = await startTestCore(temporary);
         accounts = AccountsService(runtime.container, events: EventBus());
         auth = AuthService(runtime.container);
         await auth.status();

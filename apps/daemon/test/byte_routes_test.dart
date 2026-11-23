@@ -10,7 +10,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// The byte routes and tunnels with no HTTP server: what each answers, as
 /// the daemon's shelf adapter passes it on. The token and origin gate is
@@ -25,7 +25,7 @@ void main() {
   setUp(() async {
     final temporary = Directory.systemTemp.createTempSync('conduitd_bytes');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     addTearDown(runtime.dispose);
     services = ProtocolServices(
       events: EventBus(),

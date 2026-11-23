@@ -22,7 +22,7 @@ import 'package:test/test.dart';
 
 import 'support/fake_librechat_chat.dart';
 import 'support/fake_owui_auth_server.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 import 'support/step_clock.dart';
 
 /// The answers an address change waits for or stops: the Open WebUI ones,
@@ -127,7 +127,7 @@ void main() {
   Future<void> signIn({String version = '0.13.1'}) async {
     final temporary = Directory.systemTemp.createTempSync('turns-address');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     addTearDown(runtime.dispose);
     owui =
         await FakeOwuiAuthServer.start(
