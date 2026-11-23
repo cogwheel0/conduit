@@ -86,7 +86,8 @@ final class ProtocolHostPorts {
   /// Never a provider the scope already overrides, those of
   /// `chatSessionScopeOverrides` and the ones [TurnsService] binds there
   /// (`chatVoiceSendProvider`, `chatDraftQueueSendProvider`,
-  /// `chatDraftQueueAdmissionWaitProvider`, `composerTextInsertionProvider`):
+  /// `chatTurnGateSettingsProvider`, `chatTurnHostHoldsProvider`,
+  /// `composerTextInsertionProvider`):
   /// Riverpod refuses a provider overridden twice in one container.
   final List<Override> Function()? chatScopeOverrides;
 }

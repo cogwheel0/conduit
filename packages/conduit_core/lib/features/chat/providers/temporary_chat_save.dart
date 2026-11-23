@@ -1,6 +1,7 @@
 // Saving a temporary chat to Open WebUI: the local-only transcript becomes a
 // server conversation and the chat leaves temporary mode. The chat page
 // calls it; the rules are tested here without Flutter.
+import 'package:conduit_core/features/chat/services/chat_turn_gate.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -40,13 +41,26 @@ String temporaryChatTitle(List<ChatMessage> messages) {
 ///
 /// The save is dropped ([TemporaryChatSaveOutcome.skipped]) if the chat,
 /// the API client or the Open WebUI session changes on the way.
+///
+/// The chat is held meanwhile ([chatTurnHoldsProvider]): a queued batch would
+/// go to the temporary chat being replaced.
 Future<TemporaryChatSaveOutcome> saveTemporaryChat(
   dynamic ref, {
   bool Function()? isCurrentOwner,
-}) async {
+}) {
   if (ref.read(isChatStreamingProvider) == true) {
-    return TemporaryChatSaveOutcome.skipped;
+    return Future.value(TemporaryChatSaveOutcome.skipped);
   }
+  return (ref.read(chatTurnHoldsProvider.notifier) as ChatTurnHolds).holding(
+    (ref.read(activeConversationProvider) as Conversation?)?.id,
+    () => _saveTemporaryChat(ref, isCurrentOwner),
+  );
+}
+
+Future<TemporaryChatSaveOutcome> _saveTemporaryChat(
+  dynamic ref,
+  bool Function()? isCurrentOwner,
+) async {
   // Typed: `ref` is dynamic, and an untyped Conversation would take
   // `const []` below as a List<dynamic>.
   final Conversation? source = ref.read(activeConversationProvider);
