@@ -12,6 +12,8 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
     show directModelRegistryProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_model_providers.dart'
+    show libreChatModelCatalogProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatMutationOwnerToken,
@@ -22,6 +24,10 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show primaryAccountKindProvider;
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountKind;
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -41,6 +47,17 @@ Future<Model?> modelSavedWithChat(
   bool current() => isCurrent?.call() ?? true;
   final registry = read(directModelRegistryProvider);
   final api = read(apiServiceProvider);
+  // The list does not wait for LibreChat's catalog: with LibreChat in
+  // charge, a chat saved on one of its models is looked for once the
+  // catalog has arrived, as a send waits for it ([modelForUnpickedSend]).
+  if (read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+    try {
+      await read(libreChatModelCatalogProvider.future);
+    } catch (_) {
+      // A refresh that failed keeps the models it last listed.
+    }
+    if (!current()) return null;
+  }
   final List<Model> visible = await read(modelsProvider.future);
   if (!current()) return null;
   final listed =

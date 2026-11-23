@@ -1778,6 +1778,56 @@ void main() {
     check(await picking).equals(chosen.id);
   });
 
+  test("with LibreChat in charge, a chat's saved LibreChat model is found "
+      'once the catalog arrives', () async {
+    final libreChatModels = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'Sample': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'Sample': <String>['sample-model', 'saved-model'],
+      },
+    );
+    final saved = libreChatModels.last;
+    final catalog = Completer<List<core.Model>>();
+    final container = ProviderContainer(
+      overrides: [
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        openWebUiAccountAvailableProvider.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        libreChatModelCatalogProvider.overrideWith((ref) => catalog.future),
+        modelsProvider.overrideWith(() => _BesideLibreChat(const [_cached])),
+        defaultModelProvider.overrideWith(
+          (ref) async => throw StateError('settings unavailable'),
+        ),
+        loadConversationProvider.overrideWith(
+          (ref, id) async => Conversation(
+            id: id,
+            title: 'Harbour notes',
+            createdAt: DateTime.utc(2026, 3, 1),
+            updatedAt: DateTime.utc(2026, 3, 1),
+            model: saved.id,
+          ),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(modelsProvider, (_, _) {});
+    await container.read(modelsProvider.future);
+
+    final models = ModelsService(container);
+    final turn = models.modelFor('lc-chat');
+    final listing = models.list(const ModelListQuery(chatId: 'lc-chat'));
+    await pumpEventQueue();
+    catalog.complete(libreChatModels);
+    check(await turn).equals(saved.id);
+    check((await listing).selectedId).equals(saved.id);
+  });
+
   test(
     'a reasoning pick asked under one account is not made under the next',
     () async {
