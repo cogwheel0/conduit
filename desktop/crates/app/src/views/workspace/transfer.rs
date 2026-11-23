@@ -34,15 +34,6 @@ fn hook(cx: &App) -> TransferHook {
     cx.try_global::<TransferHook>().cloned().unwrap_or_default()
 }
 
-/// `~/Downloads`, or home.
-fn downloads() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"));
-    let downloads = home.join("Downloads");
-    if downloads.is_dir() { downloads } else { home }
-}
-
 /// The file's bytes: JSON text, or a zip sent as base64.
 pub fn bytes_of(file: &WorkspaceExportFile) -> Option<Vec<u8>> {
     match (&file.text, &file.base64) {
@@ -127,9 +118,12 @@ fn export(
             let path = match hook.export_dir {
                 Some(dir) => dir.join(&file.filename),
                 None => {
-                    let Ok(asked) = cx
-                        .update(|_, cx| cx.prompt_for_new_path(&downloads(), Some(&file.filename)))
-                    else {
+                    let Ok(asked) = cx.update(|_, cx| {
+                        cx.prompt_for_new_path(
+                            &conduit_daemon::paths::downloads(),
+                            Some(&file.filename),
+                        )
+                    }) else {
                         return;
                     };
                     let Ok(Ok(Some(path))) = asked.await else {

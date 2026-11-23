@@ -1704,7 +1704,7 @@ impl NotePane {
     }
 
     fn download(&mut self, file: FileRef, name: String, cx: &mut Context<Self>) {
-        let downloads = dirs_downloads();
+        let downloads = conduit_daemon::paths::downloads();
         let ask = cx.prompt_for_new_path(&downloads, Some(&name));
         let staged = stage_file(file, &name, cx);
         let toasts = self.stores.toasts.clone();
@@ -3091,12 +3091,6 @@ pub fn normalize_url(url: String) -> String {
     } else {
         format!("https://{url}")
     }
-}
-
-fn dirs_downloads() -> std::path::PathBuf {
-    std::env::var_os("HOME")
-        .map(|h| std::path::PathBuf::from(h).join("Downloads"))
-        .unwrap_or_else(std::env::temp_dir)
 }
 
 /// Uploads `path` through the daemon's `/upload`.

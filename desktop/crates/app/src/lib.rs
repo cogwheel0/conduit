@@ -60,6 +60,8 @@ use std::path::PathBuf;
 
 use conduit_components::window as cw;
 use conduit_daemon::paths::{self, AppPaths, Flavor};
+#[cfg(target_os = "linux")]
+use conduit_daemon::secrets::SecretError;
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Entity, Global, WindowAppearance, px, size,
 };
@@ -133,12 +135,12 @@ pub fn is_scripted(args: &[String]) -> bool {
 /// never touches a profile the caller did not name, or the user's own.
 pub fn harness_profile(
     named: Option<PathBuf>,
-    ordinary: &std::path::Path,
+    ordinary: Option<&std::path::Path>,
     scratch: &std::path::Path,
 ) -> Result<PathBuf, String> {
     match named {
         Some(named) => {
-            if same_folder(&named, ordinary) {
+            if ordinary.is_some_and(|ordinary| same_folder(&named, ordinary)) {
                 Err(format!(
                     "{} is the app's own profile; name a test profile in CONDUIT_USER_DATA",
                     named.display()
@@ -159,15 +161,18 @@ fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
 
 /// The app's own profile for `flavor` (`~/Library/Application Support/
 /// Conduit Dev`, or `Conduit`, on the Mac), which no scripted run may use.
-pub fn app_profile(flavor: Flavor) -> PathBuf {
-    AppPaths::standard(paths::Os::CURRENT, flavor, &|key| std::env::var_os(key)).user_data
+/// `None` with no home folder, where the app has no profile.
+pub fn app_profile(flavor: Flavor) -> Option<PathBuf> {
+    AppPaths::standard(paths::Os::CURRENT, flavor, &paths::System)
+        .ok()
+        .map(|paths| paths.user_data)
 }
 
 /// Whether a scripted pass (E2E, capture) may reset the profile at
 /// `paths`: never the app's own. The passes check it before every reset,
 /// on top of `run()` never giving them that profile.
 pub fn may_reset_profile(paths: &AppPaths) -> bool {
-    !same_folder(&paths.user_data, &app_profile(paths.flavor))
+    app_profile(paths.flavor).is_some_and(|own| !same_folder(&paths.user_data, &own))
 }
 
 /// The Keychain service of a scripted run's master key: never the app's own.
@@ -175,74 +180,114 @@ fn harness_service(flavor: Flavor) -> String {
     format!("{}.harness", flavor.keychain_service())
 }
 
-/// The master key from the Keychain (Credential Manager on Windows, the
-/// Secret Service on Linux), created on first run. The packaged Mac app
-/// first finds out, without a prompt, whether reading it would make macOS
-/// ask for the login keychain password, and then the window asks first.
-fn master_key(paths: &AppPaths, scripted: bool) -> MasterKey {
-    use conduit_daemon::secrets::{MasterKeyStore, load_or_create_master_key};
-    let service = if scripted {
+/// The service a run's master key is stored under.
+fn key_service(paths: &AppPaths, scripted: bool) -> String {
+    if scripted {
         harness_service(paths.flavor)
     } else {
         paths.flavor.keychain_service()
-    };
-    #[cfg(target_os = "macos")]
-    let store: Box<dyn MasterKeyStore> = {
-        use crate::stores::connection::KeychainChoice;
-        use conduit_daemon::secrets::{
-            Keychain, KeychainItems, MASTER_KEY_ACCOUNT, MasterKeyCheck, SecurityCli,
-            check_master_key, profile_key,
-        };
-        match paths.flavor {
-            // Dev builds go through /usr/bin/security so a rebuilt
-            // (re-hashed) binary never meets a Keychain prompt; see
-            // conduit_daemon::secrets.
-            Flavor::Dev => Box::new(SecurityCli::new(service)),
-            // A scripted run never shows the keychain card.
-            Flavor::Production if scripted => Box::new(Keychain::new(service, MASTER_KEY_ACCOUNT)),
-            Flavor::Production => {
-                let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &|key| {
-                    std::env::var_os(key)
-                });
-                let items = KeychainItems::new(service);
-                let profile = match profile_key(&paths.user_data) {
-                    Ok(profile) => profile,
-                    Err(e) => return MasterKey::Failed(e.to_string()),
-                };
-                let check = check_master_key(&items, &profile);
-                let choice = |missing| KeychainChoice {
-                    items: std::sync::Arc::new(items),
-                    account: profile.account.clone(),
-                    lock,
-                    missing,
-                };
-                return match check {
-                    Ok(MasterKeyCheck::Ready(key)) => MasterKey::Ready(key),
-                    Ok(MasterKeyCheck::WouldPrompt) => MasterKey::WouldPrompt(choice(false)),
-                    Ok(MasterKeyCheck::Missing) => MasterKey::WouldPrompt(choice(true)),
-                    Err(e) => MasterKey::Failed(e.to_string()),
-                };
-            }
-        }
-    };
-    // Off the Mac a first key is written holding the service's lock, so two
-    // first launches, whatever their profiles, never both store theirs.
-    #[cfg(any(windows, target_os = "linux"))]
-    let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &|key| std::env::var_os(key));
-    #[cfg(windows)]
-    let store: Box<dyn MasterKeyStore> = Box::new(conduit_daemon::secrets::LockedStore::new(
-        conduit_daemon::secrets::CredentialManager::new(service),
-        lock,
-    ));
-    #[cfg(target_os = "linux")]
-    let store: Box<dyn MasterKeyStore> = Box::new(conduit_daemon::secrets::LockedStore::new(
-        conduit_daemon::secrets::SecretService::new(service),
-        lock,
-    ));
-    match load_or_create_master_key(store.as_ref()) {
-        Ok(key) => MasterKey::Ready(key),
-        Err(e) => MasterKey::Failed(e.to_string()),
     }
+}
+
+/// The master key from the Keychain (Credential Manager on Windows, the
+/// Secret Service on Linux, or there the key file the user chose), created
+/// on first run. The packaged Mac app first finds out, without a prompt,
+/// whether reading it would make macOS ask for the login keychain
+/// password, and then the window asks first. Retry asks again.
+fn master_key(paths: &AppPaths, scripted: bool) -> MasterKey {
+    #[cfg(target_os = "linux")]
+    {
+        linux_master_key(paths, scripted, false).into()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        use conduit_daemon::secrets::{MasterKeyStore, load_or_create_master_key};
+        let service = key_service(paths, scripted);
+        #[cfg(target_os = "macos")]
+        let store: Box<dyn MasterKeyStore> = {
+            use crate::stores::connection::KeychainChoice;
+            use conduit_daemon::secrets::{
+                Keychain, KeychainItems, MASTER_KEY_ACCOUNT, MasterKeyCheck, SecurityCli,
+                check_master_key, profile_key,
+            };
+            match paths.flavor {
+                // Dev builds go through /usr/bin/security so a rebuilt
+                // (re-hashed) binary never meets a Keychain prompt; see
+                // conduit_daemon::secrets.
+                Flavor::Dev => Box::new(SecurityCli::new(service)),
+                // A scripted run never shows the keychain card.
+                Flavor::Production if scripted => {
+                    Box::new(Keychain::new(service, MASTER_KEY_ACCOUNT))
+                }
+                Flavor::Production => {
+                    let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
+                    let items = KeychainItems::new(service);
+                    let profile = match profile_key(&paths.user_data) {
+                        Ok(profile) => profile,
+                        Err(e) => return MasterKey::Failed(e),
+                    };
+                    let check = check_master_key(&items, &profile);
+                    let choice = |missing| KeychainChoice {
+                        items: std::sync::Arc::new(items),
+                        account: profile.account.clone(),
+                        lock,
+                        missing,
+                    };
+                    return match check {
+                        Ok(MasterKeyCheck::Ready(key)) => MasterKey::Ready(key),
+                        Ok(MasterKeyCheck::WouldPrompt) => MasterKey::WouldPrompt(choice(false)),
+                        Ok(MasterKeyCheck::Missing) => MasterKey::WouldPrompt(choice(true)),
+                        Err(e) => MasterKey::Failed(e),
+                    };
+                }
+            }
+        };
+        // A first key is written holding the service's lock, so two first
+        // launches, whatever their profiles, never both store theirs.
+        #[cfg(windows)]
+        let store: Box<dyn MasterKeyStore> = {
+            let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
+            Box::new(conduit_daemon::secrets::LockedStore::new(
+                conduit_daemon::secrets::CredentialManager::new(service),
+                lock,
+            ))
+        };
+        load_or_create_master_key(store.as_ref()).into()
+    }
+}
+
+/// D12: the master key once the user chose the key file. It is chosen as
+/// at start-up (`conduit_daemon::secrets::linux_master_key`): a key file
+/// already there wins, a keyring that answers keeps the key, and only with
+/// no keyring at all is the key file made.
+#[cfg(target_os = "linux")]
+fn key_file_master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
+    linux_master_key(paths, scripted, true)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_master_key(
+    paths: &AppPaths,
+    scripted: bool,
+    make_file: bool,
+) -> Result<String, SecretError> {
+    use conduit_daemon::secrets::{KeyFile, SecretService};
+    let service = key_service(paths, scripted);
+    let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
+    let file = KeyFile::new(
+        paths::master_key_file(&service, &paths::System)
+            .map_err(|e| SecretError::Store(e.to_string()))?,
+    );
+    let key = conduit_daemon::secrets::linux_master_key(
+        &SecretService::new(service),
+        &file,
+        &lock,
+        make_file,
+    );
+    if key.is_ok() && file.chosen() == Ok(true) {
+        log::warn!("the master key is in a key file: {}", file.path.display());
+    }
+    key
 }
 
 /// Bytes only a build with the test harness carries: the packaging scripts
@@ -303,7 +348,15 @@ pub fn run() {
         return;
     }
     let flavor = Flavor::detect();
-    let mut app_paths = AppPaths::for_flavor(flavor);
+    // With no home folder there is no private place for the profile or its
+    // key, and a shared one (the temporary folder) is never used instead.
+    let mut app_paths = match AppPaths::for_flavor(flavor) {
+        Ok(paths) => paths,
+        Err(e) => {
+            eprintln!("conduit-desktop: {e}");
+            std::process::exit(1);
+        }
+    };
     // A scripted run gets its own profile, logs and Keychain item.
     let scripted_run = is_scripted(&args);
     if scripted_run {
@@ -315,7 +368,7 @@ pub fn run() {
             std::env::temp_dir().join(format!("conduit-harness-{}-{stamp}", std::process::id()));
         let named = std::env::var_os("CONDUIT_USER_DATA").map(PathBuf::from);
         let fresh = named.is_none();
-        match harness_profile(named, &ordinary, &scratch) {
+        match harness_profile(named, ordinary.as_deref(), &scratch) {
             Ok(user_data) => app_paths.user_data = user_data,
             Err(e) => {
                 eprintln!("conduit-desktop: {e}");
@@ -455,7 +508,20 @@ pub fn run() {
             ConnectionOptions {
                 paths: app_paths.clone(),
                 binary: paths::locate_daemon(),
-                master_key: master_key(&app_paths, scripted_run),
+                master_key: {
+                    let paths = app_paths.clone();
+                    std::sync::Arc::new(move || master_key(&paths, scripted_run))
+                },
+                #[cfg(target_os = "linux")]
+                key_file: {
+                    let paths = app_paths.clone();
+                    Some(std::sync::Arc::new(move || {
+                        key_file_master_key(&paths, scripted_run).into()
+                    }))
+                },
+                #[cfg(not(target_os = "linux"))]
+                key_file: None,
+                key_in_background: cfg!(target_os = "linux"),
                 locale: locale::bcp47(settings.read(cx).locale()),
                 client_version: VERSION.into(),
             },
@@ -1082,15 +1148,15 @@ mod harness_profile_tests {
         let scratch = std::path::Path::new("/tmp/conduit-harness-1");
         // None named: a fresh one, never the app's own.
         assert_eq!(
-            harness_profile(None, ordinary, scratch).unwrap(),
+            harness_profile(None, Some(ordinary), scratch).unwrap(),
             scratch.join("user-data")
         );
         // The app's own profile, named: refused.
-        assert!(harness_profile(Some(ordinary.to_path_buf()), ordinary, scratch).is_err());
+        assert!(harness_profile(Some(ordinary.to_path_buf()), Some(ordinary), scratch).is_err());
         // Another profile the caller named: that one.
         let named = std::path::PathBuf::from("/tmp/e2e-profile-7");
         assert_eq!(
-            harness_profile(Some(named.clone()), ordinary, scratch).unwrap(),
+            harness_profile(Some(named.clone()), Some(ordinary), scratch).unwrap(),
             named
         );
         assert_eq!(
@@ -1103,7 +1169,9 @@ mod harness_profile_tests {
             user_data,
             logs: PathBuf::from("/tmp/logs"),
         };
-        assert!(!may_reset_profile(&paths(app_profile(Flavor::Dev))));
+        assert!(!may_reset_profile(&paths(
+            app_profile(Flavor::Dev).unwrap()
+        )));
         assert!(may_reset_profile(&paths(scratch.join("user-data"))));
     }
 }

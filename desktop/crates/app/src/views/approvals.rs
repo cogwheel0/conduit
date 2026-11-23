@@ -1484,8 +1484,7 @@ mod answer_tests {
     }
 }
 
-// Built on the Mac harness's fixture stores (`crate::fixture`).
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod replay_tests {
     use std::collections::BTreeMap;
 
@@ -1558,7 +1557,7 @@ mod replay_tests {
             cx.set_global(conduit_components::Strings::default());
             cx.set_global(L10n::new("en"));
         });
-        let stores = cx.update(|cx| crate::fixture::stores(rpc, &scratch, cx));
+        let stores = cx.update(|cx| Stores::for_test(rpc, &scratch, cx));
         let s = stores.clone();
         let (view, vcx) = cx.add_window_view(move |window, cx| ApprovalsView::new(s, window, cx));
         let mut held = hermes("m", UiRequestKind::HermesModelSwitch, "", json!({}));
@@ -1616,7 +1615,7 @@ mod replay_tests {
             cx.set_global(conduit_components::Strings::default());
             cx.set_global(L10n::new("en"));
         });
-        let stores = cx.update(|cx| crate::fixture::stores(rpc, &scratch, cx));
+        let stores = cx.update(|cx| Stores::for_test(rpc, &scratch, cx));
         let s = stores.clone();
         let (view, vcx) = cx.add_window_view(move |window, cx| ApprovalsView::new(s, window, cx));
         let mut held = hermes("m", UiRequestKind::HermesModelSwitch, "", json!({}));
@@ -1692,7 +1691,7 @@ mod replay_tests {
             cx.set_global(conduit_components::Strings::default());
             cx.set_global(L10n::new("en"));
         });
-        let stores = cx.update(|cx| crate::fixture::stores(rpc, &scratch, cx));
+        let stores = cx.update(|cx| Stores::for_test(rpc, &scratch, cx));
         let requests = stores.ui_requests.clone();
         let (view, vcx) =
             cx.add_window_view(move |window, cx| ApprovalsView::new(stores, window, cx));
@@ -1707,7 +1706,7 @@ mod replay_tests {
                 )
             });
             draw(vcx);
-            let secret = view.read_with(vcx, |v, _| v.secret_input());
+            let secret = view.read_with(vcx, |v, _| v.secret.clone());
             vcx.update(|window, cx| {
                 secret.update(cx, |i, cx| i.set_value("synthetic-hal", window, cx))
             });
@@ -1810,7 +1809,7 @@ mod replay_tests {
             cx.set_global(conduit_components::Strings::default());
             cx.set_global(L10n::new("en"));
         });
-        let stores = cx.update(|cx| crate::fixture::stores(rpc, &scratch, cx));
+        let stores = cx.update(|cx| Stores::for_test(rpc, &scratch, cx));
         let requests = stores.ui_requests.clone();
         let (view, vcx) =
             cx.add_window_view(move |window, cx| ApprovalsView::new(stores, window, cx));

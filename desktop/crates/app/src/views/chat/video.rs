@@ -71,11 +71,7 @@ impl VideoState {
         let Some(from) = self.path.clone() else {
             return;
         };
-        let home = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| "/".into());
-        let downloads = home.join("Downloads");
-        let dir = if downloads.is_dir() { downloads } else { home };
+        let dir = conduit_daemon::paths::downloads();
         let asked = cx.prompt_for_new_path(&dir, Some(&crate::stores::files::safe_name(&name)));
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(path))) = asked.await else {

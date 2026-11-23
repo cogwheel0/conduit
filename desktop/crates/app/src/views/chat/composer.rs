@@ -815,11 +815,7 @@ impl ChatComposer {
         let Some(store) = self.dictation.clone() else {
             return;
         };
-        let home = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("/"));
-        let downloads = home.join("Downloads");
-        let dir = if downloads.is_dir() { downloads } else { home };
+        let dir = conduit_daemon::paths::downloads();
         let name = format!("{}.wav", cx.l10n().saved_recording());
         let asked = cx.prompt_for_new_path(&dir, Some(&name));
         let id = id.to_string();

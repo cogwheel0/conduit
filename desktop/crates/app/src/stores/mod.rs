@@ -145,7 +145,13 @@ impl Stores {
                     logs: scratch.join("logs"),
                 },
                 binary: std::path::PathBuf::from("/nonexistent/conduitd"),
-                master_key: connection::MasterKey::Failed("test".into()),
+                master_key: std::sync::Arc::new(|| {
+                    connection::MasterKey::Failed(conduit_daemon::secrets::SecretError::Store(
+                        "test".into(),
+                    ))
+                }),
+                key_file: None,
+                key_in_background: false,
                 locale: "en".into(),
                 client_version: "0".into(),
             },

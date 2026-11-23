@@ -229,7 +229,7 @@ impl ImageViewer {
 
     fn save(&mut self, cx: &mut Context<Self>) {
         let name = crate::stores::files::safe_name(self.current().name());
-        let dir = downloads();
+        let dir = conduit_daemon::paths::downloads();
         let asked = cx.prompt_for_new_path(&dir, Some(&name));
         let staged = self.staged(cx);
         cx.spawn(async move |this, cx| {
@@ -305,7 +305,7 @@ pub fn copy_image(image: ViewerImage, cx: &mut App) {
 /// own bytes where it says.
 pub fn save_image(image: ViewerImage, cx: &mut App) {
     let name = crate::stores::files::safe_name(image.name());
-    let asked = cx.prompt_for_new_path(&downloads(), Some(&name));
+    let asked = cx.prompt_for_new_path(&conduit_daemon::paths::downloads(), Some(&name));
     let staged = match image {
         ViewerImage::File { file, name } => stage_file(file, &name, cx),
         ViewerImage::Data { image, name } => {
@@ -334,14 +334,6 @@ fn hash(bytes: &[u8]) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut h);
     h.finish()
-}
-
-fn downloads() -> std::path::PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/"));
-    let d = home.join("Downloads");
-    if d.is_dir() { d } else { home }
 }
 
 /// The system share menu for `path`, from the window's toolbar (where its

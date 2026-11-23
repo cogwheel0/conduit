@@ -1,7 +1,8 @@
 //! Everything between Conduit Desktop and its Dart daemon `conduitd` that
 //! needs no UI toolkit.
 //!
-//! * [`paths`]: dev vs packaged flavour, userData, logs, the daemon binary.
+//! * [`paths`]: dev vs packaged flavour, userData, logs, the daemon binary,
+//!   each OS's known folders.
 //! * [`secrets`]: the per-launch session token and the Keychain master key.
 //! * [`supervisor`]: spawn, stdin bootstrap, ready line, restart policy,
 //!   graceful stop, stderr to rotating logs, child watching.
@@ -15,6 +16,8 @@
 //! The UI never touches tokio: calls return runtime-agnostic futures and
 //! state arrives on unbounded channels, so a GPUI executor can await them.
 
+#[cfg(target_os = "linux")]
+pub mod abstract_socket;
 pub mod http;
 pub mod logs;
 pub mod paths;
