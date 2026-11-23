@@ -64,10 +64,15 @@ is_link() {
   esac
 }
 value_next=0
+last=
+before=
 for arg in "$@"; do
   shift
+  given="$arg"
   if [ "$value_next" = 1 ]; then
     value_next=0
+  elif [ "$before" = --fixture ] && [ "$last" = perf ] && [ "$arg" = comfortable ]; then
+    : # `--fixture perf comfortable`: the perf fixture's layout, a second value
   else
     case "$arg" in
       --cwd | --shots | --e2e | --e2e-env | --capture | --capture-env | --capture-only | --probe | \
@@ -77,6 +82,8 @@ for arg in "$@"; do
       *) if ! is_link "$arg"; then arg="$caller/$arg"; fi ;;
     esac
   fi
+  before="$last"
+  last="$given"
   set -- "$@" "$arg"
 done
 cd "$(dirname "$0")/../.."

@@ -34,11 +34,24 @@ const VALUE_FLAGS: [&str; 15] = [
 /// The arguments in an option's place, with where each is, past the
 /// program's name: a flag's value is skipped, whatever it looks like.
 pub fn option_positions(args: &[String]) -> impl Iterator<Item = (usize, &str)> {
-    let mut rest = args.iter().map(String::as_str).enumerate().skip(1);
+    let mut rest = args
+        .iter()
+        .map(String::as_str)
+        .enumerate()
+        .skip(1)
+        .peekable();
     std::iter::from_fn(move || {
         let (at, arg) = rest.next()?;
         if VALUE_FLAGS.contains(&arg) {
-            rest.next();
+            let value = rest.next().map(|(_, value)| value);
+            // `--fixture perf comfortable`: the perf fixture's layout is a
+            // second value (`fixture::Mode::from_args`).
+            if arg == "--fixture"
+                && value == Some("perf")
+                && rest.peek().is_some_and(|(_, next)| *next == "comfortable")
+            {
+                rest.next();
+            }
         }
         Some((at, arg))
     })
@@ -89,6 +102,27 @@ pub fn active() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A flag's values are never options: one each, and the perf
+    /// fixture's layout after `--fixture perf` too.
+    #[test]
+    fn a_flags_values_are_not_options() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let options = |a: &[&str]| options(&args(a)).map(String::from).collect::<Vec<_>>();
+        assert_eq!(
+            options(&["app", "--fixture", "perf", "comfortable", "notes.md"]),
+            ["--fixture", "notes.md"]
+        );
+        assert_eq!(
+            options(&["app", "--fixture", "a11y", "comfortable"]),
+            ["--fixture", "comfortable"],
+            "only perf takes a layout"
+        );
+        assert_eq!(
+            options(&["app", "--cwd", "--shots", "--hidden"]),
+            ["--cwd", "--hidden"]
+        );
+    }
 
     #[test]
     fn passes_and_fixtures_are_scripted_and_a_plain_launch_is_not() {

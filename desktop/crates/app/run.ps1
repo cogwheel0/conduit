@@ -42,9 +42,14 @@ $valueFlags = @(
   '--calendar-fixture', '--tasks-fixture', '--workspace-fixture', '--preview-route'
 )
 $valueNext = $false
+$last = $null
+$before = $null
 $AppArgs = @(foreach ($arg in $args) {
   if ($valueNext) {
     $valueNext = $false
+    $arg
+  } elseif ($before -eq '--fixture' -and $last -eq 'perf' -and $arg -eq 'comfortable') {
+    # `--fixture perf comfortable`: the perf fixture's layout, a second value.
     $arg
   } elseif ($valueFlags -contains $arg) {
     $valueNext = $true
@@ -55,6 +60,8 @@ $AppArgs = @(foreach ($arg in $args) {
     $full = try { [System.IO.Path]::GetFullPath($arg, $caller) } catch { $null }
     if ($full) { $full } else { $arg }
   }
+  $before = $last
+  $last = $arg
 })
 Set-Location -LiteralPath (Join-Path $PSScriptRoot '..\..')
 $bin = Join-Path (Get-Location) 'target\debug\conduit-desktop.exe'
