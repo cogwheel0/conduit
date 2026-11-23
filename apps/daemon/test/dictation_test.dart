@@ -278,6 +278,45 @@ void main() {
     await recordings.discard(RecordingRef(id: id, folderId: 'crash-folder'));
   });
 
+  test('services disposed before their windows close leave what was '
+      'recording for the next launch', () async {
+    final services = ProtocolServices(
+      events: EventBus(),
+      system: SystemService(
+        paths: testDaemonPaths,
+        platform: 'macos',
+        daemonVersion: '0.0.0-test',
+        requestStop: (_) {},
+      ),
+      ports: ProtocolHostPorts(
+        uiRequests: runtime.uiRequests,
+        handoff: runtime.handoff,
+        openUrl: runtime.openUrl,
+        calls: runtime.calls,
+        apple: runtime.apple,
+        location: runtime.location,
+      ),
+    )..attach(runtime.container);
+    const target = RecordingTarget(folderId: 'disposed-folder');
+    final id = (await services.recordings.begin(
+      target,
+      sessionId: 'still-open',
+    )).id!;
+    await services.recordings.append(
+      RecordingChunk(id: id, pcm: base64Encode(pcm(1))),
+    );
+
+    await services.closeTransports();
+    await services.dispose();
+
+    expect((await recordings.list(target)).recordings.single.byteCount, 32000);
+    await expectLater(
+      services.recordings.append(RecordingChunk(id: id, pcm: '')),
+      throwsA(isA<RpcError>()),
+    );
+    await recordings.discard(RecordingRef(id: id, folderId: 'disposed-folder'));
+  });
+
   test('a temporary chat keeps no recordings', () async {
     const target = RecordingTarget(chatId: 'local:temp-voice');
     expect((await recordings.list(target)).stored, isFalse);

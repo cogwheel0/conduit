@@ -107,6 +107,9 @@ void main() {
   });
 
   tearDownAll(() async {
+    // Also when the test failed before it stopped the server: one stop,
+    // however many ask.
+    await server.stop();
     await provider.close();
     await tempDir.delete(recursive: true);
   });

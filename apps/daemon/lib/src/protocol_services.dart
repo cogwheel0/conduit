@@ -487,7 +487,7 @@ final class ProtocolServices {
     // Sessions lose these before the first wait, so a request meanwhile
     // cannot start again what is being closed.
     _transportsClosed = true;
-    if (_attached) _core = _buildCore(transports: false);
+    if (_attached && !_disposed) _core = _buildCore(transports: false);
     await _calls?.dispose();
     await _speech?.dispose();
     await _terminals?.dispose();
@@ -528,6 +528,10 @@ final class ProtocolServices {
     _calendar?.dispose();
     _automations?.dispose();
     _capabilities?.dispose();
+    // What windows still open were recording is kept for the next launch,
+    // as their closing would have kept it: they no longer reach the
+    // recordings service.
+    await _recordings?.closeAll();
     // Waits for the recordings' writers: nothing writes once the database
     // closes.
     await _notes?.close();

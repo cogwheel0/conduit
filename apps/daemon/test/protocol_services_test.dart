@@ -8,6 +8,7 @@ import 'package:conduit_core/ports/ui_request_port.dart' show UiNoticeLevel;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
+import 'package:riverpod/riverpod.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
@@ -208,6 +209,37 @@ void main() {
     final asked = Map.of(runtime.location.sent);
     unawaited(runtime.location.isLocationServiceEnabled());
     expect(runtime.location.sent, asked);
+  });
+
+  test('closing again after disposal shows sessions nothing', () async {
+    final built = services()..attach(runtime.container);
+    await built.closeTransports();
+    await built.dispose();
+
+    await built.closeTransports();
+    expect(built.core.chats, isNull);
+  });
+
+  test('a late ready from the Apple window reaches nothing of disposed '
+      'services', () async {
+    final scoped = ProviderContainer(parent: runtime.container);
+    final built = services(reused: _RefusingSystem());
+    expect(() => built.attach(scoped), throwsStateError);
+    await built.closeTransports();
+    await built.dispose();
+    scoped.dispose();
+
+    expect(
+      () => runtime.apple.report(
+        const AppleReport(
+          kind: AppleReportKind.ready,
+          supported: true,
+          order: 1,
+        ),
+        from: 'window',
+      ),
+      returnsNormally,
+    );
   });
 }
 
