@@ -4172,7 +4172,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
     switch (chatBackendNotReady(_container, model)) {
       case null:
         return;
-      case ChatBackendNotReady.hermesNotConfigured:
+      case ChatBackendNotReady.hermesNotConfigured ||
+          ChatBackendNotReady.hermesTurnedOff:
         throw const RpcError(
           code: ConduitErrorCodes.unauthenticated,
           args: <String, String>{'backend': 'hermes'},

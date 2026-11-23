@@ -23,8 +23,11 @@ enum ChatBackendNotReady {
   /// No LibreChat account signed in.
   libreChatSignedOut,
 
-  /// Hermes is not set up, or is turned off.
+  /// Hermes is not set up.
   hermesNotConfigured,
+
+  /// Hermes is turned off, with a connection saved.
+  hermesTurnedOff,
 
   /// A Hermes gateway that signs in natively and has not signed in yet.
   hermesAwaitsSignIn,
@@ -58,10 +61,14 @@ ChatBackendNotReady? chatBackendNotReady(
   Conversation? conversation,
 }) {
   if (isHermesModel(model) || isNativeHermesConversation(conversation)) {
+    final config = ref.read(hermesConfigProvider) as HermesConfig;
     if (ref.read(hermesApiServiceProvider) == null) {
-      return ChatBackendNotReady.hermesNotConfigured;
+      return !config.enabled &&
+              HermesConfig.connectionOrigin(config.baseUrl) != null
+          ? ChatBackendNotReady.hermesTurnedOff
+          : ChatBackendNotReady.hermesNotConfigured;
     }
-    if ((ref.read(hermesConfigProvider) as HermesConfig).awaitsSignIn) {
+    if (config.awaitsSignIn) {
       return ChatBackendNotReady.hermesAwaitsSignIn;
     }
     return null;

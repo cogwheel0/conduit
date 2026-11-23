@@ -7357,5 +7357,9 @@
   "chatBackendModelUnavailable": "Tento model už nie je k dispozícii. Vyberte iný model a skúste to znova.",
   "@chatBackendModelUnavailable": {
     "description": "Shown when a message, a regenerate or an edit is not sent because its Direct or Apple model is no longer offered (its connection was removed or turned off); the draft stays."
+  },
+  "chatBackendHermesTurnedOff": "Hermes Agent je vypnutý. Zapnite ho v časti Nastavenia → Hermes Agent a skúste to znova.",
+  "@chatBackendHermesTurnedOff": {
+    "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
   }
 }

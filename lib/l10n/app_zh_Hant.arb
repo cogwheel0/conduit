@@ -5229,5 +5229,9 @@
   "chatBackendModelUnavailable": "此模型已無法使用。請選擇其他模型，然後再試一次。",
   "@chatBackendModelUnavailable": {
     "description": "Shown when a message, a regenerate or an edit is not sent because its Direct or Apple model is no longer offered (its connection was removed or turned off); the draft stays."
+  },
+  "chatBackendHermesTurnedOff": "Hermes Agent 已關閉。請在「設定 → Hermes Agent」中開啟，然後再試一次。",
+  "@chatBackendHermesTurnedOff": {
+    "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
   }
 }

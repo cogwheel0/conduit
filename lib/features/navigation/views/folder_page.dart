@@ -660,7 +660,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         container,
         container.read(selectedModelProvider),
       );
-      if (backendReady != null) await backendReady;
+      if (backendReady != null) {
+        await backendReady;
+        if (!mounted || !chat.chatSendOwnerIsCurrent(container, owner)) {
+          return null;
+        }
+      }
 
       final mediaUploadController = container.read(
         mediaUploadControllerProvider,

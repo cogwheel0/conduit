@@ -46,12 +46,19 @@ final class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
 }
 
 final class _Hermes extends HermesConfigController {
-  _Hermes(this.config);
+  _Hermes(this.config, {this.hydration});
 
   final HermesConfig config;
 
+  /// The saved secrets' read, still out until it completes.
+  final Completer<void>? hydration;
+
   @override
   HermesConfig build() => config;
+
+  @override
+  Future<void> waitForSecretsHydration() =>
+      hydration?.future ?? Future<void>.value();
 
   @override
   Future<String> ensureSessionKey() async => 'memory';
@@ -87,10 +94,10 @@ final class _Transcript extends ChatMessagesNotifier {
 final class _Selected extends SelectedModel {
   _Selected(this.model);
 
-  final Model model;
+  final Model? model;
 
   @override
-  Model build() => model;
+  Model? build() => model;
 }
 
 const _apiKeyHermes = HermesConfig(
@@ -192,6 +199,7 @@ void main() {
   ProviderContainer containerWith({
     HermesConfig hermes = const HermesConfig(),
     HermesApiService? hermesService,
+    Completer<void>? hermesHydration,
     LibreChatSessionHandle? libreChat,
     ApiService? api,
     AuthState auth = _signedOut,
@@ -201,7 +209,9 @@ void main() {
   }) {
     final container = ProviderContainer(
       overrides: [
-        hermesConfigProvider.overrideWith(() => _Hermes(hermes)),
+        hermesConfigProvider.overrideWith(
+          () => _Hermes(hermes, hydration: hermesHydration),
+        ),
         hermesApiServiceProvider.overrideWithValue(hermesService),
         libreChatSessionHandleProvider.overrideWithValue(libreChat),
         apiServiceProvider.overrideWithValue(api),
@@ -218,25 +228,43 @@ void main() {
   }
 
   group('chatBackendNotReady', () {
-    test('Hermes: not set up, waiting for its sign-in, or ready', () {
-      check(chatBackendNotReady(containerWith(), hermesSyntheticModel()))
-          .equals(ChatBackendNotReady.hermesNotConfigured);
-      check(
-        chatBackendNotReady(
-          containerWith(
-            hermes: _gatewayAwaitingSignIn,
-            hermesService: _hermesService(),
+    test(
+      'Hermes: not set up, turned off, waiting for its sign-in, or ready',
+      () {
+        check(chatBackendNotReady(containerWith(), hermesSyntheticModel()))
+            .equals(ChatBackendNotReady.hermesNotConfigured);
+        // A saved connection with Hermes switched off is not one to set up.
+        check(
+          chatBackendNotReady(
+            containerWith(
+              hermes: const HermesConfig(
+                baseUrl: 'https://agent.example.test',
+                apiKey: 'synthetic-key',
+              ),
+            ),
+            hermesSyntheticModel(),
           ),
-          hermesSyntheticModel(),
-        ),
-      ).equals(ChatBackendNotReady.hermesAwaitsSignIn);
-      check(
-        chatBackendNotReady(
-          containerWith(hermes: _apiKeyHermes, hermesService: _hermesService()),
-          hermesSyntheticModel(),
-        ),
-      ).isNull();
-    });
+        ).equals(ChatBackendNotReady.hermesTurnedOff);
+        check(
+          chatBackendNotReady(
+            containerWith(
+              hermes: _gatewayAwaitingSignIn,
+              hermesService: _hermesService(),
+            ),
+            hermesSyntheticModel(),
+          ),
+        ).equals(ChatBackendNotReady.hermesAwaitsSignIn);
+        check(
+          chatBackendNotReady(
+            containerWith(
+              hermes: _apiKeyHermes,
+              hermesService: _hermesService(),
+            ),
+            hermesSyntheticModel(),
+          ),
+        ).isNull();
+      },
+    );
 
     // Regenerate and edit answer through the open chat's backend whichever
     // model is picked.
@@ -321,7 +349,7 @@ void main() {
     setUp(() => database = AppDatabase(NativeDatabase.memory()));
     tearDown(() => database.close());
 
-    ProviderContainer composerHolding(Model model) => containerWith(
+    ProviderContainer composerHolding(Model? model) => containerWith(
       extra: [
         openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
         appDatabaseProvider.overrideWithValue(database),
@@ -437,14 +465,18 @@ void main() {
       metadata: const {'parentId': 'q1'},
     );
 
-    ProviderContainer comparison({required bool signedIn}) {
+    ProviderContainer comparison({
+      required bool signedIn,
+      List<ChatMessage>? transcript,
+    }) {
+      final shown = transcript ?? [question, answer];
       final chat = withChatStorageProvenance(
         Conversation(
           id: 'chat-1',
           title: 'Rivers',
           createdAt: DateTime.utc(2026, 11, 2),
           updatedAt: DateTime.utc(2026, 11, 2),
-          messages: [question, answer],
+          messages: shown,
         ),
         ChatStorageKind.openWebUi,
       );
@@ -453,9 +485,7 @@ void main() {
         extra: [
           isAuthenticatedProvider2.overrideWithValue(signedIn),
           activeConversationProvider.overrideWith(() => _Active(chat)),
-          chatMessagesProvider.overrideWith(
-            () => _Transcript([question, answer]),
-          ),
+          chatMessagesProvider.overrideWith(() => _Transcript(shown)),
           socketServiceProvider.overrideWithValue(null),
           // Not set up: a send from the composer would be refused.
           selectedModelProvider.overrideWith(
@@ -483,6 +513,29 @@ void main() {
       ).isNull();
     });
 
+    // As the regenerate itself would find it (no Direct model by its id
+    // alone), before anything is archived or cut.
+    test('a column whose Direct model is gone is refused', () async {
+      final gone = DirectModelId.encode('removed-connection', 'river-model');
+      final shown = [
+        question.copyWith(
+          metadata: {
+            'models': [gone, 'model-b'],
+          },
+        ),
+        answer.copyWith(model: gone),
+      ];
+      final container = comparison(signedIn: true, transcript: shown);
+
+      await check(regenerateHistoricalMessageById(container, 'a1'))
+          .throws<ChatBackendNotReadyException>(
+            (it) => it
+                .has((error) => error.reason, 'reason')
+                .equals(ChatBackendNotReady.modelUnavailable),
+          );
+      check(container.read(chatMessagesProvider)).deepEquals(shown);
+    });
+
     test('a signed-out server does', () async {
       final container = comparison(signedIn: false);
       await check(regenerateHistoricalMessageById(container, 'a1'))
@@ -493,6 +546,105 @@ void main() {
           );
       check(container.read(chatMessagesProvider))
           .deepEquals([question, answer]);
+    });
+  });
+
+  // A Hermes turn first waits for the saved Hermes secrets. A chat opened
+  // meanwhile is not the one the turn was asked for.
+  group('a chat opened while the Hermes secrets load', () {
+    late AppDatabase database;
+
+    setUp(() => database = AppDatabase(NativeDatabase.memory()));
+    tearDown(() => database.close());
+
+    final question = ChatMessage(
+      id: 'q1',
+      role: 'user',
+      content: 'Plan the week',
+      timestamp: DateTime.utc(2026, 11, 2),
+    );
+    final answer = ChatMessage(
+      id: 'a1',
+      role: 'assistant',
+      content: 'Monday: rest',
+      timestamp: DateTime.utc(2026, 11, 2),
+      metadata: const {'parentId': 'q1'},
+    );
+    // Another chat whose rows happen to carry the same ids.
+    final other = <ChatMessage>[
+      question.copyWith(content: 'Plan the garden'),
+      answer.copyWith(content: 'Beans first'),
+    ];
+
+    ({ProviderContainer container, Completer<void> hydration}) loading() {
+      final hydration = Completer<void>();
+      final container = containerWith(
+        hermes: _apiKeyHermes,
+        hermesService: _hermesService(),
+        hermesHydration: hydration,
+        extra: [
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          appDatabaseProvider.overrideWithValue(database),
+          socketServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWith(
+            () => _Selected(hermesSyntheticModel()),
+          ),
+        ],
+      )..listen(chatMessagesProvider, (_, _) {});
+      container.read(chatMessagesProvider.notifier).setMessages([
+        question,
+        answer,
+      ]);
+      return (container: container, hydration: hydration);
+    }
+
+    void openOther(ProviderContainer container) {
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            Conversation(
+              id: 'chat-other',
+              title: 'Garden',
+              createdAt: DateTime.utc(2026, 11, 3),
+              updatedAt: DateTime.utc(2026, 11, 3),
+              messages: other,
+            ),
+          );
+      container.read(chatMessagesProvider.notifier).setMessages(other);
+    }
+
+    test('a send goes nowhere', () async {
+      final (:container, :hydration) = loading();
+      final sending = durableSend(container, 'Plan the month', null);
+      openOther(container);
+      hydration.complete();
+
+      await check(sending).throws<StateError>();
+      check(container.read(chatMessagesProvider)).deepEquals(other);
+    });
+
+    test('a regenerate leaves the other chat alone', () async {
+      final (:container, :hydration) = loading();
+      final regenerating = regenerateHistoricalMessageById(container, 'a1');
+      openOther(container);
+      hydration.complete();
+
+      await regenerating;
+      check(container.read(chatMessagesProvider)).deepEquals(other);
+    });
+
+    test('an edit leaves the other chat alone', () async {
+      final (:container, :hydration) = loading();
+      final editing = resendEditedUserMessage(
+        container,
+        messageId: 'q1',
+        newText: 'Plan the month',
+      );
+      openOther(container);
+      hydration.complete();
+
+      check(await editing).isFalse();
+      check(container.read(chatMessagesProvider)).deepEquals(other);
     });
   });
 }

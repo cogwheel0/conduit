@@ -25,6 +25,7 @@ String chatBackendNotReadyMessage(
     'Hermes',
   ),
   ChatBackendNotReady.hermesNotConfigured => l10n.chatBackendHermesNotSetUp,
+  ChatBackendNotReady.hermesTurnedOff => l10n.chatBackendHermesTurnedOff,
   ChatBackendNotReady.modelUnavailable => l10n.chatBackendModelUnavailable,
 };
 
@@ -55,6 +56,13 @@ void showChatBackendNotReady(BuildContext context, ChatBackendNotReady reason) {
                   scope: 'chat/backend-not-ready',
                   error: error,
                   stackTrace: stackTrace,
+                );
+                // As the error card's own Sign In Again says it.
+                if (!context.mounted) return;
+                AdaptiveSnackBar.show(
+                  context,
+                  message: l10n.hermesErrorActionFailed,
+                  type: AdaptiveSnackBarType.error,
                 );
               },
             ),

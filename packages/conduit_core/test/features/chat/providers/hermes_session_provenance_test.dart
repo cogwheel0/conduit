@@ -711,6 +711,7 @@ void main() {
     bind({
       required bool accept,
       required String connectionIdentity,
+      bool activeAnswers = true,
     }) async {
       final asked = <String>[];
       late _SwitchableHermesConfig config;
@@ -739,7 +740,9 @@ void main() {
             asked.add(name);
             return accept;
           }),
-          hermesApiServiceProvider.overrideWithValue(service),
+          hermesApiServiceProvider.overrideWithValue(
+            activeAnswers ? service : null,
+          ),
           selectedModelProvider.overrideWith(_SelectedHermesModel.new),
           reviewerModeProvider.overrideWithValue(false),
           webSearchEnabledProvider.overrideWith(_NoWebSearch.new),
@@ -811,6 +814,27 @@ void main() {
         bound.container.read(chatMessagesProvider).map((m) => m.content),
       ).not((it) => it.contains('for the bound chat'));
       check(bound.service.sessionIds).isEmpty();
+    });
+
+    // The saved connection that owns the chat's session may answer where the
+    // active one cannot: the switch is offered before the send is refused.
+    test('a send is offered the switch though the active connection cannot '
+        'answer', () async {
+      final bound = await bind(
+        accept: true,
+        connectionIdentity: otherIdentity,
+        activeAnswers: false,
+      );
+      addTearDown(bound.container.dispose);
+
+      try {
+        await durableSend(bound.container, 'for the bound chat', null);
+      } on Object {
+        // What the send meets after the switch is not this test's question.
+      }
+
+      check(bound.asked).deepEquals(<String>['Other agent']);
+      check(bound.config.switchedTo).deepEquals(<String>[otherId]);
     });
 
     test('keeps the active connection when declined', () async {

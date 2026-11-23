@@ -976,7 +976,9 @@ Model? _listedModel(dynamic ref, String id) {
 
 /// The model regenerating [answer], the answer to [question], in the open
 /// chat runs on, as [regenerateMessage] picks it: a comparison column's
-/// ([_comparisonTargetIn]), else the one selected now.
+/// ([_comparisonTargetIn]), else the one selected now. A column whose model
+/// can no longer be found ([_listedModel]) throws
+/// [ChatBackendNotReady.modelUnavailable].
 Model? regenerationModelFor(
   dynamic ref, {
   required ChatMessage question,
@@ -989,9 +991,11 @@ Model? regenerationModelFor(
     messages: <ChatMessage>[question, answer],
     answerId: answerId,
   );
-  return target == null
-      ? ref.read(selectedModelProvider) as Model?
-      : _listedModel(ref, target.modelId);
+  if (target == null) return ref.read(selectedModelProvider) as Model?;
+  return _listedModel(ref, target.modelId) ??
+      (throw const ChatBackendNotReadyException(
+        ChatBackendNotReady.modelUnavailable,
+      ));
 }
 
 /// [_comparisonRegenerationTarget], for tests.

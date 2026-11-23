@@ -312,15 +312,6 @@ Future<void> durableSend(
     );
   }
 
-  // Before anything is written: a backend that cannot take the turn refuses
-  // it here rather than as an error answer in the chat.
-  final backendReady = requireChatBackendReady(
-    ref,
-    ref.read(selectedModelProvider) as Model?,
-    conversation: ref.read(activeConversationProvider) as Conversation?,
-  );
-  if (backendReady != null) await backendReady;
-
   final voiceReply = voice?.reply;
 
   final activeAtSendStart = ref.read(activeConversationProvider);
@@ -347,6 +338,27 @@ Future<void> durableSend(
       ? ref.read(pendingFolderIdProvider) as String?
       : null;
   final storageFolderId = pendingFolderIdOverride ?? draftFolderId;
+
+  // Before anything is written: a backend that cannot take the turn refuses
+  // it here rather than as an error answer in the chat. A mixed chat whose
+  // Hermes session belongs to another saved connection is offered that
+  // connection first, by the send itself.
+  final modelAtSendStart = ref.read(selectedModelProvider) as Model?;
+  final backendReady = _hermesConnectionSwitchOffered(ref, modelAtSendStart)
+      ? null
+      : requireChatBackendReady(
+          ref,
+          modelAtSendStart,
+          conversation: activeAtSendStart as Conversation?,
+        );
+  if (backendReady != null) {
+    await backendReady;
+    if (!chatMutationTokenStillActive(ref, sendMutationOwner) ||
+        !identical(ref.read(selectedModelProvider), modelAtSendStart)) {
+      throw StateError('The conversation changed while preparing the message.');
+    }
+  }
+
   if (isTemporaryChat(activeAtSendStart?.id)) {
     await inlineSend();
     return;

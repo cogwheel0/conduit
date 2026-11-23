@@ -225,12 +225,22 @@ Future<bool> resendEditedUserMessage(
 }) async {
   // Before the transcript is cut: a backend that cannot take the turn
   // leaves it as it was.
+  final openAtStart = ref.read(activeConversationProvider) as Conversation?;
+  final pickedAtStart = ref.read(selectedModelProvider) as Model?;
+  final ownerAtStart = captureChatMutationOwner(ref, openAtStart);
   final backendReady = requireChatBackendReady(
     ref,
-    ref.read(selectedModelProvider) as Model?,
-    conversation: ref.read(activeConversationProvider) as Conversation?,
+    pickedAtStart,
+    conversation: openAtStart,
   );
-  if (backendReady != null) await backendReady;
+  if (backendReady != null) {
+    await backendReady;
+    // Another chat or model since: nothing of this edit's is left to do.
+    if (!chatMutationTokenStillActive(ref, ownerAtStart) ||
+        !identical(ref.read(selectedModelProvider), pickedAtStart)) {
+      return false;
+    }
+  }
   final text = newText.trim();
   final messages = ref.read(chatMessagesProvider) as List<ChatMessage>;
   final index = indexOfMessageId(messages, messageId);
@@ -257,6 +267,10 @@ Future<bool> resendEditedUserMessage(
         content: text,
       );
       return true;
+    }
+    // Nothing could send it: refused before the transcript is cut.
+    if (ref.read(selectedModelProvider) == null) {
+      throw StateError('No model is selected to send the edit with.');
     }
     final keep = truncateMessagesAfterId(
       messages,

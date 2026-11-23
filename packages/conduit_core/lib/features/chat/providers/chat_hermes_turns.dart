@@ -703,6 +703,18 @@ HermesConnectionProfile? _hermesConnectionOwningMixedChatSession(dynamic ref) {
   return target == null || target.id == config.connectionId ? null : target;
 }
 
+/// Whether a send on [model] will be offered a switch of connection
+/// ([_offerHermesConnectionSwitchForMixedChat]): it answers on the one the
+/// offer ends on, not on the active one.
+bool _hermesConnectionSwitchOffered(dynamic ref, Model? model) {
+  if (model == null || !isHermesModel(model)) return false;
+  try {
+    return _hermesConnectionOwningMixedChatSession(ref) != null;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Before a Hermes send, offers to switch to the saved connection that owns
 /// the mixed chat's session. Declining, an unknown connection, or a failed
 /// switch leave the send to start a new session on the active connection.

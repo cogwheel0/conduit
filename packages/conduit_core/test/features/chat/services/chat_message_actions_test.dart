@@ -266,16 +266,16 @@ void main() {
       check(ref.read(chatMessagesProvider)).length.equals(4);
     });
 
-    test('drops the edited message and what follows before sending, and a '
-        'failed send rethrows', () async {
+    // Nothing could send it: the transcript is not cut for a send that fails.
+    test('with no model to send it with, refuses before the transcript is '
+        'cut', () async {
       final ref = container();
 
       await check(
         resendEditedUserMessage(ref, messageId: 'u2', newText: 'new text'),
-      ).throws<Object>();
+      ).throws<StateError>();
 
-      check(ref.read(chatMessagesProvider).map((m) => m.id).toList())
-          .deepEquals(['u1', 'a1']);
+      check(ref.read(chatMessagesProvider)).length.equals(4);
     });
   });
 }
