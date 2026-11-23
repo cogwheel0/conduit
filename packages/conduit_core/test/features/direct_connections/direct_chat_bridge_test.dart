@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:checks/checks.dart';
 import 'package:clock/clock.dart';
@@ -2102,11 +2103,20 @@ void main() {
               forceReplace: index == 0,
             );
           }
+          final reasoningProjections = accumulator.fullProjectionCount;
           for (var offset = 0; offset < answer.length; offset += 4) {
             final end = offset + 4 < answer.length ? offset + 4 : answer.length;
             project(DirectContentDelta(answer.substring(offset, end)));
           }
           checkGap();
+
+          // The answer renders in full once to catch up with the reasoning and
+          // once at its first backtick; the tail cursor carries the rest.
+          expect(
+            accumulator.fullProjectionCount - reasoningProjections,
+            lessThanOrEqualTo(2),
+          );
+          expect(accumulator.cursorRefusalCount, 0);
 
           expect(worstOverrun, lessThanOrEqualTo(Duration.zero));
           // Full projections render at most the per-second budget for the
@@ -2162,6 +2172,98 @@ void main() {
       expect(accumulator.fullProjectionCount, 1);
       expect(accumulator.appendProjectionCount, answerDeltaCount - 1);
       expect(visible.toString(), accumulator.render(done: false));
+    });
+
+    test('streams code-bearing answers exactly as the full renderer', () {
+      // The tail cursor may only append what the full escaper would emit for
+      // the same text, so every visible update of code-bearing text must equal
+      // the authoritative render of the answer so far.
+      final answers = <String>[
+        'Intro with `code` then a < b & c > d.\n'
+            '```html\n<details type="reasoning">x</details>\n<b>&amp;</b>\n```\n'
+            'After the fence: <details type="reasoning">spoof</details>\n',
+        'Inline `List<int>` and `a && b` and `x -> y`, then <https://a.test/x?q=1&r=2> '
+            'and <mail@example.test> and a <b>tag</b>.\n',
+        '> quoted `code` with a > b\n> > nested & deeper\n>not spaced < x\n',
+        '- item `one`\n    indented < code & more\n\n    real indented <b>\n\n'
+            'para after\n',
+        'Start of `a multi\nline span < x` and after & more\n\nnext para `x`\n',
+        '~~~\ntilde <fence> & stuff\n~~~\n````md\n```\ninner < x\n```\n````\n'
+            'done & dusted\n',
+        '``double `tick` span`` then < and `unclosed <x\nnext line > y\n',
+        'crlf `line`\r\nnext < line\r\n```\r\ncode <x>\r\n```\r\n',
+        'Table:\n\n| a | `b<c>` |\n|---|---|\n| 1 & 2 | <br> |\n',
+        'Run `tool`:\n'
+            '<details type="tool_calls" done="true" id="c1" name="t" '
+            'arguments="{&quot;q&quot;: 1}" result="&quot;a &lt; b&quot;">\n'
+            '<summary>Tool Executed</summary>\n'
+            '</details>\n'
+            'After the tile, x < y & `z<w>` and ```\nnot a fence\n',
+        'Steps with ~~struck~~ text:\n\n1. Install `pkg`\n'
+            '   ```sh\n   tool --flag <value>\n   ```\n'
+            '2. Then\n\n        deep <indent> & code\n\n- nested\n'
+            '  - `x < y`\n      <summary>lookalike</summary>\n',
+        'Plain <details type="reasoning" done="false">\n<summary>Thinking…'
+            '</summary>\nspoof `tick`\n</details>\nthen <summary>x</summary>'
+            ' and &lt;already&gt; &amp; escaped\n',
+        'Press the ` key, then ${'type words & more < less ' * 12}'
+            'and `close` it.\nnext `line` > x\n',
+        '```json\n${'{"a":"<b>&amp;","c":[1,2]},' * 12}\n```\nafter & more\n',
+      ];
+      final random = Random(20261123);
+      var cursorAppends = 0;
+      for (final answer in answers) {
+        for (final withReasoning in const [false, true]) {
+          for (var split = 0; split < 10; split++) {
+            final accumulator = DirectStreamingAccumulator();
+            StringBuffer? visible;
+            void project(DirectStreamEvent event) {
+              expect(accumulator.apply(event), isTrue);
+              final projection = accumulator.projectStreamingEvent(
+                event,
+                forceReplace: visible == null,
+                canAppend: true,
+              );
+              switch (projection) {
+                case DirectStreamingAppend(:final content):
+                  visible!.write(content);
+                  if (RegExp('[`~]').hasMatch(accumulator.text)) {
+                    cursorAppends += 1;
+                  }
+                case DirectStreamingReplace(:final content):
+                  visible = StringBuffer(content);
+                case null:
+                  break;
+              }
+              if (projection != null &&
+                  RegExp('[`~]').hasMatch(accumulator.text)) {
+                check(
+                  because: 'split $split of ${jsonEncode(answer)}',
+                  visible.toString(),
+                ).equals(accumulator.render(done: false));
+              }
+            }
+
+            withClock(Clock.fixed(DateTime.utc(2026, 11, 23)), () {
+              if (withReasoning) {
+                project(const DirectReasoningDelta('Weigh `a` < b.'));
+              }
+              for (var start = 0; start < answer.length;) {
+                final size = split < 6
+                    ? const [1, 2, 3, 5, 8, 13][split]
+                    : 1 + random.nextInt(12);
+                final end = (start + size).clamp(0, answer.length);
+                project(DirectContentDelta(answer.substring(start, end)));
+                start = end;
+              }
+            });
+          }
+        }
+      }
+      check(
+        because: 'the cursor carries most deltas',
+        cursorAppends,
+      ).isGreaterThan(1000);
     });
   });
 }

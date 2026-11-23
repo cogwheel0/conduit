@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/services/answer_tail_cursor.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/services/semantic_message_builder.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
@@ -1099,8 +1100,8 @@ const int _kDirectMaxGeneratedImages = 10;
 /// which the chat publishes streamed text (`streamingContentUpdateInterval`).
 const Duration kDirectFullProjectionMinInterval = Duration(milliseconds: 100);
 
-/// Characters a second that full streaming projections may render: about 7%
-/// of an M-series Mac core for an answer with code
+/// Characters a second that full streaming projections may render: 7–13% of
+/// an M-series Mac core when an answer with code needs them continually
 /// (`tool/benchmarks/direct_streaming_projection.md`). The wait after a
 /// projection grows with its length once it exceeds what this budget allows in
 /// [kDirectFullProjectionMinInterval].
@@ -1135,8 +1136,15 @@ final class DirectStreamingAccumulator {
   int _projectedReasoningLength = 0;
   int _nextFullProjectionLength = 1;
   DateTime? _nextFullProjectionAt;
+  // While the answer carries code delimiters, the exact visible snapshot and a
+  // cursor at the end of its answer text let deltas extend it without a full
+  // render. Both are replaced by every full projection.
+  StringBuffer? _exactVisible;
+  AnswerTailCursor? _tailCursor;
   int _fullProjectionCount = 0;
   int _appendProjectionCount = 0;
+  int _tailRewriteCount = 0;
+  int _cursorRefusalCount = 0;
   int _fullProjectionCharacterCount = 0;
 
   String get text => _text.toString();
@@ -1184,6 +1192,8 @@ final class DirectStreamingAccumulator {
   /// not provider events or the one final authoritative render.
   int get fullProjectionCount => _fullProjectionCount;
   int get appendProjectionCount => _appendProjectionCount;
+  int get tailRewriteCount => _tailRewriteCount;
+  int get cursorRefusalCount => _cursorRefusalCount;
   int get fullProjectionCharacterCount => _fullProjectionCharacterCount;
 
   bool apply(DirectStreamEvent event) {
@@ -1296,9 +1306,11 @@ final class DirectStreamingAccumulator {
   /// Returns the smallest safe UI update after [event] has been [apply]ed.
   ///
   /// Plain answer text is appended while the active assistant remains the
-  /// tail. Reasoning lives before that text inside a semantic details block,
-  /// and answer text after a possible code delimiter needs the whole answer to
-  /// escape, so both need full replacements. One is due once the payload has
+  /// tail. After a possible code delimiter, one full render makes the visible
+  /// text exact, and [AnswerTailCursor] then extends it wherever it proves the
+  /// delta renders as the full escaper would. Reasoning lives before the
+  /// answer inside a semantic details block, so it, and any delta the cursor
+  /// refuses, waits for a full replacement. One is due once the payload has
   /// doubled, or once the previous replacement has been shown for
   /// [kDirectFullProjectionMinInterval] or for its length at
   /// [kDirectFullProjectionCharactersPerSecond], whichever is longer. A burst
@@ -1333,6 +1345,32 @@ final class DirectStreamingAccumulator {
           _projectedTextLength = _text.length;
           _appendProjectionCount += 1;
           return DirectStreamingAppend(appendContent);
+        }
+        if (canAppend && !_answerAppendIsPlain && appendIsSynchronized) {
+          final visible = _exactVisible;
+          if (visible == null) return _fullStreamingProjection(logicalLength);
+          final cursor = _tailCursor ??= AnswerTailCursor(
+            _text.toString().substring(0, textLengthBeforeEvent),
+          );
+          final edit = cursor.render(content);
+          if (edit != null) {
+            _projectedTextLength = _text.length;
+            if (edit.remove == 0) {
+              visible.write(edit.insert);
+              _appendProjectionCount += 1;
+              return DirectStreamingAppend(edit.insert);
+            }
+            // The delta changed how the answer's last line renders (a closing
+            // backtick, a completed autolink): splice only that line.
+            final current = visible.toString();
+            final spliced =
+                current.substring(0, current.length - edit.remove) +
+                edit.insert;
+            _exactVisible = StringBuffer(spliced);
+            _tailRewriteCount += 1;
+            return DirectStreamingReplace(spliced);
+          }
+          _cursorRefusalCount += 1;
         }
         if (!_hasStreamingProjection ||
             (canAppend && _answerAppendIsPlain && !appendIsSynchronized) ||
@@ -1387,6 +1425,8 @@ final class DirectStreamingAccumulator {
     _projectedTextLength = _text.length;
     _projectedReasoningLength = _reasoning.length;
     _nextFullProjectionLength = logicalLength == 0 ? 1 : logicalLength * 2;
+    _exactVisible = _answerAppendIsPlain ? null : StringBuffer(content);
+    _tailCursor = null;
     _fullProjectionCount += 1;
     _fullProjectionCharacterCount += content.length;
     return DirectStreamingReplace(content);

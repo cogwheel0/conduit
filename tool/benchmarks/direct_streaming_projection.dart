@@ -19,16 +19,43 @@ const _code =
     '    print(summarize(counts))\n'
     '```\n\n';
 
+// A tutorial-shaped section: a heading, a numbered list whose steps hold
+// indented fences, nested bullets, a table with inline code, comparisons,
+// links and an unmatched backtick.
+const _tutorial =
+    '## Counting gulls with `tally`\n\n'
+    'Each survey adds one row. Keep `count < 500` per rock, see '
+    '<https://example.test/tally?rock=north&day=1> for the format.\n\n'
+    '1. Install the `tally` package:\n'
+    '   ```sh\n'
+    '   pip install tally --index <mirror>\n'
+    '   ```\n'
+    '2. Record the counts:\n\n'
+    '   ```python\n'
+    '   for rock in rocks:\n'
+    '       tally.add(rock, counts[rock] & 0xff)\n'
+    '   ```\n\n'
+    '- Rocks to skip:\n'
+    '    - `south` when the tide is > 2 m\n'
+    '    - `east` after dusk\n\n'
+    '| Rock | Call | Limit |\n'
+    '|---|---|---|\n'
+    '| north | `add(n)` | < 500 |\n'
+    '| west | `add(w, late=True)` | <= 200 |\n\n'
+    'Press the ` key to toggle the view, then compare a <b>bold</b> tally '
+    'with ~~struck~~ ones & move on.\n\n';
+
 /// A newly invented answer of [size] characters whose first code fence starts
-/// near character 1,900, like the answer measured on the simulator.
-String _answer(int size) {
+/// near character 1,900, like the answer measured on the simulator. The
+/// tutorial shape repeats [_tutorial] after the same plain opening.
+String _answer(int size, {required bool tutorial}) {
   final out = StringBuffer();
   while (out.length < 1900) {
     out.write(_prose);
   }
   var unit = 0;
   while (out.length < size) {
-    out.write(unit.isEven ? _code : _prose * 6);
+    out.write(tutorial ? _tutorial : (unit.isEven ? _code : _prose * 6));
     unit += 1;
   }
   return out.toString().substring(0, size);
@@ -40,8 +67,13 @@ void main(List<String> args) {
   const charsPerSecond = 2800;
   const tokenLength = 4;
   final results = <Map<String, Object>>[];
-  for (final size in [30751, 204800]) {
-    final answer = _answer(size);
+  for (final (size, tutorial) in [
+    (30751, false),
+    (30751, true),
+    (204800, false),
+    (204800, true),
+  ]) {
+    final answer = _answer(size, tutorial: tutorial);
     for (var run = 0; run < 3; run++) {
       var simulatedMicros = 0;
       final accumulator = withClock(
@@ -86,10 +118,13 @@ void main(List<String> args) {
       }
       results.add({
         'size': size,
+        'shape': tutorial ? 'tutorial' : 'fences',
         'run': run,
         'updates': updates,
         'fullProjections': accumulator.fullProjectionCount,
         'appendProjections': accumulator.appendProjectionCount,
+        'tailRewrites': accumulator.tailRewriteCount,
+        'cursorRefusals': accumulator.cursorRefusalCount,
         'fullProjectionCharacters': accumulator.fullProjectionCharacterCount,
         'projectionWorkMs': work.elapsedMicroseconds / 1000,
         'worstSingleCallMs': worstProjectionMicros / 1000,
