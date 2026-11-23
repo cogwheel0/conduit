@@ -76,6 +76,8 @@ has_notices() {
     die "no Linux third-party notices at $lib_notices"
   if [ "$(head -n 1 "$notices" 2>/dev/null)" = "$heading" ]; then
     log "the third-party notices are in $lib_notices and $notices"
+  elif [ -e "$notices" ]; then
+    die "$notices is not the Linux third-party notices"
   elif [ "${1:-}" = docs-may-drop ] && docs_excluded; then
     log "the third-party notices are in $lib_notices ($notices dropped: this system excludes documentation)"
   else
