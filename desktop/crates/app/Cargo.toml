@@ -59,13 +59,22 @@ icu_calendar = "2.4"
 # The display languages and the regional format (l10n::locale); the accent
 # colour and animation effects (shell::system_look); whether a URL scheme
 # has an app to open it (shell::open_url); the console of what started a
-# release build, for why a launch ended (lib.rs).
-windows = { version = "0.62", features = ["Win32_Globalization", "Win32_System_Console", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# release build, for why a launch ended (lib.rs); WinSparkle.dll, loaded
+# from beside the app (updates::winsparkle).
+windows = { version = "0.62", features = ["Win32_Globalization", "Win32_System_Console", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The desktop portal's accent colour and Reduce Motion (shell::system_look),
 # with the features GPUI uses.
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
+# The update notice (updates::notice): the signed feed over HTTPS, trusted
+# through the system's certificate store, with ring as the TLS provider and
+# for the feed's EdDSA signature.
+ureq = { version = "3.5", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+ring = "0.17"
+roxmltree = "0.21"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
@@ -115,6 +124,10 @@ conduit-desktop = { path = ".", features = ["harness"] }
 sha2 = "0.10"
 # A fresh folder per test that writes files (prefs.rs).
 tempfile = "3"
+# The Linux update notice's feed checks run on every OS's tests: feeds
+# signed with keys made in the test (updates::feed).
+ring = "0.17"
+roxmltree = "0.21"
 
 [lints]
 workspace = true

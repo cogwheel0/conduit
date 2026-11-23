@@ -1503,17 +1503,22 @@ impl SettingsView {
         out
     }
 
-    /// About › Updates: Sparkle's check and "check automatically" (release
-    /// bundles only). Releases are stable only, so there is no channel to
-    /// pick.
+    /// About › Updates: the updater's check and "check automatically"
+    /// (release builds only). Releases are stable only, so there is no
+    /// channel to pick. A newer release the Linux notice found, which the
+    /// user installs themselves, turns the check into its download.
     fn updates_section(&self, cx: &mut Context<Self>) -> AnyElement {
         let l10n = cx.l10n().clone();
         let available = crate::updates::available(cx);
         let mut rows = vec![];
         // The row names the subject, the button keeps the verb.
-        let check = Button::new("check-for-updates", l10n.desktop_check_now())
-            .disabled(!crate::updates::can_check(cx))
-            .on_click(Rc::new(|_, _, cx| crate::updates::check_for_updates(cx)));
+        let check = match crate::updates::found(cx) {
+            Some(found) => Button::new("download-update", l10n.download())
+                .on_click(Rc::new(move |_, _, cx| cx.open_url(&found.page))),
+            None => Button::new("check-for-updates", l10n.desktop_check_now())
+                .disabled(!crate::updates::can_check(cx))
+                .on_click(Rc::new(|_, _, cx| crate::updates::check_for_updates(cx))),
+        };
         rows.push(
             setting_row(
                 l10n.desktop_software_update(),
@@ -1524,7 +1529,7 @@ impl SettingsView {
             .into_any_element(),
         );
         if let Some(on) = crate::updates::automatic_checks(cx) {
-            // Sparkle keeps this one; redraw to show what it now says.
+            // The updater keeps this one; redraw to show what it now says.
             let view = cx.entity().downgrade();
             let auto = Switch::new(
                 "automatic-update-checks",

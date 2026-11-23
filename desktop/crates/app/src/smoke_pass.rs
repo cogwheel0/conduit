@@ -2,7 +2,8 @@
 //! under Xvfb), which CI's install smoke runs; the Mac's is `--shots`
 //! ([`crate::smoke`]). It checks what `--shots` checks, without the
 //! captures: the app starts its `conduitd` and connects (the handshake), the
-//! daemon answers a diagnostics export, Settings opens, and the app quits
+//! daemon answers a diagnostics export, Settings opens, the updater (in a
+//! build with one) runs a check and says what it came to, and the app quits
 //! through its own Quit, after which the daemon must exit 0 on stdin EOF.
 //!
 //! `SMOKE` lines go to the file as they come, never to stdout (a Windows
@@ -22,6 +23,7 @@ use std::time::{Duration, Instant};
 use conduit_daemon::rpc::ConnectionState;
 use conduit_daemon::supervisor::{ExitInfo, StopOutcome};
 use conduit_protocol::{NoParams, methods::SystemExportDiagnostics};
+use futures::future::Either;
 use gpui_kit::{App, AsyncApp};
 
 use crate::AppState;
@@ -190,7 +192,28 @@ async fn check(report: &RefCell<SmokeReport>, started: Instant, cx: &mut AsyncAp
     } else {
         report.borrow_mut().fail("settings window did not open");
     }
+    // The updater's own check (a build given a feed; CI's rehearsal serves
+    // one on 127.0.0.1): what it came to. Never a failure here: a feed out
+    // of reach isn't the app's, and the CI scripts check the line.
+    let outcome = cx.update(|cx| {
+        let outcome = crate::updates::next_outcome(cx);
+        crate::updates::check_quietly(cx).then_some(outcome)
+    });
+    if let Some(outcome) = outcome {
+        let timeout = cx.background_executor().timer(UPDATE_CHECK_TIMEOUT);
+        let said = match futures::future::select(outcome, timeout).await {
+            Either::Left((Ok(outcome), _)) => outcome.to_string(),
+            Either::Left((Err(_), _)) => "no answer (the updater stopped)".into(),
+            Either::Right(_) => format!("no answer in {UPDATE_CHECK_TIMEOUT:?}"),
+        };
+        report
+            .borrow_mut()
+            .say(format_args!("update check: {said}"));
+    }
 }
+
+/// How long the pass waits for the updater's check.
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What a pass that never connected was still waiting for.
 fn never_connected(waiting_for_key: bool, daemon: &DaemonPhase, rpc: &ConnectionState) -> String {
