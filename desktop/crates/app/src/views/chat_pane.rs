@@ -84,11 +84,11 @@ pub struct NewChatTicket {
 pub struct NewChatContent {
     /// The message box's text.
     pub text: Option<String>,
-    /// Its request started the new chat over as it came in
-    /// ([`ChatPane::take_new_chat_ticket`]), and the text replaces the
-    /// draft's (the phone's Send to Conduit, Send Link, Send Image and
-    /// widget Clipboard reset it); else the text goes in and an unsent draft
-    /// is kept, as New Chat keeps it.
+    /// Its request started a new composition as it came in
+    /// ([`ChatPane::take_new_chat_ticket`]), and the content replaces what
+    /// is shown, the text included (the phone's Send to Conduit, Send Link,
+    /// Send Image and widget Clipboard reset it); else the text goes in and
+    /// an unsent draft is kept, as New Chat keeps it.
     pub fresh: bool,
     /// Files, uploaded as the composer's Attach Files uploads them.
     pub paths: Vec<std::path::PathBuf>,
@@ -2191,6 +2191,10 @@ impl ChatPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        // Landed or dropped, the request is done with: Send stops waiting
+        // for it.
+        self.composer_store
+            .update(cx, |c, cx| c.stop_awaiting(ticket.composition, cx));
         // The new chat its request opened, still shown, and its draft, in
         // that account: another chat or area (Notes), another draft, a
         // fresh one over it, another account, or a send since, and the
@@ -2206,13 +2210,7 @@ impl ChatPane {
         // "No account" is a scope too: a page read with none never lands
         // once an account signed in, nor one read under an account once none
         // is in charge.
-        if content
-            .owner
-            .as_ref()
-            .is_some_and(|crate::shell::deep_link::ReadUnder(scope)| {
-                *scope != self.stores.accounts.read(cx).scope_key()
-            })
-        {
+        if !self.read_here(content.owner.as_ref(), cx) {
             log::info!("new chat: its content was read under another account; dropped");
             return false;
         }
@@ -2226,11 +2224,9 @@ impl ChatPane {
             owner: _,
         } = content;
         if fresh {
-            // Emptied as its request came in: only its own text goes in.
-            if let Some(text) = &text {
-                self.composer
-                    .update(cx, |c, cx| c.set_text(text, window, cx));
-            }
+            let text = text.as_deref().unwrap_or_default();
+            self.composer
+                .update(cx, |c, cx| c.start_fresh(text, window, cx));
         } else if let Some(text) = &text {
             // Given as a prefill is: after the new chat's draft, once read.
             let ticket = self.composer_store.read(cx).ticket();
@@ -2268,20 +2264,33 @@ impl ChatPane {
     /// The ticket for what a request brings to the new chat it just opened.
     /// The pane follows that selection now, not when the update that changed
     /// it ends (its observer runs then), so the ticket is taken before the
-    /// next request in a batch runs. A `fresh` request starts the composition
-    /// over first: a request after it in the batch holds the newer
-    /// composition, and of two fresh ones the newest owns the draft.
+    /// next request in a batch runs. A `fresh` request read under this
+    /// account starts a new composition first, its content to replace what
+    /// is shown once it lands (Send waits meanwhile): a request after it in
+    /// the batch holds the newer composition, and of two fresh ones the
+    /// newest owns the draft. One read under another account changes
+    /// nothing here (its content is dropped as it lands).
     pub fn take_new_chat_ticket(
         &mut self,
         fresh: bool,
-        window: &mut Window,
+        owner: Option<&crate::shell::deep_link::ReadUnder>,
         cx: &mut Context<Self>,
     ) -> NewChatTicket {
         self.sync_selection(cx);
-        if fresh {
-            self.composer.update(cx, |c, cx| c.start_over(window, cx));
+        if fresh && self.read_here(owner, cx) {
+            self.composer_store.update(cx, |c, cx| {
+                c.await_content(cx);
+            });
         }
         self.new_chat_ticket(cx)
+    }
+
+    /// Whether content read under `owner` is the account in charge's (no
+    /// owner: whoever is in charge).
+    fn read_here(&self, owner: Option<&crate::shell::deep_link::ReadUnder>, cx: &App) -> bool {
+        owner.is_none_or(|crate::shell::deep_link::ReadUnder(scope)| {
+            *scope == self.stores.accounts.read(cx).scope_key()
+        })
     }
 
     /// The ticket a Continuity Camera photo asked for now would carry: this
@@ -4147,9 +4156,7 @@ mod tests {
             vcx: &mut VisualTestContext,
         ) -> crate::views::chat_pane::NewChatTicket {
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
-            let ticket = pane.update_in(vcx, |p, window, cx| {
-                p.take_new_chat_ticket(fresh, window, cx)
-            });
+            let ticket = pane.update(vcx, |p, cx| p.take_new_chat_ticket(fresh, None, cx));
             vcx.run_until_parked();
             ticket
         }
@@ -4173,31 +4180,49 @@ mod tests {
             })
         }
 
-        /// A fresh request (Send Image) over a new chat's unsent words: the
-        /// draft starts over at once, words and all, so Send has nothing to
-        /// send while the request's own content is on its way.
+        /// A fresh request (Send Image) over a new chat's unsent words: Send
+        /// waits for the request's content, the words still shown, and the
+        /// content then replaces them.
         #[gpui_kit::test]
-        fn a_fresh_request_leaves_nothing_to_send_until_its_content_lands(cx: &mut TestAppContext) {
+        fn send_waits_for_a_fresh_requests_content(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
             let (_daemon, stores, pane, vcx) = bench(cx);
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
             pane.update_in(vcx, |p, window, cx| {
-                p.composer.update(cx, |c, cx| {
-                    c.offline = false;
-                    c.set_text("Unsent words", window, cx);
-                })
+                p.composer
+                    .update(cx, |c, cx| c.set_text("Unsent words", window, cx))
             });
             vcx.run_until_parked();
-            let can_send = |vcx: &mut VisualTestContext| {
-                pane.read_with(vcx, |p, cx| p.composer.read(cx).can_send(cx))
+            // Online (the bench has no connection).
+            let sends = |vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, _, cx| {
+                    p.composer.update(cx, |c, _| c.offline = false);
+                    p.composer.read(cx).can_send(cx)
+                })
             };
-            assert!(can_send(vcx), "the draft's words could be sent");
-            let _ticket = open_with_request(&stores, &pane, true, vcx);
+            let text = |vcx: &mut VisualTestContext| {
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx))
+            };
+            assert!(sends(vcx), "the draft's words could be sent");
+            let ticket = open_with_request(&stores, &pane, true, vcx);
+            assert!(!sends(vcx), "Send went out before the request's content");
             assert_eq!(
-                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
-                ""
+                text(vcx),
+                "Unsent words",
+                "the words went before the content landed"
             );
-            assert!(!can_send(vcx), "Send could go out with the old words alone");
+            let shared = NewChatContent {
+                text: Some("Shared note".into()),
+                fresh: true,
+                ..NewChatContent::default()
+            };
+            assert!(pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, shared, window, cx)
+            }));
+            vcx.run_until_parked();
+            assert_eq!(text(vcx), "Shared note");
+            assert!(sends(vcx), "Send still waits once the content landed");
         }
 
         /// Another account takes over while the files are looked at: its
@@ -4407,10 +4432,12 @@ mod tests {
             // slot): dropped.
             let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
             pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.update(cx, |s, cx| s.await_content(cx));
                 p.composer.update(cx, |c, cx| {
-                    c.start_over(window, cx);
-                    c.set_text("Shared from Shortcuts", window, cx);
-                })
+                    c.start_fresh("Shared from Shortcuts", window, cx)
+                });
+                p.composer_store
+                    .update(cx, |s, cx| s.stop_awaiting(ticket, cx));
             });
             assert!(!attach(asked, vcx), "a replaced composition took the photo");
             assert!(attachment_names(&pane, vcx).is_empty());
@@ -6108,10 +6135,11 @@ mod tests {
             });
             vcx.run_until_parked();
             pane.update_in(vcx, |p, window, cx| {
-                p.composer.update(cx, |c, cx| {
-                    c.start_over(window, cx);
-                    c.set_text("Copied packing list", window, cx);
-                })
+                let ticket = p.composer_store.update(cx, |s, cx| s.await_content(cx));
+                p.composer
+                    .update(cx, |c, cx| c.start_fresh("Copied packing list", window, cx));
+                p.composer_store
+                    .update(cx, |s, cx| s.stop_awaiting(ticket, cx));
             });
             // The fresh composition is not held back by the first send.
             pane.update_in(vcx, |p, window, cx| {

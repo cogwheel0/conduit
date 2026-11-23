@@ -544,6 +544,9 @@ pub struct ComposerStore {
     /// Bumped whenever the draft starts over ([`Self::start_over`], or
     /// another account): a failed send's message is not given back to it.
     draft_round: u64,
+    /// The composition a fresh request started, while its content is on its
+    /// way ([`Self::await_content`]): Send waits for it. Never saved.
+    awaiting: Option<CompositionTicket>,
     _models: Option<Task<()>>,
     /// The newest `models.select`: its own request, which nothing but a
     /// newer pick replaces (a list, a pin, the chat's id moving).
@@ -643,6 +646,7 @@ impl ComposerStore {
             next_id: 0,
             scope: 0,
             draft_round: 0,
+            awaiting: None,
             _models: None,
             _select: None,
             list_seq: 0,
@@ -2646,12 +2650,36 @@ impl ComposerStore {
     /// nothing back to it.
     pub fn start_over(&mut self, cx: &mut Context<Self>) {
         self.draft_round += 1;
-        self.attachments.clear();
-        self.knowledge.clear();
-        self.context.clear();
-        self.mention = None;
-        self.compare_with = None;
+        self.clear_message(cx);
+    }
+
+    /// A fresh request came in, its content on its way. The composition is
+    /// the request's from now: a request after it takes the newer ticket,
+    /// and a send still out from the last one gives nothing back to it.
+    /// What is shown stays, and can be edited, until the content lands and
+    /// replaces it, or the request is dropped ([`Self::stop_awaiting`]);
+    /// Send waits meanwhile ([`Self::awaiting_content`]).
+    pub fn await_content(&mut self, cx: &mut Context<Self>) -> CompositionTicket {
+        self.draft_round += 1;
+        let ticket = self.ticket();
+        self.awaiting = Some(ticket);
         cx.notify();
+        ticket
+    }
+
+    /// Whether this composition waits for a fresh request's content (none
+    /// once another draft or account is in).
+    pub fn awaiting_content(&self) -> bool {
+        self.awaiting == Some(self.ticket())
+    }
+
+    /// The request that took `ticket` is done with: its content landed, or
+    /// it was dropped.
+    pub fn stop_awaiting(&mut self, ticket: CompositionTicket, cx: &mut Context<Self>) {
+        if self.awaiting == Some(ticket) {
+            self.awaiting = None;
+            cx.notify();
+        }
     }
 
     /// Another account: start over. Answers to what the last account

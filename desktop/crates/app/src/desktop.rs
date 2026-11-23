@@ -509,7 +509,9 @@ fn open_new_chat(
         // Before the next request in the batch: one that moves on (a chat
         // link) leaves this one's content nowhere, and one that starts over
         // (the clipboard) takes the draft from it.
-        let ticket = pane.update(cx, |p, cx| p.take_new_chat_ticket(fresh, window, cx));
+        let ticket = pane.update(cx, |p, cx| {
+            p.take_new_chat_ticket(fresh, owner.as_ref(), cx)
+        });
         // Looking at the files can wait on a network share (`\\server\share`):
         // off the UI thread.
         let planned = (!files.is_empty()).then(|| {
