@@ -134,7 +134,11 @@ final class ProtocolServices {
   /// [system] answers the handshake; it may have served sessions before
   /// now, and from now on carries what the account can use. If this throws
   /// part-way, [closeTransports] and [dispose] still stop what was built.
+  /// Once either of those has begun, nothing is built.
   void attach(ProviderContainer container) {
+    if (_transportsClosed || _disposed) {
+      throw StateError('the protocol services are closing');
+    }
     if (_servers != null) throw StateError('the services are already built');
     final ports = _ports;
     _servers = ServersService(container, events: events);
@@ -396,12 +400,13 @@ final class ProtocolServices {
   bool _transportsClosed = false;
   bool _disposed = false;
 
-  /// Null once [closeTransports] has closed them.
+  /// Null once [closeTransports] has begun.
   TerminalsService? get terminals => _transportsClosed ? null : _terminals;
   ComputerRpcService? get computer => _transportsClosed ? null : _computer;
 
   /// What sessions see of the services: none until [attach] has built them,
-  /// and none of those [closeTransports] closed after it.
+  /// none of those [closeTransports] closes once it begins, and none at all
+  /// once [dispose] begins.
   CoreServices get core => _core;
   CoreServices _core = const CoreServices();
 
@@ -479,13 +484,15 @@ final class ProtocolServices {
   /// terminals, the computer view and data exports. First, before the
   /// host's own transport goes.
   Future<void> closeTransports() async {
+    // Sessions lose these before the first wait, so a request meanwhile
+    // cannot start again what is being closed.
+    _transportsClosed = true;
+    if (_attached) _core = _buildCore(transports: false);
     await _calls?.dispose();
     await _speech?.dispose();
     await _terminals?.dispose();
     await _computer?.dispose();
     await _data?.dispose();
-    _transportsClosed = true;
-    if (_attached) _core = _buildCore(transports: false);
   }
 
   /// Stops the services that hold chats and watches, all of them or those
@@ -495,6 +502,8 @@ final class ProtocolServices {
   /// the core after this.
   Future<void> dispose() async {
     _disposed = true;
+    // Sessions still open answer "unavailable" from here on.
+    _core = const CoreServices();
     _accounts?.dispose();
     _servers?.dispose();
     _auth?.dispose();
@@ -509,6 +518,13 @@ final class ProtocolServices {
     if (_uiRequests != null) _ports.uiRequests.detach();
     _chats?.dispose();
     _ports.handoff.detach();
+    // The window ports the host keeps reach none of this aggregate's
+    // windows once it is gone.
+    if (_apple != null) {
+      _ports.apple.unbind();
+      _ports.location.unbind();
+    }
+    if (_attached) _ports.openUrl.detach();
     _calendar?.dispose();
     _automations?.dispose();
     _capabilities?.dispose();

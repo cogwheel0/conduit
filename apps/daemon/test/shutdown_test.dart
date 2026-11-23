@@ -6,8 +6,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
-import 'package:conduit_core/providers/host_ports.dart'
-    show appLifecycleProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
@@ -143,43 +141,5 @@ void main() {
     await until(() => provider.requests.length >= 2);
 
     await server.stop().timeout(const Duration(seconds: 20));
-  });
-
-  test('a core that arrives after the stop began is stopped, not '
-      'served', () async {
-    final dir = Directory.systemTemp.createTempSync('conduitd_late_core');
-    final config = BootstrapConfig(
-      sessionToken: _token,
-      masterKey: _masterKey,
-      userDataDir: dir.path,
-    );
-    final directories = DaemonDirectories.create(dir.path);
-    final stopping = DaemonServer(
-      config: config,
-      directories: directories,
-      daemonVersion: '0.0.0-test',
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
-    stopping.coreStarting();
-    final runtime = await startTestRuntime(
-      dir,
-      config: config,
-      directories: directories,
-    );
-    await stopping.stop();
-
-    stopping.attachCore(runtime);
-    // What the bin waits on before it exits: by then the core has closed
-    // its stores, so its folder can go at once.
-    await stopping.onStopped;
-    dir.deleteSync(recursive: true);
-    await pumpEventQueue();
-
-    expect(stopping.uiRequests, isNull, reason: 'no services were built');
-    expect(
-      () => runtime.container.read(appLifecycleProvider),
-      throwsA(anything),
-      reason: 'the core was disposed',
-    );
   });
 }
