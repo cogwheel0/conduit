@@ -18,7 +18,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// Apple's on-device model runs in the window; the chat runs here, in the
 /// core's Direct engine and Apple adapter. A fake window answers

@@ -17,7 +17,7 @@ import 'package:checks/checks.dart' as checks;
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// `servers.addresses.*` and the server's name (`servers.update` with a
 /// server's id) against a fake Open WebUI on loopback, reached as
@@ -52,7 +52,7 @@ void main() {
     // leaves nothing behind.
     temporary = Directory.systemTemp.createTempSync('server-addresses-test');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     addTearDown(runtime.dispose);
     other = await FakeOwuiAuthServer.start(users: users);
     addTearDown(other.close);

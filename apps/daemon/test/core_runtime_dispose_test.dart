@@ -13,7 +13,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_librechat_chat.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// Disposing the runtime while a LibreChat list refresh nobody waits on is
 /// still out. The process exits, or a test deletes the directory, once
@@ -99,7 +99,7 @@ final class _Bench {
     addTearDown(PreferencesStore.debugReset);
     final temporary = Directory.systemTemp.createTempSync('runtime-dispose');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    final runtime = await startTestRuntime(temporary);
+    final runtime = await startTestCore(temporary);
     final libreChat = await FakeLibreChatChat.start();
     addTearDown(libreChat.close);
     libreChat.fake.addUser(email: 'avery@example.com', password: 'pw-avery');

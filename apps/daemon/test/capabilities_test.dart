@@ -18,7 +18,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_hermes_server.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// `system.capabilities` follows the account, and `capabilities.changed`
 /// says when it moved.
@@ -150,7 +150,7 @@ void main() {
 
     setUpAll(() async {
       temporary = Directory.systemTemp.createTempSync('capabilities-test');
-      runtime = await startTestRuntime(temporary);
+      runtime = await startTestCore(temporary);
       hermesServer = await FakeHermesServer.start();
     });
 

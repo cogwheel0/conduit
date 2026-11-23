@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 
 import 'support/fake_openai.dart';
 import 'support/mcp_fixture.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 import 'support/window.dart';
 
 /// A direct turn that calls an MCP tool, end to end over real HTTP: a
@@ -37,7 +37,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('direct-mcp-turn-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     mcpServer = await McpFixture.start(requiredToken: 'mcp-token');
     provider = await FakeOpenAi.start();
 

@@ -18,7 +18,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_openai.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 import 'support/window.dart';
 
 /// The app with no Open WebUI server at all: a direct connection is
@@ -30,7 +30,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('direct-only-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     provider = await FakeOpenAi.start();
   });
 

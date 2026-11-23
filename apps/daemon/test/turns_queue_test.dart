@@ -18,7 +18,7 @@ import 'package:conduitd/src/queued_completions_service.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 import 'support/step_clock.dart';
 import 'support/window.dart';
 
@@ -46,7 +46,7 @@ void main() {
   setUp(() async {
     final temporary = Directory.systemTemp.createTempSync('turns-queue');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     addTearDown(runtime.dispose);
     owui =
         await FakeOwuiAuthServer.start(

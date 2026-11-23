@@ -15,7 +15,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 final class _Conversations extends Conversations {
   @override

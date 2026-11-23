@@ -27,7 +27,6 @@ import 'package:conduit_core/providers/primary_account_providers.dart'
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
-import 'package:conduitd/src/daemon_paths.dart';
 import 'package:conduitd/src/event_bus.dart';
 import 'package:conduitd/src/notes_service.dart';
 import 'package:dio/dio.dart' show CancelToken;
@@ -42,6 +41,8 @@ import 'package:drift/native.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
+
+import 'support/core.dart';
 
 /// The list, settled at once (or once [_listHold] lets it): nothing here
 /// reads the server.
@@ -436,10 +437,7 @@ void main() {
       container.invalidate(appDatabaseProvider);
       final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
       addTearDown(() => dir.delete(recursive: true));
-      final notes = NotesService(
-        container,
-        paths: DaemonDirectories.create(dir.path),
-      );
+      final notes = NotesService(container, paths: TestPaths(dir));
       addTearDown(notes.close);
       final release = gate.hold();
       final listing = notes.recordings('kiln-log');
@@ -472,10 +470,7 @@ void main() {
         container.invalidate(appDatabaseProvider);
         final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
         addTearDown(() => dir.delete(recursive: true));
-        final notes = NotesService(
-          container,
-          paths: DaemonDirectories.create(dir.path),
-        );
+        final notes = NotesService(container, paths: TestPaths(dir));
         addTearDown(notes.close);
         final release = gate.hold();
         final listing = notes.recordings('kiln-log');
@@ -546,7 +541,7 @@ void main() {
     final notes = NotesService(
       container,
       events: events,
-      paths: DaemonDirectories.create(dir.path),
+      paths: TestPaths(dir),
     );
     addTearDown(notes.close);
     expect((await notes.get('glaze-tests'))?.summary.title, 'Glaze tests');
@@ -629,7 +624,7 @@ void main() {
         );
     final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
     addTearDown(() => dir.delete(recursive: true));
-    final paths = _HeldPaths(DaemonDirectories.create(dir.path));
+    final paths = _HeldPaths(TestPaths(dir));
     final notes = NotesService(container, paths: paths);
     addTearDown(notes.close);
     expect((await notes.get('kiln-log'))?.summary.title, 'Kiln log');

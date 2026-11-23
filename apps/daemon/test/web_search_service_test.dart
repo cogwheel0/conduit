@@ -7,7 +7,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// `webSearch.*` over the real core's settings.
 void main() {
@@ -17,7 +17,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('web-search-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     search = WebSearchService(runtime.container);
   });
 

@@ -26,7 +26,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// The services as a host other than the daemon builds them: over its
 /// container, with its own system service, a session over an in-memory
@@ -42,7 +42,7 @@ void main() {
 
   /// The core over the desktop's stores.
   Future<void> startDesktop() async {
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     addTearDown(runtime.dispose);
   }
 

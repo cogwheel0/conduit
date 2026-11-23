@@ -10,7 +10,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_hermes_server.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// Hermes's administration (`hermes.connections.*`, `hermes.jobs*`,
 /// `hermes.catalog`, `hermes.mcp.*`) against two fakes of its API server.
@@ -28,7 +28,7 @@ void main() {
   setUp(() async {
     temporary = Directory.systemTemp.createTempSync('hermes-admin-test');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     addTearDown(runtime.dispose);
     first = await FakeHermesServer.start();
     addTearDown(first.close);

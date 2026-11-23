@@ -9,7 +9,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/local_owui.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// `intents.*` against a local Open WebUI with synthetic data (start and
 /// seed it with `tool/local_owui/owui.sh up`; without its env file this is
@@ -37,7 +37,7 @@ void main() {
 
       setUpAll(() async {
         temporary = Directory.systemTemp.createTempSync('conduitd-intents');
-        runtime = await startTestRuntime(temporary);
+        runtime = await startTestCore(temporary);
         final auth = AuthService(runtime.container);
         final accounts = AccountsService(runtime.container, events: EventBus());
         await auth.status();

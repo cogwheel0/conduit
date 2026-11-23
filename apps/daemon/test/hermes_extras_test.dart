@@ -13,7 +13,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_hermes_server.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// A Desktop Gateway's dashboard, as far as its sign-in goes: `/api/auth/me`
 /// answers only with the session cookie, and rotates it.
@@ -134,7 +134,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('hermes-extras-test');
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     api = await FakeHermesServer.start();
     dashboard = await _FakeDashboard.start();
     final events = EventBus();

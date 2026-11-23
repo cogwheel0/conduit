@@ -10,7 +10,7 @@ import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// The daemon answers exactly the methods the protocol's tables list, with
 /// the tables' own decoders, so the Rust client generated from those tables

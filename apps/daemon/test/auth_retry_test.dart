@@ -9,7 +9,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
-import 'support/runtime.dart';
+import 'support/core.dart';
 
 /// The connection issue's Retry (`auth.retry`) against a fake Open WebUI
 /// that can answer as a sign-in proxy whose session expired: the kept
@@ -29,7 +29,7 @@ void main() {
     // part way still cleans up what it made.
     temporary = Directory.systemTemp.createTempSync('auth-retry-test');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    runtime = await startTestRuntime(temporary);
+    runtime = await startTestCore(temporary);
     addTearDown(runtime.dispose);
     owui = await FakeOwuiAuthServer.start(
       users: const {
