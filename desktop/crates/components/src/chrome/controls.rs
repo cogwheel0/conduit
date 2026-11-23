@@ -256,7 +256,6 @@ pub fn header_drag(
                 cx,
                 |_, _| None::<Point<Pixels>>,
             );
-            let armed = pressed.read(cx).is_some();
             let down = pressed.clone();
             div()
                 .id(id)
@@ -265,27 +264,23 @@ pub fn header_drag(
                         window.zoom_window();
                     } else {
                         let at = e.position;
-                        down.update(cx, |p, cx| {
-                            *p = Some(at);
-                            cx.notify();
-                        });
+                        down.update(cx, |p, _| *p = Some(at));
                     }
                 })
                 .on_mouse_down(MouseButton::Right, |e, window, _| {
                     window.show_window_menu(e.position)
                 })
-                // Once pressed, the drag is followed over the whole window:
-                // the first move may already have left the header.
-                .when(armed, |d| {
-                    d.child(
-                        canvas(
-                            |_, _, _| {},
-                            move |_, _, window, _| follow_press(&pressed, window),
-                        )
-                        .absolute()
-                        .size_0(),
+                // A press is followed over the whole window, by listeners
+                // in place before it: its first move may already have left
+                // the header, and its release may come before the next frame.
+                .child(
+                    canvas(
+                        |_, _, _| {},
+                        move |_, _, window, _| follow_press(&pressed, window),
                     )
-                })
+                    .absolute()
+                    .size_0(),
+                )
         }
     }
 }
@@ -304,10 +299,7 @@ fn follow_press(pressed: &gpui_kit::Entity<Option<Point<Pixels>>>, window: &mut 
         let lifted = e.pressed_button != Some(MouseButton::Left);
         let travelled = (e.position - at).magnitude() as f32 >= DRAG_THRESHOLD;
         if lifted || travelled {
-            moved.update(cx, |p, cx| {
-                *p = None;
-                cx.notify();
-            });
+            moved.update(cx, |p, _| *p = None);
         }
         if !lifted && travelled {
             window.start_window_move();
@@ -316,10 +308,7 @@ fn follow_press(pressed: &gpui_kit::Entity<Option<Point<Pixels>>>, window: &mut 
     let up = pressed.clone();
     window.on_mouse_event(move |e: &MouseUpEvent, phase, _, cx| {
         if phase == DispatchPhase::Bubble && e.button == MouseButton::Left {
-            up.update(cx, |p, cx| {
-                *p = None;
-                cx.notify();
-            });
+            up.update(cx, |p, _| *p = None);
         }
     });
 }

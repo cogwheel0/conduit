@@ -6,8 +6,9 @@ use std::rc::Rc;
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    Context, Decorations, Entity, FocusHandle, KeyBinding, Modifiers, MouseButton, Point,
-    TestAppContext, Tiling, VisualTestContext, Window, actions, div, point, px,
+    Context, Decorations, Entity, FocusHandle, KeyBinding, Modifiers, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, PlatformInput, Point, TestAppContext, Tiling, VisualTestContext,
+    Window, actions, div, point, px,
 };
 
 use super::ChromeStyle;
@@ -735,6 +736,63 @@ fn a_header_press_then_a_move_off_the_header_moves_the_window(cx: &mut TestAppCo
         Modifiers::none(),
     );
     draw(vcx);
+}
+
+/// A click on the header that ends before the next frame leaves no drag
+/// waiting, whether it lets go on the header or just off it: a later drag in
+/// the content doesn't move the window (it would reach the test window's
+/// missing window move and panic).
+#[gpui_kit::test]
+fn a_quick_header_click_leaves_no_drag_waiting(cx: &mut TestAppContext) {
+    let (_, vcx) = cx.add_window_view(|_, _| Header);
+    draw(vcx);
+    let none = Modifiers::none();
+    let left = MouseButton::Left;
+    let content = point(px(20.), px(200.));
+    // Let go where it pressed, then 3 points down and off the header (the
+    // drag starts at 4).
+    for (press, release) in [
+        (point(px(20.), px(20.)), point(px(20.), px(20.))),
+        (point(px(20.), px(38.)), point(px(20.), px(41.))),
+    ] {
+        // Press, release and move to the content, all in one frame. A test
+        // window draws after each simulated event, so they go in one update.
+        vcx.update(|window, cx| {
+            for event in [
+                PlatformInput::MouseDown(MouseDownEvent {
+                    position: press,
+                    modifiers: none,
+                    button: left,
+                    click_count: 1,
+                    first_mouse: false,
+                }),
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position: release,
+                    modifiers: none,
+                    pressed_button: Some(left),
+                }),
+                PlatformInput::MouseUp(MouseUpEvent {
+                    position: release,
+                    modifiers: none,
+                    button: left,
+                    click_count: 1,
+                }),
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position: content,
+                    modifiers: none,
+                    pressed_button: None,
+                }),
+            ] {
+                window.dispatch_event(event, cx);
+            }
+        });
+        draw(vcx);
+        // A drag in the content, with no move between.
+        vcx.simulate_mouse_down(content, left, none);
+        vcx.simulate_mouse_move(point(px(20.), px(260.)), left, none);
+        vcx.simulate_mouse_up(point(px(20.), px(260.)), left, none);
+        draw(vcx);
+    }
 }
 
 /// GNOME's frame alone, client-side decorated and floating.
