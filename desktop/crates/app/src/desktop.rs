@@ -497,11 +497,14 @@ fn open_new_chat(
     } = compose;
     show_main(cx);
     crate::with_main_view(cx, move |view, window, cx| {
+        // The account the request belongs to: its own, else the one in
+        // charge now. Its content never lands under another.
+        let owner = owner.or_else(|| {
+            Some(crate::shell::deep_link::ReadUnder(
+                view.stores.accounts.read(cx).scope_key(),
+            ))
+        });
         view.new_chat(false, window, cx);
-        // The new chat this request opened, taken now: what follows (another
-        // link, the user choosing a chat) may select something else while
-        // the files are looked at, and the content then never lands.
-        let ticket = view.stores.navigation.read(cx).ticket();
         let pane = view.chat_pane.clone();
         // Looking at the files can wait on a network share (`\\server\share`):
         // off the UI thread.
@@ -513,6 +516,12 @@ fn open_new_chat(
         // and its draft switch empties the message box (a chat was open
         // before), so the text goes in after that.
         cx.spawn_in(window, async move |_, cx| {
+            // The draft this request opened, as the pane shows it now (it
+            // followed the new selection as the update ended): the only one
+            // its content, the files included, ever goes to. Another link,
+            // the user's own navigation, a fresh draft or another account
+            // meanwhile, and it goes nowhere.
+            let ticket = pane.read_with(cx, |p, cx| p.composition_ticket(cx));
             let plan = match planned {
                 Some(planned) => planned.await,
                 None => open_files::OpenFilesPlan::default(),
@@ -532,7 +541,7 @@ fn open_new_chat(
                 owner,
             };
             let _ = pane.update_in(cx, |p, window, cx| {
-                p.compose_new_chat(&ticket, content, window, cx)
+                p.compose_new_chat(ticket, content, window, cx)
             });
             let _ = cx.update(|_, cx| refused_files(too_many, &too_large, cx));
         })

@@ -195,9 +195,6 @@ pub const HISTORY_LIMIT: usize = 64;
 
 pub struct NavigationStore {
     selection: Selection,
-    /// How many times the selection changed: with it, a ticket tells one
-    /// visit of a selection (a new chat's draft) from a later one.
-    visits: u64,
     /// The folder the new chat goes in once its first message is sent (a
     /// folder's "New Chat in Folder").
     new_chat_folder: Option<String>,
@@ -211,21 +208,11 @@ impl Default for NavigationStore {
     fn default() -> Self {
         Self {
             selection: Selection::New { temporary: false },
-            visits: 0,
             new_chat_folder: None,
             back: vec![],
             forward: vec![],
         }
     }
-}
-
-/// What a request that writes into the shown chat later (a new chat's
-/// files, looked at off the UI thread) checks before it does: the
-/// selection, and which visit of it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Ticket {
-    selection: Selection,
-    visit: u64,
 }
 
 impl EventEmitter<NavigationEvent> for NavigationStore {}
@@ -237,14 +224,6 @@ impl NavigationStore {
 
     pub fn selection(&self) -> &Selection {
         &self.selection
-    }
-
-    /// This visit of the selection ([`Ticket`]).
-    pub fn ticket(&self) -> Ticket {
-        Ticket {
-            selection: self.selection.clone(),
-            visit: self.visits,
-        }
     }
 
     /// The open stored chat, if one is open.
@@ -395,7 +374,6 @@ impl NavigationStore {
         if self.selection == selection {
             return;
         }
-        self.visits = self.visits.wrapping_add(1);
         let previous = std::mem::replace(&mut self.selection, selection.clone());
         self.back.push(previous);
         if self.back.len() > HISTORY_LIMIT {
@@ -410,7 +388,6 @@ impl NavigationStore {
         if self.selection == selection {
             return;
         }
-        self.visits = self.visits.wrapping_add(1);
         self.selection = selection.clone();
         self.announce(selection, cx);
     }
@@ -421,36 +398,6 @@ impl NavigationStore {
         }
         cx.emit(NavigationEvent::Changed(selection));
         cx.notify();
-    }
-}
-
-#[cfg(test)]
-mod draft_ticket_tests {
-    use gpui_kit::AppContext as _;
-
-    use super::*;
-
-    /// A ticket is the selection and the visit: a new chat left for another
-    /// and started again is another draft, though both are `New`, so a
-    /// request's late files never land in the later one.
-    #[gpui_kit::test]
-    fn a_new_chat_started_again_is_another_draft(cx: &mut gpui_kit::TestAppContext) {
-        let navigation = cx.new(|_| NavigationStore::new());
-        navigation.update(cx, |n, cx| n.new_chat(false, cx));
-        let first = navigation.read_with(cx, |n, _| n.ticket());
-        assert_eq!(
-            first,
-            navigation.read_with(cx, |n, _| n.ticket()),
-            "the same draft"
-        );
-        navigation.update(cx, |n, cx| n.open("c1", cx));
-        navigation.update(cx, |n, cx| n.new_chat(false, cx));
-        let second = navigation.read_with(cx, |n, _| n.ticket());
-        assert_eq!(
-            navigation.read_with(cx, |n, _| n.selection().clone()),
-            Selection::New { temporary: false }
-        );
-        assert_ne!(first, second);
     }
 }
 

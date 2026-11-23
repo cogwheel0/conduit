@@ -2176,12 +2176,16 @@ impl ChatPane {
     /// written.
     pub fn compose_new_chat(
         &mut self,
-        ticket: &crate::stores::navigation::Ticket,
+        ticket: crate::stores::composer::CompositionTicket,
         content: NewChatContent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.stores.navigation.read(cx).ticket() != *ticket {
+        // The draft its request opened, in that account: another draft, a
+        // fresh one over it, another account, or a send since, and the
+        // content belongs nowhere here.
+        if !self.composer_store.read(cx).holds(ticket) {
+            log::info!("new chat: the draft it was for is gone; dropped");
             return false;
         }
         // Read under one account scope, never written for another (a switch
@@ -2235,6 +2239,12 @@ impl ChatPane {
         }
         self.focus_composer(window, cx);
         true
+    }
+
+    /// The composition shown now (its draft, in this account), for content
+    /// that arrives later ([`Self::compose_new_chat`]).
+    pub fn composition_ticket(&self, cx: &App) -> crate::stores::composer::CompositionTicket {
+        self.composer_store.read(cx).ticket()
     }
 
     /// The ticket a Continuity Camera photo asked for now would carry: this
@@ -4042,11 +4052,11 @@ mod tests {
                 ..NewChatContent::default()
             };
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
-            let ticket = stores.navigation.read_with(vcx, |n, _| n.ticket());
+            let ticket = pane.read_with(vcx, |p, cx| p.composition_ticket(cx));
             stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
             vcx.run_until_parked();
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(&ticket, content(), window, cx)
+                p.compose_new_chat(ticket, content(), window, cx)
             });
             vcx.run_until_parked();
             assert!(!wrote, "written into the chat opened after it");
@@ -4058,9 +4068,9 @@ mod tests {
             // Still on the new chat it opened: written.
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            let ticket = stores.navigation.read_with(vcx, |n, _| n.ticket());
+            let ticket = pane.read_with(vcx, |p, cx| p.composition_ticket(cx));
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(&ticket, content(), window, cx)
+                p.compose_new_chat(ticket, content(), window, cx)
             });
             vcx.run_until_parked();
             assert!(wrote);
@@ -4068,6 +4078,117 @@ mod tests {
                 pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
                 "Copied packing list"
             );
+        }
+
+        /// Open With's files, looked at off the UI thread, go only to the
+        /// draft their request opened, by the composition ticket it took
+        /// when the pane showed that draft.
+        fn open_with_request(
+            stores: &Stores,
+            pane: &Entity<ChatPane>,
+            vcx: &mut VisualTestContext,
+        ) -> crate::stores::composer::CompositionTicket {
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            pane.read_with(vcx, |p, cx| p.composition_ticket(cx))
+        }
+
+        fn late_files(name: &str) -> crate::views::chat_pane::NewChatContent {
+            let dir =
+                std::env::temp_dir().join(format!("conduit-open-with-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let file = dir.join(name);
+            let _ = std::fs::write(&file, b"Packing list");
+            crate::views::chat_pane::NewChatContent {
+                paths: vec![file],
+                ..crate::views::chat_pane::NewChatContent::default()
+            }
+        }
+
+        fn has_files(pane: &Entity<ChatPane>, vcx: &mut VisualTestContext) -> bool {
+            // Any state: the test's uploads never finish.
+            pane.read_with(vcx, |p, cx| {
+                !p.composer_store.read(cx).attachments.is_empty()
+            })
+        }
+
+        /// Another account takes over while the files are looked at: its
+        /// composer gets nothing, whoever the request named.
+        #[gpui_kit::test]
+        fn late_files_never_reach_another_accounts_composer(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let ticket = open_with_request(&stores, &pane, vcx);
+            stores.accounts.update(vcx, |a, cx| {
+                a.adopt(list(vec![account("b", "Blair", true, true)]), cx)
+            });
+            vcx.run_until_parked();
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(ticket, late_files("Packing list.txt"), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(!wrote, "a's files went to b's composer");
+            assert!(!has_files(&pane, vcx));
+        }
+
+        /// A second request starts the new chat fresh (Share) while the first
+        /// request's files are looked at: the fresh draft gets none of them.
+        /// A draft that is still the request's own gets its files.
+        #[gpui_kit::test]
+        fn late_files_go_only_to_their_own_draft(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let first = open_with_request(&stores, &pane, vcx);
+            let second = open_with_request(&stores, &pane, vcx);
+            let shared = NewChatContent {
+                text: Some("Shared note".into()),
+                fresh: true,
+                ..NewChatContent::default()
+            };
+            assert!(pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(second, shared, window, cx)
+            }));
+            vcx.run_until_parked();
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(first, late_files("Packing list.txt"), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(!wrote, "the first request's files reached the fresh draft");
+            assert!(!has_files(&pane, vcx));
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Shared note"
+            );
+            let own = open_with_request(&stores, &pane, vcx);
+            assert!(pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(own, late_files("Packing list.txt"), window, cx)
+            }));
+            vcx.run_until_parked();
+            assert!(has_files(&pane, vcx), "its own draft gets its files");
+        }
+
+        /// Back and Forward return to the new chat while its files are looked
+        /// at: the draft shown again is read anew, and the files are not
+        /// revived into it.
+        #[gpui_kit::test]
+        fn late_files_are_not_revived_by_back_and_forward(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            let ticket = open_with_request(&stores, &pane, vcx);
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.go_back(|_| true, cx));
+            vcx.run_until_parked();
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.go_forward(|_| true, cx));
+            vcx.run_until_parked();
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(ticket, late_files("Packing list.txt"), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(!wrote, "the files came back after Back and Forward");
+            assert!(!has_files(&pane, vcx));
         }
 
         /// Send Link's page, read under one account, is never written into
@@ -4078,7 +4199,7 @@ mod tests {
             let (_daemon, stores, pane, vcx) = bench(cx);
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            let ticket = stores.navigation.read_with(vcx, |n, _| n.ticket());
+            let ticket = pane.read_with(vcx, |p, cx| p.composition_ticket(cx));
             let page = |owner: &str| NewChatContent {
                 text: Some("Summarize this page".into()),
                 fresh: true,
@@ -4086,7 +4207,7 @@ mod tests {
                 ..NewChatContent::default()
             };
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(&ticket, page("b"), window, cx)
+                p.compose_new_chat(ticket, page("b"), window, cx)
             });
             assert!(!wrote, "account b's page written while a is in charge");
             assert_eq!(
@@ -4094,7 +4215,7 @@ mod tests {
                 ""
             );
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(&ticket, page("a"), window, cx)
+                p.compose_new_chat(ticket, page("a"), window, cx)
             });
             assert!(wrote);
             assert_eq!(
@@ -4120,12 +4241,12 @@ mod tests {
             let ticket = |vcx: &mut VisualTestContext| {
                 stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
                 vcx.run_until_parked();
-                stores.navigation.read_with(vcx, |n, _| n.ticket())
+                pane.read_with(vcx, |p, cx| p.composition_ticket(cx))
             };
             // An account is in charge: a page read with none is refused.
             let t = ticket(vcx);
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(&t, page(), window, cx)
+                p.compose_new_chat(t, page(), window, cx)
             });
             assert!(
                 !wrote,
@@ -4139,7 +4260,7 @@ mod tests {
             assert_eq!(stores.accounts.read_with(vcx, |a, _| a.scope_key()), None);
             let t = ticket(vcx);
             let wrote = pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(&t, page(), window, cx)
+                p.compose_new_chat(t, page(), window, cx)
             });
             assert!(wrote, "a page read with no account was refused with none");
             assert_eq!(
