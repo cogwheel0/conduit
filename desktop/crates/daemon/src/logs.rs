@@ -1,7 +1,7 @@
 //! A small rotating log file: `<stem>.log`, rolled to `<stem>.1.log` …
 //! `<stem>.<keep>.log` once it passes `max_bytes`. The daemon's stderr and
-//! the app's own log both go through it, under `~/Library/Logs/Conduit`
-//! (or `Conduit Dev`).
+//! the app's own log both go through it, in each OS's logs folder
+//! ([`crate::paths::AppPaths::logs`]).
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};

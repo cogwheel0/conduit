@@ -232,12 +232,7 @@ fn direct_moved_to_tether(list: &conduit_protocol::DirectConnectionList) -> bool
 
 impl E2eInputs {
     pub fn from_args(args: &[String]) -> Option<Self> {
-        let arg = |k: &str| {
-            args.iter()
-                .position(|a| a == k)
-                .and_then(|i| args.get(i + 1))
-                .cloned()
-        };
+        let arg = |k: &str| crate::scripted::value(args, k);
         let scenario = arg("--e2e")?;
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let named = arg("--e2e-env");

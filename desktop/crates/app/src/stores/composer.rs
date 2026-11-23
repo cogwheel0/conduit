@@ -544,6 +544,9 @@ pub struct ComposerStore {
     /// Bumped whenever the draft starts over ([`Self::start_over`], or
     /// another account): a failed send's message is not given back to it.
     draft_round: u64,
+    /// The composition a fresh request started, while its content is on its
+    /// way ([`Self::await_content`]): Send waits for it. Never saved.
+    awaiting: Option<CompositionTicket>,
     _models: Option<Task<()>>,
     /// The newest `models.select`: its own request, which nothing but a
     /// newer pick replaces (a list, a pin, the chat's id moving).
@@ -643,6 +646,7 @@ impl ComposerStore {
             next_id: 0,
             scope: 0,
             draft_round: 0,
+            awaiting: None,
             _models: None,
             _select: None,
             list_seq: 0,
@@ -1733,47 +1737,62 @@ impl ComposerStore {
     /// into a JPEG) and uploaded on its own.
     pub fn add_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         for path in paths {
-            let mut name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "file".into());
             let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            let convert = self.converts(&name) && self.converter.is_some();
-            if convert {
-                name = jpeg_name(&name);
-            }
-            let id = self.push(name.clone(), size, content_type_for(&name));
-            if path.is_dir() {
-                self.fail(id, "a folder cannot be attached".into(), false, cx);
-                continue;
-            }
-            if size > MAX_ATTACHMENT_BYTES {
-                self.fail(id, "larger than 256 MB".into(), false, cx);
-                continue;
-            }
-            let path = path.clone();
-            let converter = self.converter.clone().filter(|_| convert);
-            if converter.is_some()
-                && let Some(a) = self.get(id)
-            {
-                a.state = UploadState::Converting;
-            }
-            let read = cx.background_executor().spawn(async move {
-                match converter {
-                    Some(convert) => convert(&path),
-                    None => std::fs::read(&path).map_err(|e| e.to_string()),
-                }
-            });
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                let bytes = read.await;
-                let _ = this.update(cx, |s, cx| match bytes {
-                    Ok(bytes) => s.upload(id, Arc::new(bytes), cx),
-                    Err(e) => s.fail(id, e, false, cx),
-                });
-            })
-            .detach();
+            self.add_file(path, size, path.is_dir(), cx);
         }
         cx.notify();
+    }
+
+    /// [`Self::add_paths`] for files already looked at off the UI thread
+    /// (Open With's plan: each a file, with its size), so nothing here
+    /// waits on the disk, a network share's included. Their bytes are read
+    /// and checked in the background, as every file's are.
+    pub fn add_checked_files(&mut self, files: &[(PathBuf, u64)], cx: &mut Context<Self>) {
+        for (path, size) in files {
+            self.add_file(path, *size, false, cx);
+        }
+        cx.notify();
+    }
+
+    fn add_file(&mut self, path: &Path, size: u64, is_dir: bool, cx: &mut Context<Self>) {
+        let mut name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "file".into());
+        let convert = self.converts(&name) && self.converter.is_some();
+        if convert {
+            name = jpeg_name(&name);
+        }
+        let id = self.push(name.clone(), size, content_type_for(&name));
+        if is_dir {
+            self.fail(id, "a folder cannot be attached".into(), false, cx);
+            return;
+        }
+        if size > MAX_ATTACHMENT_BYTES {
+            self.fail(id, "larger than 256 MB".into(), false, cx);
+            return;
+        }
+        let path = path.to_path_buf();
+        let converter = self.converter.clone().filter(|_| convert);
+        if converter.is_some()
+            && let Some(a) = self.get(id)
+        {
+            a.state = UploadState::Converting;
+        }
+        let read = cx.background_executor().spawn(async move {
+            match converter {
+                Some(convert) => convert(&path),
+                None => std::fs::read(&path).map_err(|e| e.to_string()),
+            }
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let bytes = read.await;
+            let _ = this.update(cx, |s, cx| match bytes {
+                Ok(bytes) => s.upload(id, Arc::new(bytes), cx),
+                Err(e) => s.fail(id, e, false, cx),
+            });
+        })
+        .detach();
     }
 
     /// A picture the server would not read as it is (HEIC, RAW, BMP): sent
@@ -2646,12 +2665,36 @@ impl ComposerStore {
     /// nothing back to it.
     pub fn start_over(&mut self, cx: &mut Context<Self>) {
         self.draft_round += 1;
-        self.attachments.clear();
-        self.knowledge.clear();
-        self.context.clear();
-        self.mention = None;
-        self.compare_with = None;
+        self.clear_message(cx);
+    }
+
+    /// A fresh request came in, its content on its way. The composition is
+    /// the request's from now: a request after it takes the newer ticket,
+    /// and a send still out from the last one gives nothing back to it.
+    /// What is shown stays, and can be edited, until the content lands and
+    /// replaces it, or the request is dropped ([`Self::stop_awaiting`]);
+    /// Send waits meanwhile ([`Self::awaiting_content`]).
+    pub fn await_content(&mut self, cx: &mut Context<Self>) -> CompositionTicket {
+        self.draft_round += 1;
+        let ticket = self.ticket();
+        self.awaiting = Some(ticket);
         cx.notify();
+        ticket
+    }
+
+    /// Whether this composition waits for a fresh request's content (none
+    /// once another draft or account is in).
+    pub fn awaiting_content(&self) -> bool {
+        self.awaiting == Some(self.ticket())
+    }
+
+    /// The request that took `ticket` is done with: its content landed, or
+    /// it was dropped.
+    pub fn stop_awaiting(&mut self, ticket: CompositionTicket, cx: &mut Context<Self>) {
+        if self.awaiting == Some(ticket) {
+            self.awaiting = None;
+            cx.notify();
+        }
     }
 
     /// Another account: start over. Answers to what the last account
@@ -3552,6 +3595,29 @@ mod tests {
     ) -> Entity<ComposerStore> {
         let rpc = daemon.rpc();
         cx.new(|_| ComposerStore::new(rpc, Some(uploader(outcome))))
+    }
+
+    /// Files a plan already looked at off the UI thread (Open With's, on a
+    /// network share maybe) go in as the plan found them, with no look at
+    /// the disk here: one gone since goes in at the plan's size, and its
+    /// read, in the background, fails.
+    #[gpui_kit::test]
+    fn checked_files_go_in_without_a_look_at_the_disk(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = store(&daemon, Arc::new(Mutex::new(vec![])), cx);
+        let gone = std::env::temp_dir()
+            .join(format!("conduit-gone-{}", std::process::id()))
+            .join("Packing list.txt");
+        store.update(cx, |s, cx| s.add_checked_files(&[(gone, 12)], cx));
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.attachments.len(), 1);
+            assert_eq!(s.attachments[0].size, 12, "its size was looked up again");
+            assert!(matches!(s.attachments[0].state, UploadState::Reading));
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(matches!(s.attachments[0].state, UploadState::Failed { .. }));
+        });
     }
 
     #[gpui_kit::test]

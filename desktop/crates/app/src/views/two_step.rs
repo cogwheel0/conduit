@@ -54,6 +54,13 @@ struct Attempt {
     scope: (Option<String>, bool),
 }
 
+/// The attempt and the account a slow answer was asked for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AskedFor {
+    attempt: u64,
+    scope: (Option<String>, bool),
+}
+
 /// Loading the enrol step's setup key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetupState {
@@ -376,8 +383,41 @@ impl TwoStepView {
         let Some(uri) = self.setup.as_ref().map(|s| s.authenticator_uri.clone()) else {
             return;
         };
-        if crate::shell::open_url::has_handler(&uri) {
-            cx.open_url(&uri);
+        let asked_for = self.asked_for(cx);
+        let asked = crate::shell::open_url::ask_handler(uri.clone(), cx);
+        cx.spawn(async move |this, cx| {
+            let answer = asked.await;
+            let _ = this.update(cx, |this, cx| {
+                this.authenticator_answered(&asked_for, &uri, answer, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// The attempt and the account an answer is for.
+    fn asked_for(&self, cx: &App) -> AskedFor {
+        AskedFor {
+            attempt: self.attempt,
+            scope: self.scope(cx),
+        }
+    }
+
+    /// The handler lookup's answer for `uri`: the link opens, or the window
+    /// says no app adds codes, only for the attempt it was asked for.
+    fn authenticator_answered(
+        &mut self,
+        asked_for: &AskedFor,
+        uri: &str,
+        answer: Option<bool>,
+        cx: &mut Context<Self>,
+    ) {
+        // Back, another account or a new enrolment moved the step on during
+        // the lookup: this key's codes are no longer the ones asked for.
+        if *asked_for != self.asked_for(cx) {
+            return;
+        }
+        if crate::shell::open_url::opens(answer) {
+            cx.open_url(uri);
         } else {
             let text = cx.l10n().two_step_no_authenticator_app();
             self.stores.toasts.update(cx, |t, cx| {
@@ -838,6 +878,72 @@ mod tests {
             Some("NEWKEY"),
             "the abandoned enrolment's key came back"
         );
+    }
+
+    /// Add to Authenticator App asks for a handler first, which can take a
+    /// while. A key whose step moved on meanwhile (Back, another account)
+    /// never opens: its codes are not the ones the server would take.
+    #[gpui_kit::test]
+    fn an_authenticator_link_found_after_the_step_moved_on_never_opens(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AuthTwoStepSetup>(key("SETUPKEY"));
+        let (stores, view, vcx) = view(&daemon, "two-step-late-link", cx);
+        let enroll = |stores: &Stores, vcx: &mut gpui_kit::VisualTestContext| {
+            stores
+                .session
+                .update(vcx, |s, cx| s.adopt_auth(at(Some("enroll")), cx));
+            vcx.run_until_parked();
+        };
+        enroll(&stores, vcx);
+        let link = |view: &Entity<TwoStepView>, vcx: &mut gpui_kit::VisualTestContext| {
+            view.read_with(vcx, |v, cx| {
+                (
+                    v.asked_for(cx),
+                    v.setup.as_ref().unwrap().authenticator_uri.clone(),
+                )
+            })
+        };
+
+        // Back to Sign In before the lookup answers.
+        let (asked_for, uri) = link(&view, vcx);
+        stores
+            .session
+            .update(vcx, |s, cx| s.adopt_auth(at(None), cx));
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| {
+            v.authenticator_answered(&asked_for, &uri, Some(true), cx)
+        });
+        assert_eq!(vcx.opened_url(), None, "a key opened after Back");
+
+        // Another account's sign-in before the lookup answers.
+        enroll(&stores, vcx);
+        let (asked_for, uri) = link(&view, vcx);
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, false),
+                    account("b", "Blake", true, false),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| {
+            v.authenticator_answered(&asked_for, &uri, Some(true), cx)
+        });
+        assert_eq!(
+            vcx.opened_url(),
+            None,
+            "a key opened after the account changed"
+        );
+
+        // The step that asked: it opens.
+        enroll(&stores, vcx);
+        let (asked_for, uri) = link(&view, vcx);
+        view.update(vcx, |v, cx| {
+            v.authenticator_answered(&asked_for, &uri, Some(true), cx)
+        });
+        assert_eq!(vcx.opened_url(), Some(uri));
     }
 
     #[test]

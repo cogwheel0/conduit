@@ -1292,6 +1292,245 @@ mod chat_menu_tests {
         daemon
     }
 
+    /// `conduit://clipboard`, then a chat link, in one batch: the chat
+    /// opened after the new chat keeps its own draft, and the clipboard's
+    /// text goes nowhere (its new chat isn't shown any more).
+    #[gpui_kit::test]
+    fn a_link_after_a_new_chat_in_one_batch_keeps_its_own_draft(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, settings, view, vcx) = bench_with_settings(&daemon, cx);
+        crate::install_main_for_test(stores.clone(), settings, view.clone(), vcx);
+        vcx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+            "Copied packing list".into(),
+        ));
+        // From the app, as a link arrives: inside `vcx.update` the window is
+        // taken, and the request can't reach the main view.
+        vcx.cx
+            .update(|cx| crate::desktop::handle_urls(vec!["conduit://clipboard".into()], cx));
+        vcx.run_until_parked();
+        let text = |vcx: &mut VisualTestContext| {
+            view.read_with(vcx, |v, cx| v.chat_pane.read(cx).composer.read(cx).text(cx))
+        };
+        assert_eq!(text(vcx), "Copied packing list", "alone, it lands");
+        vcx.cx.update(|cx| {
+            crate::desktop::handle_urls(
+                vec!["conduit://clipboard".into(), "conduit://chat/chat-a".into()],
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(stores.navigation.read(cx).selected_chat(), Some("chat-a"));
+            assert_eq!(v.chat_pane.read(cx).composer.read(cx).text(cx), "");
+        });
+    }
+
+    /// `conduit://clipboard`, then `conduit://new?q=Later`, in one batch: the
+    /// clipboard's request starts the new chat over as it comes in, so its
+    /// late start-over never takes the later request's text away.
+    #[gpui_kit::test]
+    fn a_new_chat_link_after_the_clipboard_in_one_batch_keeps_its_text(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, settings, view, vcx) = bench_with_settings(&daemon, cx);
+        crate::install_main_for_test(stores, settings, view.clone(), vcx);
+        vcx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+            "Copied packing list".into(),
+        ));
+        vcx.cx.update(|cx| {
+            crate::desktop::handle_urls(
+                vec!["conduit://clipboard".into(), "conduit://new?q=Later".into()],
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        let text = view.read_with(vcx, |v, cx| v.chat_pane.read(cx).composer.read(cx).text(cx));
+        assert!(
+            text.ends_with("Later"),
+            "the later link's text was lost: {text:?}"
+        );
+    }
+
+    type Drafts = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>;
+
+    /// Drafts kept as the daemon keeps them: `drafts.save` stores a draft's
+    /// text by its chat and folder, and `drafts.get` reads it back.
+    fn keep_drafts(daemon: &FakeDaemon) -> Drafts {
+        use conduit_protocol::methods;
+        let stored = Drafts::default();
+        let key = |p: &serde_json::Value| format!("{}/{}", p["chatId"], p["folderId"]);
+        let saving = stored.clone();
+        daemon.on::<methods::DraftsSave>(move |p| {
+            let text = p["text"].as_str().unwrap_or_default().to_string();
+            saving.lock().unwrap().insert(key(p), text.clone());
+            Ok(serde_json::json!({"text": text, "stored": true}))
+        });
+        let reading = stored.clone();
+        daemon.on::<methods::DraftsGet>(move |p| {
+            let text = reading.lock().unwrap().get(&key(p)).cloned();
+            Ok(serde_json::json!({"text": text.unwrap_or_default(), "stored": true}))
+        });
+        stored
+    }
+
+    /// The new chat's stored draft (no chat yet, no folder).
+    fn new_chats_draft(drafts: &Drafts) -> Option<String> {
+        drafts.lock().unwrap().get("null/null").cloned()
+    }
+
+    fn wait_past_saves(vcx: &mut VisualTestContext) {
+        for _ in 0..2 {
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_millis(500));
+            vcx.run_until_parked();
+        }
+    }
+
+    fn composer_text(
+        pane: &Entity<crate::views::chat_pane::ChatPane>,
+        vcx: &mut VisualTestContext,
+    ) -> String {
+        pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx))
+    }
+
+    /// Whether Send would send (online: the bench has no connection).
+    fn sends(
+        pane: &Entity<crate::views::chat_pane::ChatPane>,
+        vcx: &mut VisualTestContext,
+    ) -> bool {
+        pane.update_in(vcx, |p, _, cx| {
+            p.composer.update(cx, |c, _| c.offline = false);
+            p.composer.read(cx).can_send(cx)
+        })
+    }
+
+    /// a's window on a new chat with unsent words, saved as typing saves
+    /// them, links taken as the app takes them.
+    fn unsent_words<'a>(
+        daemon: &FakeDaemon,
+        cx: &'a mut TestAppContext,
+    ) -> (
+        Drafts,
+        Stores,
+        Entity<crate::views::chat_pane::ChatPane>,
+        &'a mut VisualTestContext,
+    ) {
+        let drafts = keep_drafts(daemon);
+        daemon.returns::<conduit_protocol::methods::ModelsList>(
+            serde_json::from_value(serde_json::json!({
+                "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+            }))
+            .unwrap(),
+        );
+        let (stores, settings, view, vcx) = bench_with_settings(daemon, cx);
+        crate::install_main_for_test(stores.clone(), settings, view.clone(), vcx);
+        let pane = view.read_with(vcx, |v, _| v.chat_pane.clone());
+        pane.update_in(vcx, |p, window, cx| {
+            p.composer
+                .update(cx, |c, cx| c.set_text("Unsent words", window, cx))
+        });
+        wait_past_saves(vcx);
+        assert_eq!(new_chats_draft(&drafts).as_deref(), Some("Unsent words"));
+        assert!(sends(&pane, vcx), "the unsent words could be sent");
+        (drafts, stores, pane, vcx)
+    }
+
+    /// A fresh request (`conduit://clipboard`) that a chat link after it in
+    /// the same batch drops leaves the new chat's unsent words as they were:
+    /// never saved over, back in the box when the new chat shows again, and
+    /// Send takes them.
+    #[gpui_kit::test]
+    fn a_dropped_fresh_request_keeps_the_new_chats_unsent_words(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (drafts, stores, pane, vcx) = unsent_words(&daemon, cx);
+        vcx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+            "Copied packing list".into(),
+        ));
+        vcx.cx.update(|cx| {
+            crate::desktop::handle_urls(
+                vec!["conduit://clipboard".into(), "conduit://chat/chat-a".into()],
+                cx,
+            )
+        });
+        wait_past_saves(vcx);
+        assert_eq!(
+            new_chats_draft(&drafts).as_deref(),
+            Some("Unsent words"),
+            "the unsent words were saved over"
+        );
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.go_back(|_| true, cx));
+        wait_past_saves(vcx);
+        assert_eq!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone()),
+            crate::stores::navigation::Selection::New { temporary: false }
+        );
+        assert_eq!(composer_text(&pane, vcx), "Unsent words");
+        assert!(
+            sends(&pane, vcx),
+            "Send still waits for the dropped request"
+        );
+    }
+
+    /// A fresh request read under another account (Send Link's page, read
+    /// while b was in charge) starts nothing over in a's new chat: its
+    /// unsent words stay in the box and in storage, and Send takes them.
+    #[gpui_kit::test]
+    fn a_fresh_request_for_another_account_leaves_the_draft_alone(cx: &mut TestAppContext) {
+        use crate::shell::deep_link::{Compose, OpenRequest, ReadUnder};
+        let daemon = chats();
+        let (drafts, _stores, pane, vcx) = unsent_words(&daemon, cx);
+        let page = Compose {
+            text: Some("Page read under b".into()),
+            owner: Some(ReadUnder(Some("b".into()))),
+            ..Compose::default()
+        };
+        vcx.cx
+            .update(|cx| crate::desktop::open_request(OpenRequest::Compose(Box::new(page)), cx));
+        wait_past_saves(vcx);
+        assert_eq!(composer_text(&pane, vcx), "Unsent words");
+        assert_eq!(new_chats_draft(&drafts).as_deref(), Some("Unsent words"));
+        assert!(sends(&pane, vcx), "Send waits for b's page");
+    }
+
+    /// Open With's files are looked at off the UI thread; the user moves to
+    /// Notes meanwhile: the files go nowhere, though the composer still
+    /// holds the new chat's draft.
+    #[gpui_kit::test]
+    fn open_with_files_go_nowhere_after_a_move_to_notes(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, settings, view, vcx) = bench_with_settings(&daemon, cx);
+        crate::install_main_for_test(stores.clone(), settings, view.clone(), vcx);
+        let dir = std::env::temp_dir().join(format!("conduit-open-with-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let file = dir.join("Packing list.txt");
+        let _ = std::fs::write(&file, b"Tent, stove");
+        let link = url::Url::from_file_path(&file).unwrap().to_string();
+        let has_files = |vcx: &mut VisualTestContext| {
+            view.read_with(vcx, |v, cx| {
+                !v.chat_pane
+                    .read(cx)
+                    .composer_store
+                    .read(cx)
+                    .attachments
+                    .is_empty()
+            })
+        };
+        vcx.cx
+            .update(|cx| crate::desktop::handle_urls(vec![link.clone()], cx));
+        stores.navigation.update(vcx, |n, cx| {
+            n.open_item(crate::stores::navigation::AreaItem::AllNotes, cx)
+        });
+        vcx.run_until_parked();
+        assert!(!has_files(vcx), "the files landed after the move to Notes");
+        vcx.cx
+            .update(|cx| crate::desktop::handle_urls(vec![link], cx));
+        vcx.run_until_parked();
+        assert!(has_files(vcx), "left alone, they land");
+    }
+
     fn bench<'a>(
         daemon: &FakeDaemon,
         cx: &'a mut TestAppContext,

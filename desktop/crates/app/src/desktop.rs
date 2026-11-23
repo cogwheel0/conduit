@@ -270,8 +270,15 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
 // ── Links and "Open with" ──────────────────────────────────────────────────
 
 /// What `on_open_urls` brought: links and files are queued, the rest is
-/// logged and dropped.
+/// logged and dropped. Nothing at all is a second launch with nothing to
+/// open (Windows, Linux): the app comes forward, as from the Dock.
 pub fn handle_urls(urls: Vec<String>, cx: &mut App) {
+    if urls.is_empty() {
+        if cx.has_global::<AppState>() {
+            show_main(cx);
+        }
+        return;
+    }
     let incoming = deep_link::classify(&urls);
     for ignored in &incoming.ignored {
         log::info!("ignored a link: {}", deep_link::redacted(ignored));
@@ -489,38 +496,57 @@ fn open_new_chat(
         owner,
     } = compose;
     show_main(cx);
-    let plan = open_files::plan(&files, open_files::file_size);
-    for path in &plan.skipped {
-        log::info!("open with: skipped a folder or missing file");
-        let _ = path;
-    }
-    let (too_many, too_large) = (plan.too_many, plan.too_large.clone());
     crate::with_main_view(cx, move |view, window, cx| {
+        // The account the request belongs to: its own, else the one in
+        // charge now. Its content never lands under another.
+        let owner = owner.or_else(|| {
+            Some(crate::shell::deep_link::ReadUnder(
+                view.stores.accounts.read(cx).scope_key(),
+            ))
+        });
         view.new_chat(false, window, cx);
-        // The new chat this request opened: what follows in the same batch
-        // (another link) may select something else before the write below.
-        let ticket = view.stores.navigation.read(cx).selection().clone();
         let pane = view.chat_pane.clone();
-        let content = NewChatContent {
-            text,
-            fresh,
-            paths: plan.accepted,
-            images,
-            context,
-            carried,
-            owner,
-        };
-        // After this update: the pane follows the new selection as it ends,
-        // and its draft switch empties the message box (a chat was open
-        // before), so the text goes in after that.
+        // Before the next request in the batch: one that moves on (a chat
+        // link) leaves this one's content nowhere, and one that starts over
+        // (the clipboard) takes the draft from it.
+        let ticket = pane.update(cx, |p, cx| {
+            p.take_new_chat_ticket(fresh, owner.as_ref(), cx)
+        });
+        // Looking at the files can wait on a network share (`\\server\share`):
+        // off the UI thread.
+        let planned = (!files.is_empty()).then(|| {
+            cx.background_executor()
+                .spawn(async move { open_files::plan(&files, open_files::file_size) })
+        });
+        // The draft switch empties the message box as this update ends
+        // (its event), so the content goes in after that, while the
+        // ticket holds.
         cx.spawn_in(window, async move |_, cx| {
+            let plan = match planned {
+                Some(planned) => planned.await,
+                None => open_files::OpenFilesPlan::default(),
+            };
+            for path in &plan.skipped {
+                log::info!("open with: skipped a folder or missing file");
+                let _ = path;
+            }
+            let (too_many, too_large) = (plan.too_many, plan.too_large);
+            let content = NewChatContent {
+                text,
+                fresh,
+                paths: plan.accepted,
+                images,
+                context,
+                carried,
+                owner,
+            };
             let _ = pane.update_in(cx, |p, window, cx| {
                 p.compose_new_chat(&ticket, content, window, cx)
             });
+            let _ = cx.update(|_, cx| refused_files(too_many, &too_large, cx));
         })
         .detach();
     });
-    refused_files(too_many, &too_large, cx);
 }
 
 /// `conduit://clipboard` (the widget's Clipboard): a new chat with the

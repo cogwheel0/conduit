@@ -747,12 +747,10 @@ fn shots_run(
 
 /// Whether `--chat-fixture` was asked for: `(mode, shots)`.
 pub fn requested(args: &[String]) -> Option<(String, Option<PathBuf>)> {
-    let at = args.iter().position(|a| a == "--chat-fixture")?;
-    let mode = args.get(at + 1).cloned().unwrap_or_else(|| "a11y".into());
-    let shots = args
-        .iter()
-        .position(|a| a == "--shots")
-        .and_then(|i| args.get(i + 1))
-        .map(PathBuf::from);
+    if !crate::scripted::has(args, "--chat-fixture") {
+        return None;
+    }
+    let mode = crate::scripted::value(args, "--chat-fixture").unwrap_or_else(|| "a11y".into());
+    let shots = crate::scripted::value(args, "--shots").map(PathBuf::from);
     Some((mode, shots))
 }

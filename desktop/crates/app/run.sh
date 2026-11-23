@@ -26,8 +26,167 @@
 # The bundle lives in target/app/ (ignored) and is reused. A scripted run
 # (--shots, --e2e, --capture) uses the profile CONDUIT_USER_DATA names, never
 # the app's own; without one it starts on a fresh profile in $TMPDIR.
+#
+# On Linux it runs the binary itself (no bundle); the app runs on XWayland
+# when the session has it, however it's started (D2: the web views embed
+# only in X11 windows; CONDUIT_WAYLAND=1 keeps Wayland's own windows):
+#
+#   crates/app/run.sh                              # run the app
+#   crates/app/run.sh --build-only                 # build, print the binary
+#   crates/app/run.sh --register-scheme [--force]  # conduit:// links open
+#                                                  # this build (a .desktop
+#                                                  # file and xdg-mime);
+#                                                  # only on this command
+#   crates/app/run.sh --unregister-scheme [--force] # undo it
+#
+# Every checkout writes the same conduit-dev.desktop, so both refuse an
+# entry another checkout wrote unless --force is given; and the run passes
+# on the app's own exit code.
+#
+# Windows has crates/app/run.ps1.
 set -eu
+# File arguments are the caller's: made absolute before the cd below, there
+# or not, so `run.sh notes.md` still names that file, never one in the
+# checkout. Flags, links and the value after each of the app's flags that
+# takes one (`--e2e chat`) stay as they are. A link is what the app takes
+# for one (`deep_link::from_argv`): a `conduit:`, `file:`, `http:` or
+# `https:` URL, `conduit:chat/abc` too. Anything else with a colon
+# (`notes:meeting.md`) is a file, to the app as here.
+caller="$PWD"
+is_link() {
+  case "$1" in
+    *:*) ;;
+    *) return 1 ;;
+  esac
+  case "$(printf '%s' "${1%%:*}" | tr '[:upper:]' '[:lower:]')" in
+    conduit | file | http | https) ;;
+    *) return 1 ;;
+  esac
+}
+value_next=0
+last=
+before=
+for arg in "$@"; do
+  shift
+  given="$arg"
+  if [ "$value_next" = 1 ]; then
+    value_next=0
+  elif [ "$before" = --fixture ] && [ "$last" = perf ] && [ "$arg" = comfortable ]; then
+    : # `--fixture perf comfortable`: the perf fixture's layout, a second value
+  else
+    case "$arg" in
+      --cwd | --shots | --e2e | --e2e-env | --capture | --capture-env | --capture-only | --probe | \
+        --fixture | --chat-fixture | --channel-fixture | --calendar-fixture | --tasks-fixture | --workspace-fixture | --preview-route)
+        value_next=1 ;;
+      -* | /*) ;;
+      *) if ! is_link "$arg"; then arg="$caller/$arg"; fi ;;
+    esac
+  fi
+  before="$last"
+  last="$given"
+  set -- "$@" "$arg"
+done
 cd "$(dirname "$0")/../.."
+if [ "$(uname -s)" = Linux ]; then
+  bin="$PWD/target/debug/conduit-desktop"
+  # Only the scheme commands need the data folder.
+  data_home="${XDG_DATA_HOME:-}"
+  if [ -z "$data_home" ] && [ -n "${HOME:-}" ]; then
+    data_home="$HOME/.local/share"
+  fi
+  apps="${data_home:+$data_home/applications}"
+  entry_name=conduit-dev.desktop
+  entry="${apps:+$apps/$entry_name}"
+  needs_apps() {
+    if [ -z "$apps" ]; then
+      echo "the conduit:// handler goes in \$XDG_DATA_HOME/applications; set XDG_DATA_HOME or HOME" >&2
+      exit 1
+    fi
+  }
+  exec_line="Exec=\"$bin\" %u"
+  # An entry another checkout wrote: left alone unless --force.
+  others_entry() {
+    [ -f "$entry" ] && ! grep -qxF "$exec_line" "$entry" && [ "${2:-}" != --force ]
+  }
+  case "${1:-}" in
+    --unregister-scheme)
+      needs_apps
+      if others_entry "$@"; then
+        echo "$entry opens $(sed -n 's/^Exec=//p' "$entry" | head -1), not this checkout; add --force to remove it" >&2
+        exit 1
+      fi
+      # Moved aside, never deleted (as the widget's files below).
+      if [ -f "$entry" ]; then
+        mkdir -p target/app
+        mv "$entry" "target/app/unregistered-$(date +%s)-$entry_name"
+        if command -v update-desktop-database >/dev/null 2>&1; then
+          update-desktop-database "$apps" || true
+        fi
+        echo "conduit:// links no longer open this build"
+      else
+        echo "no dev conduit:// handler is registered; nothing changed"
+      fi
+      exit 0
+      ;;
+  esac
+  cargo build -p conduit-desktop --features harness
+  case "${1:-}" in
+    --build-only)
+      echo "$bin"
+      exit 0
+      ;;
+    --register-scheme)
+      needs_apps
+      current="$(xdg-mime query default x-scheme-handler/conduit 2>/dev/null || true)"
+      if [ -n "$current" ] && [ "$current" != "$entry_name" ] && [ "${2:-}" != --force ]; then
+        echo "conduit:// links open $current; add --force to point them at this build" >&2
+        exit 1
+      fi
+      if others_entry "$@"; then
+        echo "$entry opens $(sed -n 's/^Exec=//p' "$entry" | head -1), not this checkout; add --force to point it at this build" >&2
+        exit 1
+      fi
+      # The Exec line quotes the path; these characters would need escapes
+      # (and `%` is a field code there).
+      case "$bin" in
+        *'"'* | *'`'* | *'$'* | *'\'* | *'%'*)
+          echo "this checkout's path can't go in a .desktop file (\" \` \$ \\ or %): $bin" >&2
+          exit 1
+          ;;
+      esac
+      mkdir -p "$apps"
+      {
+        echo '[Desktop Entry]'
+        echo 'Type=Application'
+        echo 'Name=Conduit Dev'
+        echo "Comment=Conduit Desktop, a dev build from $PWD"
+        echo "$exec_line"
+        echo 'Terminal=false'
+        echo 'NoDisplay=true'
+        echo 'MimeType=x-scheme-handler/conduit;'
+      } > "$entry"
+      xdg-mime default "$entry_name" x-scheme-handler/conduit
+      if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$apps" || true
+      fi
+      echo "conduit:// links now open $bin"
+      exit 0
+      ;;
+  esac
+  mkdir -p target/app
+  log=target/app/last-run.log
+  case " $* " in
+    *" --e2e "*) export CONDUIT_SPEECH_OUTPUT="${CONDUIT_SPEECH_OUTPUT:-null}" ;;
+  esac
+  # The app's exit code, past tee (sh has no pipefail), in a file of this
+  # run's own.
+  status_file="$(mktemp target/app/last-run.status.XXXXXX)"
+  trap 'rm -f "$status_file"' EXIT
+  { "$bin" "$@" && code=0 || code=$?; echo "$code" > "$status_file"; } 2>&1 | tee "$log"
+  code="$(cat "$status_file")"
+  if grep -q "SMOKE FAILED" "$log"; then exit 1; fi
+  exit "${code:-1}"
+fi
 cargo build -p conduit-desktop --features harness
 # Team signing, only when asked; ad-hoc otherwise ("-" means ad-hoc too).
 identity="${CONDUIT_SIGN_IDENTITY:-}"

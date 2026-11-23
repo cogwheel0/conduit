@@ -4,6 +4,9 @@
 //! * [`paths`]: dev vs packaged flavour, userData, logs, the daemon binary,
 //!   each OS's known folders.
 //! * [`secrets`]: the per-launch session token and the Keychain master key.
+//! * [`instance`]: one app per profile on Windows and Linux; a second
+//!   launch hands its arguments to the first.
+//! * [`network`]: whether Windows and Linux have a network.
 //! * [`supervisor`]: spawn, stdin bootstrap, ready line, restart policy,
 //!   graceful stop, stderr to rotating logs, child watching.
 //! * [`rpc`]: one JSON-RPC 2.0 WebSocket connection per process on a tokio
@@ -19,7 +22,9 @@
 #[cfg(target_os = "linux")]
 pub mod abstract_socket;
 pub mod http;
+pub mod instance;
 pub mod logs;
+pub mod network;
 pub mod paths;
 pub mod protocol;
 pub mod rpc;

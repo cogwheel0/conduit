@@ -252,6 +252,77 @@ pub fn classify(urls: &[String]) -> Incoming {
     incoming
 }
 
+/// What a launch's command line asks to open, as the URLs [`classify`]
+/// reads: on Windows and Linux links and files arrive as arguments (the
+/// registered `conduit://` handler, "Open with"), not through
+/// `on_open_urls`. Links are kept as they are; a file is made a `file://`
+/// URL, a relative one against `cwd` (the launch's own, which the running
+/// app's may not be). Flags are not things to open, and outside a scripted
+/// launch (which takes none of this) the app's one flag with a value is
+/// `--cwd`.
+pub fn from_argv(args: &[std::ffi::OsString], cwd: &std::path::Path) -> Vec<String> {
+    let mut urls = vec![];
+    let mut rest = args.iter().skip(1);
+    while let Some(arg) = rest.next() {
+        // Flags and links are text; anything else is a file, kept by its
+        // own bytes (a file's name need not be UTF-8) until it is a URL.
+        match arg.to_str() {
+            Some("--cwd") => {
+                rest.next();
+                continue;
+            }
+            Some(flag) if flag.starts_with('-') => continue,
+            // Only the app's own links, and web and file URLs, are links: a
+            // colon in a file's name (`notes:meeting.md`, a drive's `C:`)
+            // makes no scheme of it.
+            Some(text)
+                if url::Url::parse(text)
+                    .is_ok_and(|u| matches!(u.scheme(), SCHEME | "file" | "http" | "https")) =>
+            {
+                urls.push(text.to_string());
+                continue;
+            }
+            _ => {}
+        }
+        match url::Url::from_file_path(launch_path(cwd, arg)) {
+            Ok(file) => urls.push(file.to_string()),
+            Err(()) => log::info!("skipped a launch argument that can't be a file URL"),
+        }
+    }
+    urls
+}
+
+/// `arg` as a path from the launch's folder `cwd`. On Windows a
+/// drive-relative path (`C:notes.md`) is on its own drive: from `cwd` when
+/// that is on it, else from the drive's current folder, which Windows keeps
+/// for the process.
+fn launch_path(cwd: &std::path::Path, arg: &std::ffi::OsStr) -> std::path::PathBuf {
+    let path = std::path::Path::new(arg);
+    #[cfg(windows)]
+    if !path.has_root()
+        && let Some(std::path::Component::Prefix(drive)) = path.components().next()
+    {
+        let on_drive = matches!(
+            cwd.components().next(),
+            Some(std::path::Component::Prefix(here)) if same_drive(here.kind(), drive.kind())
+        );
+        if on_drive {
+            return cwd.join(path.components().skip(1).collect::<std::path::PathBuf>());
+        }
+        return std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    }
+    cwd.join(path)
+}
+
+#[cfg(windows)]
+fn same_drive(a: std::path::Prefix<'_>, b: std::path::Prefix<'_>) -> bool {
+    use std::path::Prefix::{Disk, VerbatimDisk};
+    match (a, b) {
+        (Disk(x) | VerbatimDisk(x), Disk(y) | VerbatimDisk(y)) => x.eq_ignore_ascii_case(&y),
+        _ => a == b,
+    }
+}
+
 /// A link for the log: the scheme and the kind, never ids or text.
 pub fn redacted(url: &str) -> String {
     match url::Url::parse(url) {
@@ -445,6 +516,85 @@ mod tests {
         assert!(!valid_id(""));
         assert!(!valid_id("a/b"));
         assert!(!valid_id("é"));
+    }
+
+    #[test]
+    fn a_launchs_links_and_files_become_the_urls_classify_reads() {
+        let argv = |a: &[&str]| a.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        // A colon in a file's name is no scheme: only the app's own links
+        // (and web and file URLs) are links; anything else is a file. On
+        // Windows a drive-relative path (`C:notes.md`) is a file on that
+        // drive, from the launch's folder when it is there.
+        #[cfg(windows)]
+        let (cwd, args, files) = (
+            std::path::Path::new(r"C:\Users\someone\Documents"),
+            argv(&[
+                r"C:\Program Files\Conduit\Conduit.exe",
+                "--hidden",
+                "CONDUIT://chat/c1",
+                r"notes v2.md",
+                r"D:\photos\photo.png",
+                "C:meeting.md",
+                "--cwd",
+                r"C:\elsewhere",
+            ]),
+            vec![
+                "file:///C:/Users/someone/Documents/notes%20v2.md",
+                "file:///D:/photos/photo.png",
+                "file:///C:/Users/someone/Documents/meeting.md",
+            ],
+        );
+        #[cfg(not(windows))]
+        let (cwd, args, files) = (
+            std::path::Path::new("/home/someone/Documents"),
+            argv(&[
+                "/usr/lib/conduit/conduit",
+                "--hidden",
+                "CONDUIT://chat/c1",
+                "notes v2.md",
+                "/tmp/photo.png",
+                "notes:meeting.md",
+                "--cwd",
+                "/elsewhere",
+            ]),
+            vec![
+                "file:///home/someone/Documents/notes%20v2.md",
+                "file:///tmp/photo.png",
+                "file:///home/someone/Documents/notes:meeting.md",
+            ],
+        );
+        let urls = from_argv(&args, cwd);
+        let mut expected = vec!["CONDUIT://chat/c1"];
+        expected.extend(&files);
+        assert_eq!(urls, expected);
+        let incoming = classify(&urls);
+        assert_eq!(incoming.requests, vec![chat("c1").unwrap()]);
+        assert_eq!(incoming.files.len(), files.len());
+        // The program alone: nothing to open.
+        assert!(from_argv(&args[..1], cwd).is_empty());
+    }
+
+    /// A file's name need not be UTF-8: its bytes go into the file URL as
+    /// they are, never replaced, so the file opened is the one asked for.
+    /// One that can't be a URL at all (Windows' unpaired UTF-16) is left out.
+    #[test]
+    fn a_file_whose_name_isnt_utf8_opens_as_itself() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt as _;
+            let name = std::ffi::OsString::from_vec(b"caf\xe9 notes.md".to_vec());
+            let cwd = std::path::Path::new("/home/someone/Documents");
+            let urls = from_argv(&["conduit".into(), name.clone()], cwd);
+            assert_eq!(urls, ["file:///home/someone/Documents/caf%E9%20notes.md"]);
+            assert_eq!(classify(&urls).files, vec![cwd.join(name)]);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt as _;
+            let name = std::ffi::OsString::from_wide(&[0x63, 0xD800, 0x2E, 0x6D, 0x64]);
+            let cwd = std::path::Path::new(r"C:\Users\someone\Documents");
+            assert!(from_argv(&["conduit.exe".into(), name], cwd).is_empty());
+        }
     }
 
     #[test]

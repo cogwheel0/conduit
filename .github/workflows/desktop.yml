@@ -252,6 +252,15 @@ jobs:
         run: cargo clippy -p conduit-desktop --lib --bins --locked -- -D warnings
       # Every test binary runs, so one failing crate hides none of the others.
       - run: cargo test --workspace --locked --no-fail-fast
+      # The dev run scripts build the app (with the harness, as the tests
+      # already did) and print the binary: they parse, and their path works.
+      - name: The dev run script builds the app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./crates/app/run.ps1 -BuildOnly
+      - name: The dev run script builds the app (Linux)
+        if: runner.os == 'Linux'
+        run: sh crates/app/run.sh --build-only
       - name: Disk left
         if: always()
         shell: bash

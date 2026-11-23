@@ -215,7 +215,7 @@ pub fn run(cx: &mut App) {
 
 /// Whether `--terminal-fixture` was asked for.
 pub fn requested(args: &[String]) -> bool {
-    args.iter().any(|a| a == "--terminal-fixture")
+    crate::scripted::has(args, "--terminal-fixture")
 }
 
 #[cfg(test)]

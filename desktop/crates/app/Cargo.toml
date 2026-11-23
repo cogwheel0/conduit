@@ -57,8 +57,9 @@ icu_calendar = "2.4"
 
 [target.'cfg(windows)'.dependencies]
 # The display languages and the regional format (l10n::locale); the accent
-# colour and animation effects (shell::system_look).
-windows = { version = "0.62", features = ["Win32_Globalization", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging"] }
+# colour and animation effects (shell::system_look); whether a URL scheme
+# has an app to open it (shell::open_url).
+windows = { version = "0.62", features = ["Win32_Globalization", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The desktop portal's accent colour and Reduce Motion (shell::system_look),
@@ -85,6 +86,10 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
 
 # Launch at login (SMAppService.mainApp).
 objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
+
+# A helper's output, read by its deadline (shell::open_url).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [features]
 # The test harness: the `--e2e` passes, the `--capture` screenshots,

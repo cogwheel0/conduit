@@ -26,36 +26,346 @@ pub fn from_payload(payload: &serde_json::Value) -> Option<url::Url> {
     validate(payload.get("url")?.as_str()?)
 }
 
-/// Whether an app on this Mac opens `url`'s scheme (an `otpauth://` link
-/// needs one that adds verification codes, as Passwords does), so the
-/// window can say so instead of opening nothing.
-pub fn has_handler(url: &str) -> bool {
+/// Whether an app on this computer opens `url`'s scheme (an `otpauth://`
+/// link needs one that adds verification codes, as Passwords does), so the
+/// window can say so instead of opening nothing; `None` when that can't be
+/// told (in time). On Windows, the scheme's registered open command, per
+/// user or for the machine; on Linux, the desktop's default
+/// `x-scheme-handler` from `xdg-mime`, which may be slow: it is given
+/// [`XDG_MIME_WAIT`]. Blocking: [`ask_handler`] runs it off the UI thread.
+pub fn has_handler(url: &str) -> Option<bool> {
     #[cfg(target_os = "macos")]
     {
         use objc2::runtime::AnyObject;
         use objc2::{class, msg_send};
         use objc2_foundation::{NSString, NSURL};
-        let Some(url) = NSURL::URLWithString(&NSString::from_str(url)) else {
-            return false;
-        };
+        let url = NSURL::URLWithString(&NSString::from_str(url))?;
         // SAFETY: a read-only query of the shared workspace.
         unsafe {
             let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
             let app: *mut AnyObject = msg_send![workspace, URLForApplicationToOpenURL: &*url];
-            !app.is_null()
+            Some(!app.is_null())
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     {
-        let _ = url;
-        false
+        use windows::Win32::UI::Shell::{
+            ASSOCF_INIT_IGNOREUNKNOWN, ASSOCF_IS_PROTOCOL, ASSOCSTR, ASSOCSTR_COMMAND,
+            ASSOCSTR_DELEGATEEXECUTE, AssocQueryStringW,
+        };
+        use windows::core::{PCWSTR, w};
+        let scheme = url::Url::parse(url).ok()?.scheme().to_string();
+        let wide: Vec<u16> = scheme.encode_utf16().chain(Some(0)).collect();
+        // `HRESULT_FROM_WIN32(ERROR_NO_ASSOCIATION)`: nothing is registered.
+        const ERROR_NO_ASSOCIATION: u32 = 1155;
+        let lookup = |what: ASSOCSTR| {
+            let mut len = 0u32;
+            // SAFETY: `wide` is NUL-terminated and outlives the call; with no
+            // output buffer the call only writes the length to `len`.
+            let found = unsafe {
+                AssocQueryStringW(
+                    ASSOCF_IS_PROTOCOL | ASSOCF_INIT_IGNOREUNKNOWN,
+                    what,
+                    PCWSTR::from_raw(wide.as_ptr()),
+                    w!("open"),
+                    None,
+                    &mut len,
+                )
+            };
+            if found.is_ok() {
+                Lookup::Set(len)
+            } else if found == windows::core::HRESULT::from_win32(ERROR_NO_ASSOCIATION) {
+                Lookup::Missing
+            } else {
+                Lookup::Failed
+            }
+        };
+        opens_by_verb(lookup(ASSOCSTR_COMMAND), || {
+            lookup(ASSOCSTR_DELEGATEEXECUTE)
+        })
     }
+    #[cfg(target_os = "linux")]
+    {
+        let scheme = url::Url::parse(url).ok()?.scheme().to_string();
+        let out = run_bounded(
+            std::process::Command::new("xdg-mime").args([
+                "query",
+                "default",
+                &format!("x-scheme-handler/{scheme}"),
+            ]),
+            XDG_MIME_WAIT,
+        )?;
+        out.status
+            .success()
+            .then(|| !out.stdout.trim_ascii().is_empty())
+    }
+}
+
+/// What Windows said about one value of a scheme's `open` verb.
+#[cfg_attr(not(windows), cfg(test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lookup {
+    /// Registered, this long (NUL included; 1 is empty).
+    Set(u32),
+    /// Nothing registered (`ERROR_NO_ASSOCIATION`).
+    Missing,
+    /// The query failed some other way: it can't be told.
+    Failed,
+}
+
+/// Whether Windows has an app for a scheme's `open` verb, from its command
+/// and, only when that isn't set, its `DelegateExecute` class: a handler
+/// may register either. `None` when a query failed other than by finding
+/// nothing, so it can't be told (the link opens anyway).
+#[cfg_attr(not(windows), cfg(test))]
+fn opens_by_verb(command: Lookup, delegate_execute: impl FnOnce() -> Lookup) -> Option<bool> {
+    let set = |lookup: Lookup| matches!(lookup, Lookup::Set(len) if len > 1);
+    if set(command) {
+        return Some(true);
+    }
+    let delegate_execute = delegate_execute();
+    if set(delegate_execute) {
+        return Some(true);
+    }
+    (command != Lookup::Failed && delegate_execute != Lookup::Failed).then_some(false)
+}
+
+/// How long `xdg-mime` may take before the answer counts as unknown.
+#[cfg(target_os = "linux")]
+pub const XDG_MIME_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// `command`'s exit status and stdout, or `None` when it can't start or
+/// doesn't end, stdout included, within `wait`: then it is killed and
+/// reaped. Stdout is read under the same deadline ([`read_to_end_by`]),
+/// since a helper the command started can keep the pipe open after it
+/// exits.
+#[cfg(target_os = "linux")]
+fn run_bounded(
+    command: &mut std::process::Command,
+    wait: std::time::Duration,
+) -> Option<std::process::Output> {
+    use std::process::Stdio;
+    let deadline = std::time::Instant::now() + wait;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let give_up = |child: &mut std::process::Child| {
+        let _ = child.kill();
+        let _ = child.wait();
+        None
+    };
+    let stdout = child.stdout.take()?;
+    let Some(stdout) = read_to_end_by(stdout, deadline) else {
+        return give_up(&mut child);
+    };
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            _ => return give_up(&mut child),
+        }
+    };
+    Some(std::process::Output {
+        status,
+        stdout,
+        stderr: Vec::new(),
+    })
+}
+
+/// `pipe`'s bytes to its end, or `None` once `deadline` passes first. It is
+/// read without blocking, only when `poll` says there is something, so
+/// nothing waits past the deadline, and the pipe is closed when this
+/// returns either way: no reader is left holding it for a helper that keeps
+/// its other end open.
+#[cfg(any(target_os = "linux", all(test, unix)))]
+fn read_to_end_by(
+    mut pipe: impl std::io::Read + std::os::fd::AsFd,
+    deadline: std::time::Instant,
+) -> Option<Vec<u8>> {
+    use std::io::ErrorKind;
+    use std::os::fd::AsRawFd as _;
+    let fd = pipe.as_fd().as_raw_fd();
+    // SAFETY: `fd` is open for as long as `pipe` is; these only read and set
+    // its status flags.
+    let nonblocking = unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        flags >= 0 && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) >= 0
+    };
+    if !nonblocking {
+        return None;
+    }
+    let mut out = Vec::new();
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        let mut ready = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let millis = left.as_millis().clamp(1, i32::MAX as u128) as i32;
+        // SAFETY: one valid pollfd, for the call.
+        if unsafe { libc::poll(&mut ready, 1, millis) } < 0
+            && std::io::Error::last_os_error().kind() != ErrorKind::Interrupted
+        {
+            return None;
+        }
+        match drain(&mut pipe, &mut out, deadline) {
+            Drained::End => return Some(out),
+            Drained::ForNow => {}
+            Drained::GiveUp => return None,
+        }
+    }
+}
+
+/// The most a lookup's helper may print: a desktop entry's name is short.
+#[cfg(any(target_os = "linux", test))]
+const MAX_HELPER_OUTPUT: usize = 4096;
+
+/// What reading the bytes a pipe has now ended with.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Debug, PartialEq, Eq)]
+enum Drained {
+    /// The pipe's end: all of it is read.
+    End,
+    /// Nothing more for now.
+    ForNow,
+    /// Past the deadline or the cap, or a read failed.
+    GiveUp,
+}
+
+/// Reads what `pipe` has now into `out`: to its end, or until it has
+/// nothing more for now. It gives up past `deadline`, or once `out` holds
+/// more than [`MAX_HELPER_OUTPUT`], so a helper that keeps writing can't
+/// hold the lookup.
+#[cfg(any(target_os = "linux", test))]
+fn drain(
+    pipe: &mut impl std::io::Read,
+    out: &mut Vec<u8>,
+    deadline: std::time::Instant,
+) -> Drained {
+    use std::io::ErrorKind;
+    let mut chunk = [0u8; 4096];
+    loop {
+        if std::time::Instant::now() >= deadline || out.len() > MAX_HELPER_OUTPUT {
+            return Drained::GiveUp;
+        }
+        match pipe.read(&mut chunk) {
+            Ok(0) => return Drained::End,
+            Ok(n) => out.extend_from_slice(&chunk[..n]),
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == ErrorKind::WouldBlock => return Drained::ForNow,
+            Err(_) => return Drained::GiveUp,
+        }
+    }
+}
+
+/// [`has_handler`] off the UI thread on Windows and Linux (a desktop's
+/// lookup can be slow); the Mac's NSWorkspace answers at once, on it.
+pub fn ask_handler(url: String, cx: &gpui_kit::App) -> gpui_kit::Task<Option<bool>> {
+    if cfg!(target_os = "macos") {
+        gpui_kit::Task::ready(has_handler(&url))
+    } else {
+        cx.background_executor()
+            .spawn(async move { has_handler(&url) })
+    }
+}
+
+/// Whether to open the link, given what the lookup found: always, unless
+/// it found that no app opens the scheme. A lookup that couldn't tell in
+/// time opens it anyway (the desktop may still find an app).
+pub fn opens(answer: Option<bool>) -> bool {
+    answer != Some(false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A scheme's `open` verb is handled by a command or, failing one, a
+    /// `DelegateExecute` class; only with neither is there no app.
+    #[test]
+    fn a_delegate_execute_handler_counts_as_an_app() {
+        use Lookup::{Failed, Missing, Set};
+        let never = || -> Lookup { panic!("a command is enough") };
+        assert_eq!(opens_by_verb(Set(40), never), Some(true));
+        assert_eq!(opens_by_verb(Missing, || Set(39)), Some(true));
+        assert_eq!(
+            opens_by_verb(Set(1), || Set(39)),
+            Some(true),
+            "an empty command"
+        );
+        assert_eq!(opens_by_verb(Failed, || Set(39)), Some(true));
+        assert_eq!(opens_by_verb(Missing, || Missing), Some(false));
+        assert_eq!(opens_by_verb(Set(1), || Set(1)), Some(false));
+        // A query that failed other than by finding nothing can't tell, and
+        // the enrolment link opens anyway.
+        assert_eq!(opens_by_verb(Failed, || Missing), None);
+        assert_eq!(opens_by_verb(Missing, || Failed), None);
+    }
+
+    /// A helper keeps stdout open: the read gives up at the deadline (here
+    /// already reached, so nothing waits) instead of waiting for the pipe's
+    /// end, and a pipe that ends in time gives all it held. Nothing is left
+    /// reading: the read owns the pipe and starts no thread.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_past_its_deadline_lets_the_pipe_go() {
+        use std::io::Write as _;
+        use std::time::{Duration, Instant};
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        writer.write_all(b"first").unwrap();
+        assert_eq!(read_to_end_by(reader, Instant::now()), None);
+        drop(writer);
+
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        writer
+            .write_all(b"org.example.Authenticator.desktop\n")
+            .unwrap();
+        drop(writer);
+        assert_eq!(
+            read_to_end_by(reader, Instant::now() + Duration::from_secs(5)).as_deref(),
+            Some(&b"org.example.Authenticator.desktop\n"[..])
+        );
+    }
+
+    /// A helper that keeps writing can't hold a lookup: the drain gives up
+    /// past the output cap, or past the deadline, while bytes keep coming
+    /// (a megabyte stands in for output that never ends). A desktop entry's
+    /// name and the pipe's end come back whole.
+    #[test]
+    fn a_helper_that_keeps_writing_is_given_up_on() {
+        use std::io::Read as _;
+        use std::time::{Duration, Instant};
+        let endless = || std::io::repeat(b'x').take(1 << 20);
+        let later = Instant::now() + Duration::from_secs(3600);
+        let mut out = Vec::new();
+        assert_eq!(drain(&mut endless(), &mut out, later), Drained::GiveUp);
+        assert!(out.len() <= 2 * MAX_HELPER_OUTPUT, "{}", out.len());
+        assert_eq!(
+            drain(&mut endless(), &mut Vec::new(), Instant::now()),
+            Drained::GiveUp
+        );
+        let mut out = Vec::new();
+        let entry = b"org.example.Authenticator.desktop\n";
+        assert_eq!(drain(&mut &entry[..], &mut out, later), Drained::End);
+        assert_eq!(out, entry);
+    }
+
+    #[test]
+    fn the_link_opens_unless_no_app_was_found() {
+        assert!(opens(Some(true)));
+        assert!(!opens(Some(false)), "no app: say so instead");
+        assert!(opens(None), "a lookup that ran out of time opens it anyway");
+    }
 
     #[test]
     fn opens_http_and_https_only() {

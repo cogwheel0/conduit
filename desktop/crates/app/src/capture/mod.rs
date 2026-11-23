@@ -71,12 +71,7 @@ pub struct CaptureOptions {
 
 impl CaptureOptions {
     pub fn from_args(args: &[String]) -> Option<Self> {
-        let arg = |k: &str| {
-            args.iter()
-                .position(|a| a == k)
-                .and_then(|i| args.get(i + 1))
-                .cloned()
-        };
+        let arg = |k: &str| crate::scripted::value(args, k);
         let dir = PathBuf::from(arg("--capture")?);
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let mut env = BTreeMap::new();

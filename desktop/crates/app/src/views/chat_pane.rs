@@ -71,17 +71,32 @@ pub struct OpenChat {
     _subscriptions: Vec<Subscription>,
 }
 
+/// The new chat a request opened ([`ChatPane::new_chat_ticket`]): the
+/// selection, still that chat, and the composer's draft in its account.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewChatTicket {
+    selection: crate::stores::navigation::Selection,
+    composition: crate::stores::composer::CompositionTicket,
+    /// The request set Send waiting for its content: only it ends the wait,
+    /// never a plain request that shares its composition.
+    awaits: bool,
+}
+
 /// What [`ChatPane::compose_new_chat`] writes into a new chat.
 #[derive(Default)]
 pub struct NewChatContent {
     /// The message box's text.
     pub text: Option<String>,
-    /// The new chat starts empty, its draft replaced (the phone's Send to
-    /// Conduit, Send Link, Send Image and widget Clipboard reset it); else
-    /// the text goes in and an unsent draft is kept, as New Chat keeps it.
+    /// Its request started a new composition as it came in
+    /// ([`ChatPane::take_new_chat_ticket`]), and the content replaces what
+    /// is shown, the text included (the phone's Send to Conduit, Send Link,
+    /// Send Image and widget Clipboard reset it); else the text goes in and
+    /// an unsent draft is kept, as New Chat keeps it.
     pub fresh: bool,
-    /// Files, uploaded as the composer's Attach Files uploads them.
-    pub paths: Vec<std::path::PathBuf>,
+    /// Files a plan accepted off the UI thread, each with the size it found:
+    /// uploaded as the composer's Attach Files uploads them, with no look at
+    /// the disk here.
+    pub paths: Vec<(std::path::PathBuf, u64)>,
     /// Pictures, attached as a paste attaches them.
     pub images: Vec<gpui_kit::Image>,
     /// A web page's text or a video's transcript.
@@ -2170,18 +2185,30 @@ impl ChatPane {
     /// What a new chat opened from outside starts with (Send to Conduit,
     /// Send Link, Send Image, the widget's links, Open With, Quick Ask's Open
     /// in Conduit), once the pane has followed it: written only while the
-    /// new chat that request opened is still the one selected (`ticket`, the
-    /// selection it made). A link handled right after it in the same batch
-    /// (`conduit://chat/<id>`) keeps its own draft. Says whether it was
-    /// written.
+    /// new chat that request opened is still the one selected, on the same
+    /// draft (`ticket`, taken as the request opened it). A link handled
+    /// right after it in the same batch (`conduit://chat/<id>`) keeps its own
+    /// draft. Says whether it was written.
     pub fn compose_new_chat(
         &mut self,
-        ticket: &Selection,
+        ticket: &NewChatTicket,
         content: NewChatContent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.stores.navigation.read(cx).selection() != ticket {
+        // Landed or dropped, the request that set Send waiting is done with.
+        if ticket.awaits {
+            self.composer_store
+                .update(cx, |c, cx| c.stop_awaiting(ticket.composition, cx));
+        }
+        // The new chat its request opened, still shown, and its draft, in
+        // that account: another chat or area (Notes), another draft, a
+        // fresh one over it, another account, or a send since, and the
+        // content belongs nowhere here.
+        if self.stores.navigation.read(cx).selection() != &ticket.selection
+            || !self.composer_store.read(cx).holds(ticket.composition)
+        {
+            log::info!("new chat: the draft it was for is gone; dropped");
             return false;
         }
         // Read under one account scope, never written for another (a switch
@@ -2189,13 +2216,7 @@ impl ChatPane {
         // "No account" is a scope too: a page read with none never lands
         // once an account signed in, nor one read under an account once none
         // is in charge.
-        if content
-            .owner
-            .as_ref()
-            .is_some_and(|crate::shell::deep_link::ReadUnder(scope)| {
-                *scope != self.stores.accounts.read(cx).scope_key()
-            })
-        {
+        if !self.read_here(content.owner.as_ref(), cx) {
             log::info!("new chat: its content was read under another account; dropped");
             return false;
         }
@@ -2219,7 +2240,7 @@ impl ChatPane {
         }
         if !paths.is_empty() {
             self.composer_store
-                .update(cx, |c, cx| c.add_paths(&paths, cx));
+                .update(cx, |c, cx| c.add_checked_files(&paths, cx));
         }
         for image in &images {
             self.composer_store
@@ -2235,6 +2256,52 @@ impl ChatPane {
         }
         self.focus_composer(window, cx);
         true
+    }
+
+    /// The selection and the composition shown now (its draft, in this
+    /// account), for content that arrives later ([`Self::compose_new_chat`]).
+    pub fn new_chat_ticket(&self, cx: &App) -> NewChatTicket {
+        NewChatTicket {
+            selection: self.stores.navigation.read(cx).selection().clone(),
+            composition: self.composer_store.read(cx).ticket(),
+            awaits: false,
+        }
+    }
+
+    /// The ticket for what a request brings to the new chat it just opened.
+    /// The pane follows that selection now, not when the update that changed
+    /// it ends (its observer runs then), so the ticket is taken before the
+    /// next request in a batch runs. A `fresh` request read under this
+    /// account starts a new composition first, its content to replace what
+    /// is shown once it lands (Send waits meanwhile): a request after it in
+    /// the batch holds the newer composition, and of two fresh ones the
+    /// newest owns the draft. One read under another account changes
+    /// nothing here (its content is dropped as it lands).
+    pub fn take_new_chat_ticket(
+        &mut self,
+        fresh: bool,
+        owner: Option<&crate::shell::deep_link::ReadUnder>,
+        cx: &mut Context<Self>,
+    ) -> NewChatTicket {
+        self.sync_selection(cx);
+        let awaits = fresh && self.read_here(owner, cx);
+        if awaits {
+            self.composer_store.update(cx, |c, cx| {
+                c.await_content(cx);
+            });
+        }
+        NewChatTicket {
+            awaits,
+            ..self.new_chat_ticket(cx)
+        }
+    }
+
+    /// Whether content read under `owner` is the account in charge's (no
+    /// owner: whoever is in charge).
+    fn read_here(&self, owner: Option<&crate::shell::deep_link::ReadUnder>, cx: &App) -> bool {
+        owner.is_none_or(|crate::shell::deep_link::ReadUnder(scope)| {
+            *scope == self.stores.accounts.read(cx).scope_key()
+        })
     }
 
     /// The ticket a Continuity Camera photo asked for now would carry: this
@@ -4062,9 +4129,7 @@ mod tests {
                 ..NewChatContent::default()
             };
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
-            let ticket = stores
-                .navigation
-                .read_with(vcx, |n, _| n.selection().clone());
+            let ticket = pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx));
             stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
             vcx.run_until_parked();
             let wrote = pane.update_in(vcx, |p, window, cx| {
@@ -4080,9 +4145,7 @@ mod tests {
             // Still on the new chat it opened: written.
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            let ticket = stores
-                .navigation
-                .read_with(vcx, |n, _| n.selection().clone());
+            let ticket = pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx));
             let wrote = pane.update_in(vcx, |p, window, cx| {
                 p.compose_new_chat(&ticket, content(), window, cx)
             });
@@ -4094,6 +4157,224 @@ mod tests {
             );
         }
 
+        /// Open With's files, looked at off the UI thread, go only to the
+        /// draft their request opened, by the ticket it took as it opened
+        /// that draft (started over first when `fresh`).
+        fn open_with_request(
+            stores: &Stores,
+            pane: &Entity<ChatPane>,
+            fresh: bool,
+            vcx: &mut VisualTestContext,
+        ) -> crate::views::chat_pane::NewChatTicket {
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            let ticket = pane.update(vcx, |p, cx| p.take_new_chat_ticket(fresh, None, cx));
+            vcx.run_until_parked();
+            ticket
+        }
+
+        fn late_files(name: &str) -> crate::views::chat_pane::NewChatContent {
+            let dir =
+                std::env::temp_dir().join(format!("conduit-open-with-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let file = dir.join(name);
+            let _ = std::fs::write(&file, b"Packing list");
+            crate::views::chat_pane::NewChatContent {
+                paths: vec![(file, 12)],
+                ..crate::views::chat_pane::NewChatContent::default()
+            }
+        }
+
+        fn has_files(pane: &Entity<ChatPane>, vcx: &mut VisualTestContext) -> bool {
+            // Any state: the test's uploads never finish.
+            pane.read_with(vcx, |p, cx| {
+                !p.composer_store.read(cx).attachments.is_empty()
+            })
+        }
+
+        /// A fresh request (Send Image) over a new chat's unsent words: Send
+        /// waits for the request's content, the words still shown, and the
+        /// content then replaces them.
+        #[gpui_kit::test]
+        fn send_waits_for_a_fresh_requests_content(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("Unsent words", window, cx))
+            });
+            vcx.run_until_parked();
+            // Online (the bench has no connection).
+            let sends = |vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, _, cx| {
+                    p.composer.update(cx, |c, _| c.offline = false);
+                    p.composer.read(cx).can_send(cx)
+                })
+            };
+            let text = |vcx: &mut VisualTestContext| {
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx))
+            };
+            assert!(sends(vcx), "the draft's words could be sent");
+            let ticket = open_with_request(&stores, &pane, true, vcx);
+            assert!(!sends(vcx), "Send went out before the request's content");
+            assert_eq!(
+                text(vcx),
+                "Unsent words",
+                "the words went before the content landed"
+            );
+            let shared = NewChatContent {
+                text: Some("Shared note".into()),
+                fresh: true,
+                ..NewChatContent::default()
+            };
+            assert!(pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, shared, window, cx)
+            }));
+            vcx.run_until_parked();
+            assert_eq!(text(vcx), "Shared note");
+            assert!(sends(vcx), "Send still waits once the content landed");
+        }
+
+        /// A fresh request (Share, with files) waits for its file check; a
+        /// request after it, in the same composition, lands first: a plain
+        /// new-chat link (`conduit://new?q=`), or a fresh page read under
+        /// another account (dropped). Neither ends the wait: Send still
+        /// waits for the shared content, and comes back once that lands.
+        #[gpui_kit::test]
+        fn only_the_fresh_request_ends_its_wait(cx: &mut TestAppContext) {
+            use crate::shell::deep_link::ReadUnder;
+            use crate::views::chat_pane::NewChatContent;
+            let another_account = Some(ReadUnder(Some("b".into())));
+            for (fresh, owner, lands) in [(false, None, true), (true, another_account, false)] {
+                let (_daemon, stores, pane, vcx) = bench(cx);
+                // Online (the bench has no connection).
+                let sends = |vcx: &mut VisualTestContext| {
+                    pane.update_in(vcx, |p, _, cx| {
+                        p.composer.update(cx, |c, _| c.offline = false);
+                        p.composer.read(cx).can_send(cx)
+                    })
+                };
+                // Unsent words: something Send could send but for the wait.
+                pane.update_in(vcx, |p, window, cx| {
+                    p.composer
+                        .update(cx, |c, cx| c.set_text("Unsent words", window, cx))
+                });
+                let shared = open_with_request(&stores, &pane, true, vcx);
+                stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+                let later = pane.update(vcx, |p, cx| {
+                    p.take_new_chat_ticket(fresh, owner.as_ref(), cx)
+                });
+                let content = NewChatContent {
+                    text: Some("Later".into()),
+                    fresh,
+                    owner,
+                    ..NewChatContent::default()
+                };
+                let landed = pane.update_in(vcx, |p, window, cx| {
+                    p.compose_new_chat(&later, content, window, cx)
+                });
+                assert_eq!(landed, lands);
+                vcx.run_until_parked();
+                assert!(
+                    !sends(vcx),
+                    "Send came back before the shared content (fresh: {fresh})"
+                );
+                let note = NewChatContent {
+                    text: Some("Shared note".into()),
+                    fresh: true,
+                    ..NewChatContent::default()
+                };
+                assert!(pane.update_in(vcx, |p, window, cx| {
+                    p.compose_new_chat(&shared, note, window, cx)
+                }));
+                vcx.run_until_parked();
+                assert!(
+                    sends(vcx),
+                    "Send still waits once the shared content landed"
+                );
+            }
+        }
+
+        /// Another account takes over while the files are looked at: its
+        /// composer gets nothing, whoever the request named.
+        #[gpui_kit::test]
+        fn late_files_never_reach_another_accounts_composer(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let ticket = open_with_request(&stores, &pane, false, vcx);
+            stores.accounts.update(vcx, |a, cx| {
+                a.adopt(list(vec![account("b", "Blair", true, true)]), cx)
+            });
+            vcx.run_until_parked();
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, late_files("Packing list.txt"), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(!wrote, "a's files went to b's composer");
+            assert!(!has_files(&pane, vcx));
+        }
+
+        /// A second request starts the new chat fresh (Share) while the first
+        /// request's files are looked at: the fresh draft gets none of them.
+        /// A draft that is still the request's own gets its files.
+        #[gpui_kit::test]
+        fn late_files_go_only_to_their_own_draft(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let first = open_with_request(&stores, &pane, false, vcx);
+            let second = open_with_request(&stores, &pane, true, vcx);
+            let shared = NewChatContent {
+                text: Some("Shared note".into()),
+                fresh: true,
+                ..NewChatContent::default()
+            };
+            assert!(pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&second, shared, window, cx)
+            }));
+            vcx.run_until_parked();
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&first, late_files("Packing list.txt"), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(!wrote, "the first request's files reached the fresh draft");
+            assert!(!has_files(&pane, vcx));
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Shared note"
+            );
+            let own = open_with_request(&stores, &pane, false, vcx);
+            assert!(pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&own, late_files("Packing list.txt"), window, cx)
+            }));
+            vcx.run_until_parked();
+            assert!(has_files(&pane, vcx), "its own draft gets its files");
+        }
+
+        /// Back and Forward return to the new chat while its files are looked
+        /// at: the draft shown again is read anew, and the files are not
+        /// revived into it.
+        #[gpui_kit::test]
+        fn late_files_are_not_revived_by_back_and_forward(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            let ticket = open_with_request(&stores, &pane, false, vcx);
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.go_back(|_| true, cx));
+            vcx.run_until_parked();
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.go_forward(|_| true, cx));
+            vcx.run_until_parked();
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, late_files("Packing list.txt"), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(!wrote, "the files came back after Back and Forward");
+            assert!(!has_files(&pane, vcx));
+        }
+
         /// Send Link's page, read under one account, is never written into
         /// a new chat once another account is in charge.
         #[gpui_kit::test]
@@ -4102,9 +4383,7 @@ mod tests {
             let (_daemon, stores, pane, vcx) = bench(cx);
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            let ticket = stores
-                .navigation
-                .read_with(vcx, |n, _| n.selection().clone());
+            let ticket = pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx));
             let page = |owner: &str| NewChatContent {
                 text: Some("Summarize this page".into()),
                 fresh: true,
@@ -4146,9 +4425,7 @@ mod tests {
             let ticket = |vcx: &mut VisualTestContext| {
                 stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
                 vcx.run_until_parked();
-                stores
-                    .navigation
-                    .read_with(vcx, |n, _| n.selection().clone())
+                pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx))
             };
             // An account is in charge: a page read with none is refused.
             let t = ticket(vcx);
@@ -4226,9 +4503,12 @@ mod tests {
             // slot): dropped.
             let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
             pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.update(cx, |s, cx| s.await_content(cx));
                 p.composer.update(cx, |c, cx| {
                     c.start_fresh("Shared from Shortcuts", window, cx)
-                })
+                });
+                p.composer_store
+                    .update(cx, |s, cx| s.stop_awaiting(ticket, cx));
             });
             assert!(!attach(asked, vcx), "a replaced composition took the photo");
             assert!(attachment_names(&pane, vcx).is_empty());
@@ -5926,8 +6206,11 @@ mod tests {
             });
             vcx.run_until_parked();
             pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.update(cx, |s, cx| s.await_content(cx));
                 p.composer
-                    .update(cx, |c, cx| c.start_fresh("Copied packing list", window, cx))
+                    .update(cx, |c, cx| c.start_fresh("Copied packing list", window, cx));
+                p.composer_store
+                    .update(cx, |s, cx| s.stop_awaiting(ticket, cx));
             });
             // The fresh composition is not held back by the first send.
             pane.update_in(vcx, |p, window, cx| {

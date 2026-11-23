@@ -52,11 +52,8 @@ pub struct SmokeOptions {
 
 impl SmokeOptions {
     pub fn from_args(args: &[String]) -> Self {
-        let has = |f: &str| args.iter().any(|a| a == f);
-        let preview = args
-            .iter()
-            .position(|a| a == "--preview-route")
-            .and_then(|i| args.get(i + 1));
+        let has = |f: &str| crate::scripted::has(args, f);
+        let preview = crate::scripted::value(args, "--preview-route");
         Self {
             expect_failure: has("--expect-failure"),
             reset: has("--smoke-reset"),

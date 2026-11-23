@@ -105,15 +105,14 @@ pub struct AppState {
     pub settings_window: Option<(AnyWindowHandle, Entity<SettingsView>)>,
     #[cfg(target_os = "macos")]
     _network: Option<shell::macos::NetworkMonitor>,
+    #[cfg(not(target_os = "macos"))]
+    _network: Option<conduit_daemon::network::NetworkMonitor>,
 }
 
 impl Global for AppState {}
 
 fn arg(args: &[String], key: &str) -> Option<String> {
-    args.iter()
-        .position(|a| a == key)
-        .and_then(|i| args.get(i + 1))
-        .cloned()
+    scripted::value(args, key)
 }
 
 /// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`,
@@ -121,7 +120,7 @@ fn arg(args: &[String], key: &str) -> Option<String> {
 /// resets and photographs its profile, or saves settings to it (a
 /// fixture's screenshot theme): a profile of its own, never the user's.
 pub fn is_scripted(args: &[String]) -> bool {
-    args.iter().any(|a| {
+    scripted::options(args).any(|a| {
         a == "--shots"
             || a.starts_with("--e2e")
             || a.starts_with("--capture")
@@ -290,6 +289,173 @@ fn linux_master_key(
     key
 }
 
+/// A harness flag `os` doesn't run: `--probe` drives the Mac's shell and
+/// isn't built elsewhere, where it would only open the app on its real
+/// profile without the single-instance check, beside the one already open.
+pub fn unsupported_flag(os: paths::Os, args: &[String]) -> Option<&'static str> {
+    (os != paths::Os::MacOs && scripted::options(args).any(|a| a == "--probe")).then_some("--probe")
+}
+
+/// Whether to leave Wayland for XWayland: the session has both (`DISPLAY`
+/// and `WAYLAND_DISPLAY` set), and `CONDUIT_WAYLAND` isn't `1`.
+#[cfg_attr(not(target_os = "linux"), cfg(test))]
+fn prefer_xwayland(
+    display: Option<&std::ffi::OsStr>,
+    wayland: Option<&std::ffi::OsStr>,
+    keep_wayland: Option<&std::ffi::OsStr>,
+) -> bool {
+    let set = |value: Option<&std::ffi::OsStr>| value.is_some_and(|v| !v.is_empty());
+    set(display) && set(wayland) && keep_wayland != Some(std::ffi::OsStr::new("1"))
+}
+
+/// The app's state around a main window a test made, with the links' queue,
+/// so requests run through `desktop::handle_urls` as they do in the app.
+#[cfg(test)]
+pub(crate) fn install_main_for_test(
+    stores: Stores,
+    settings: Entity<SettingsStore>,
+    view: Entity<MainWindow>,
+    vcx: &mut gpui_kit::VisualTestContext,
+) {
+    use gpui_kit::VisualContext as _;
+    let handle = vcx.window_handle();
+    let scratch = std::env::temp_dir().join(format!("conduit-main-{}", std::process::id()));
+    vcx.update(|_, cx| {
+        let layout = cx.new(|_| LayoutStore::load(scratch.join("window-state.json")));
+        cx.set_global(AppState {
+            paths: AppPaths {
+                flavor: Flavor::Dev,
+                user_data: scratch.join("user-data"),
+                logs: scratch.join("logs"),
+            },
+            connection: stores.connection.clone(),
+            stores,
+            settings,
+            layout,
+            main_window: Some(handle),
+            main_view: Some(view),
+            setup_window: None,
+            settings_window: None,
+            _network: None,
+        });
+        desktop::install_without_services(cx);
+    });
+}
+
+/// Ends a launch the profile's app didn't take, saying why on stderr and
+/// in [`REFUSED_LOG`]: the log file is the running app's, never touched
+/// from here.
+#[cfg(not(target_os = "macos"))]
+fn refuse_launch(paths: &AppPaths, why: &str) -> ! {
+    eprintln!("conduit-desktop: {why}");
+    note_refused_launch(&paths.logs, std::time::SystemTime::now(), why);
+    std::process::exit(1);
+}
+
+/// Where a refused launch is noted, beside the app's rotating log.
+#[cfg_attr(target_os = "macos", cfg(test))]
+const REFUSED_LOG: &str = "launch-refused.log";
+
+/// The most [`REFUSED_LOG`] keeps before it starts over.
+#[cfg_attr(target_os = "macos", cfg(test))]
+const MAX_REFUSED_LOG: u64 = 64 * 1024;
+
+/// A refused launch's line: when (UTC) and why.
+#[cfg_attr(target_os = "macos", cfg(test))]
+fn refusal_line(now: std::time::SystemTime, why: &str) -> String {
+    let at = chrono::DateTime::<chrono::Utc>::from(now).format("%Y-%m-%dT%H:%M:%SZ");
+    format!("{at} {why}\n")
+}
+
+/// Adds a refused launch's line to [`REFUSED_LOG`] in `logs`, starting it
+/// over past [`MAX_REFUSED_LOG`]. Best effort: the launch ends either way.
+#[cfg_attr(target_os = "macos", cfg(test))]
+fn note_refused_launch(logs: &std::path::Path, now: std::time::SystemTime, why: &str) {
+    use std::io::Write as _;
+    let _ = std::fs::create_dir_all(logs);
+    let path = logs.join(REFUSED_LOG);
+    let start_over = std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_REFUSED_LOG);
+    let mut open = std::fs::OpenOptions::new();
+    if start_over {
+        open.write(true).truncate(true);
+    } else {
+        open.append(true);
+    }
+    if let Ok(mut file) = open.create(true).open(&path) {
+        let _ = file.write_all(refusal_line(now, why).as_bytes());
+    }
+}
+
+/// What a launch's arguments ask to open (Windows, Linux), or `None` for a
+/// scripted launch: it runs on a profile of its own ([`is_scripted`], the
+/// same test that gives it one), so it claims no instance, and its
+/// arguments (`--shots <dir>`, a fixture's) are nothing to open. Any other
+/// launch is on the app's profile and claims it, whatever its flags.
+pub fn launch_urls(args: &[std::ffi::OsString], cwd: &std::path::Path) -> Option<Vec<String>> {
+    if is_scripted(&as_text(args)) {
+        return None;
+    }
+    Some(shell::deep_link::from_argv(args, cwd))
+}
+
+/// Arguments as text, for reading options (an argument that isn't UTF-8
+/// is only ever a file, which `from_argv` reads from the bytes).
+fn as_text(args: &[std::ffi::OsString]) -> Vec<String> {
+    args.iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// This profile's single instance: the listener when this launch is the
+/// app; ends the process when another launch is, after handing it `urls`,
+/// and also when this user's app holds the profile but doesn't take the
+/// launch, or when what holds it can't be identified (two apps on one
+/// profile would share its data). Only a holder known to be another user's,
+/// or a failure before any holder was found, leaves this launch on its own.
+#[cfg(not(target_os = "macos"))]
+fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::instance::Listener> {
+    use conduit_daemon::instance::{Claim, claim};
+    // Every launch names the profile the same way, made or not.
+    let _ = std::fs::create_dir_all(&paths.user_data);
+    let profile = paths
+        .user_data
+        .canonicalize()
+        .unwrap_or_else(|_| paths.user_data.clone());
+    match claim(&paths.flavor.keychain_service(), &profile, urls) {
+        Ok(Claim::First(listener)) => Some(listener),
+        Ok(Claim::Forwarded) => {
+            log::info!(
+                "handed this launch ({} to open) to the running app",
+                urls.len()
+            );
+            std::process::exit(0);
+        }
+        Ok(Claim::Busy) => {
+            let why = "Conduit is already running for this profile but isn't responding; \
+                       this launch quits rather than open the profile twice";
+            refuse_launch(paths, why);
+        }
+        Ok(Claim::NotListening(e)) => {
+            let why = format!(
+                "this launch can't listen for the profile's later launches ({e}); \
+                 it quits rather than open the profile where another launch could too"
+            );
+            refuse_launch(paths, &why);
+        }
+        Ok(Claim::Unidentified(e)) => {
+            let why = format!(
+                "something holds this profile and couldn't be reached ({e}); \
+                 this launch quits rather than open the profile twice"
+            );
+            refuse_launch(paths, &why);
+        }
+        Err(e) => {
+            eprintln!("conduit-desktop: single instance: {e}; this launch runs on its own");
+            None
+        }
+    }
+}
+
 /// Bytes only a build with the test harness carries: the packaging scripts
 /// look for them in the built binary and never sign it for distribution
 /// (packaging/macos/lib.sh, `refuse_harness_distribution`), whatever flags
@@ -298,7 +464,24 @@ fn linux_master_key(
 pub static HARNESS_MARKER: &[u8; 35] = b"conduit-desktop: test harness build";
 
 pub fn run() {
-    let args: Vec<String> = std::env::args().collect();
+    // D2: the web views embed only in X11 windows, so on Linux the app runs
+    // on XWayland where the session has it, however it was started (a run
+    // script, a registered `conduit://` link, the desktop entry), before
+    // GPUI picks its backend. `CONDUIT_WAYLAND=1` keeps Wayland's windows.
+    #[cfg(target_os = "linux")]
+    if prefer_xwayland(
+        std::env::var_os("DISPLAY").as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY").as_deref(),
+        std::env::var_os("CONDUIT_WAYLAND").as_deref(),
+    ) {
+        // SAFETY: the process's first step, before any thread that could
+        // read the environment starts.
+        unsafe { std::env::remove_var("WAYLAND_DISPLAY") };
+    }
+    // Read natively: a file's name need not be UTF-8 (std::env::args
+    // would panic on it). Options are read as text.
+    let args_os: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let args = as_text(&args_os);
     // Kept in the binary (never optimized out): the marker is how a harness
     // build is told from a release one after the fact.
     #[cfg(feature = "harness")]
@@ -312,12 +495,20 @@ pub fn run() {
     }
     // An E2E pass runs inside the smoke pass (`--shots <dir>`): alone it
     // would open the app normally and report nothing.
-    if args.iter().any(|a| a == "--e2e") && arg(&args, "--shots").is_none() {
+    if scripted::options(&args).any(|a| a == "--e2e") && arg(&args, "--shots").is_none() {
         eprintln!("conduit-desktop: --e2e runs with --shots <dir>");
         std::process::exit(64);
     }
+    // A harness flag this OS doesn't run ends the launch before anything
+    // opens.
+    if let Some(flag) = unsupported_flag(paths::Os::CURRENT, &args) {
+        eprintln!("conduit-desktop: {flag} runs only on macOS");
+        std::process::exit(64);
+    }
     // The smoke wrapper launches through `open`, which starts apps in `/`.
-    if let Some(dir) = arg(&args, "--cwd") {
+    if let Some((i, _)) = scripted::option_positions(&args).find(|(_, a)| *a == "--cwd")
+        && let Some(dir) = args_os.get(i + 1)
+    {
         std::env::set_current_dir(dir).ok();
     }
     // A scripted launch (a pass, the capture, a fixture) never asks for a
@@ -379,8 +570,21 @@ pub fn run() {
             app_paths.logs = scratch.join("logs");
         }
     }
-    shell::logger::install(&app_paths.logs);
     shell::crash::install(app_paths.logs.clone(), VERSION);
+    // Off the Mac, links and files come as arguments, and a second launch of
+    // a profile that runs hands them to that app and ends here (AppKit does
+    // both on the Mac). The log file is the running app's until then: a
+    // launch that only hands over writes nothing there (nor rotates it).
+    #[cfg(not(target_os = "macos"))]
+    let (launch_urls, instance) =
+        match launch_urls(&args_os, &std::env::current_dir().unwrap_or_default()) {
+            Some(urls) => {
+                let instance = claim_instance(&app_paths, &urls);
+                (urls, instance)
+            }
+            None => (vec![], None),
+        };
+    shell::logger::install(&app_paths.logs);
     log::info!(
         "Conduit Desktop {VERSION} ({flavor:?}), userData {}",
         app_paths.user_data.display()
@@ -428,6 +632,16 @@ pub fn run() {
     // `conduit://` links and "Open with" files, cold launch included: they
     // can come before the app state exists, so they wait in a channel.
     let (urls_tx, urls_rx) = desktop::url_channel();
+    #[cfg(not(target_os = "macos"))]
+    {
+        if !launch_urls.is_empty() {
+            let _ = urls_tx.unbounded_send(launch_urls);
+        }
+        if let Some(instance) = instance {
+            let urls_tx = urls_tx.clone();
+            instance.serve(move |urls| urls_tx.unbounded_send(urls).is_ok());
+        }
+    }
     app.on_open_urls(move |urls| {
         let _ = urls_tx.unbounded_send(urls);
     });
@@ -438,7 +652,7 @@ pub fn run() {
             desktop::show_main(cx);
         }
     });
-    let hidden_arg = args.iter().any(|a| a == "--hidden");
+    let hidden_arg = scripted::has(&args, "--hidden");
     app.run(move |cx: &mut App| {
         // The open-application Apple event is current only now.
         #[cfg(target_os = "macos")]
@@ -577,12 +791,17 @@ pub fn run() {
         // Before any window opens: transitions read it on their first frame.
         shell::reduce_motion::install(cx);
 
-        #[cfg(target_os = "macos")]
+        // `system.network`: NWPathMonitor on the Mac; Windows' network
+        // status and the Linux portal elsewhere (conduit_daemon::network).
         let network = {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-            let monitor = shell::macos::NetworkMonitor::start(move |online| {
+            let report = move |online| {
                 let _ = tx.send(online);
-            });
+            };
+            #[cfg(target_os = "macos")]
+            let monitor = shell::macos::NetworkMonitor::start(report);
+            #[cfg(not(target_os = "macos"))]
+            let monitor = conduit_daemon::network::NetworkMonitor::start(report);
             let connection = connection.clone();
             cx.spawn(async move |cx| {
                 while let Some(online) = rx.recv().await {
@@ -603,7 +822,6 @@ pub fn run() {
             main_view: None,
             setup_window: None,
             settings_window: None,
-            #[cfg(target_os = "macos")]
             _network: network,
         });
 
@@ -1136,6 +1354,134 @@ pub fn open_settings(tab: Option<Tab>, cx: &mut App) {
 mod harness_profile_tests {
     use super::*;
 
+    /// `--probe` drives the Mac's shell only: elsewhere it is refused before
+    /// anything opens, never a launch on the real profile beside the app.
+    /// Linux runs on XWayland where the session has both (D2), whoever
+    /// starts the app, unless `CONDUIT_WAYLAND=1` keeps Wayland.
+    /// Every reader of the harness's flags agrees with `is_scripted` on what
+    /// is a flag: a folder named `--capture` (or `--e2e`, `--fixture`, ...),
+    /// given to `--cwd`, starts no capture, pass or fixture on the app's
+    /// own profile, and a real flag still does.
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    #[test]
+    fn no_harness_reader_takes_a_flags_value_for_a_flag() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let capture = args(&["app", "--cwd", "--capture", "out"]);
+        assert!(!is_scripted(&capture));
+        assert!(crate::capture::CaptureOptions::from_args(&capture).is_none());
+        assert!(
+            crate::e2e::E2eInputs::from_args(&args(&["app", "--cwd", "--e2e", "chat"])).is_none()
+        );
+        assert!(fixture::Mode::from_args(&args(&["app", "--cwd", "--fixture", "a11y"])).is_none());
+        assert!(
+            chat_fixture::requested(&args(&["app", "--cwd", "--chat-fixture", "a11y"])).is_none()
+        );
+        assert!(!rooms_fixture::requested(&args(&[
+            "app",
+            "--cwd",
+            "--rooms-fixture"
+        ])));
+        assert!(!web_media_fixture::requested(&args(&[
+            "app",
+            "--cwd",
+            "--fixture",
+            "web-media"
+        ])));
+        assert!(
+            crate::capture::CaptureOptions::from_args(&args(&["app", "--capture", "out"]))
+                .is_some()
+        );
+        assert!(rooms_fixture::requested(&args(&["app", "--rooms-fixture"])));
+    }
+
+    /// A launch the profile's app didn't take says why in a small file of
+    /// its own beside the log, one line each, never in the running app's
+    /// rotating log.
+    #[test]
+    fn a_refused_launch_is_noted_beside_the_log() {
+        let logs = tempfile::tempdir().unwrap();
+        let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+        note_refused_launch(
+            logs.path(),
+            at,
+            "Conduit is already running but isn't responding",
+        );
+        note_refused_launch(logs.path(), at, "something holds this profile");
+        let noted = std::fs::read_to_string(logs.path().join("launch-refused.log")).unwrap();
+        assert_eq!(
+            noted,
+            "2027-01-15T08:00:00Z Conduit is already running but isn't responding\n\
+             2027-01-15T08:00:00Z something holds this profile\n"
+        );
+        assert!(!logs.path().join("conduit-desktop.log").exists());
+    }
+
+    #[test]
+    fn linux_prefers_xwayland_unless_asked_not_to() {
+        let os = |v: &'static str| Some(std::ffi::OsStr::new(v));
+        assert!(prefer_xwayland(os(":0"), os("wayland-0"), None));
+        assert!(prefer_xwayland(os(":0"), os("wayland-0"), os("0")));
+        assert!(!prefer_xwayland(os(":0"), os("wayland-0"), os("1")));
+        assert!(!prefer_xwayland(None, os("wayland-0"), None), "no X server");
+        assert!(!prefer_xwayland(os(""), os("wayland-0"), None));
+        assert!(!prefer_xwayland(os(":0"), None, None), "X11 already");
+    }
+
+    #[test]
+    fn the_probe_is_refused_off_the_mac() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let probe = args(&["app", "--probe", "state.json"]);
+        assert_eq!(unsupported_flag(paths::Os::Linux, &probe), Some("--probe"));
+        assert_eq!(
+            unsupported_flag(paths::Os::Windows, &probe),
+            Some("--probe")
+        );
+        assert_eq!(unsupported_flag(paths::Os::MacOs, &probe), None);
+        assert_eq!(
+            unsupported_flag(paths::Os::Linux, &args(&["app", "--hidden"])),
+            None
+        );
+        // A folder named `--probe`, given to `--cwd`, is a folder.
+        assert_eq!(
+            unsupported_flag(
+                paths::Os::Linux,
+                &args(&["app", "--cwd", "--probe", "notes.md"])
+            ),
+            None
+        );
+        assert_eq!(
+            unsupported_flag(
+                paths::Os::Windows,
+                &args(&["app", "--cwd", r"C:\notes", "--probe", "state.json"])
+            ),
+            Some("--probe")
+        );
+    }
+
+    #[test]
+    fn a_scripted_launch_opens_nothing_from_its_arguments() {
+        let args = |a: &[&str]| a.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        let cwd = std::path::Path::new("/tmp/launch");
+        for scripted in [
+            &["app", "--shots", "/tmp/shots", "--e2e", "chat"][..],
+            &["app", "--chat-fixture", "shots"],
+            &["app", "--shots", "/tmp/shots", "--smoke-reset"],
+        ] {
+            assert_eq!(launch_urls(&args(scripted), cwd), None, "{scripted:?}");
+        }
+        // On the app's own profile, a launch claims it whatever its flags:
+        // `--smoke-reset` is an option of the `--shots` pass, and alone it
+        // opens the app as usual. (`--probe` is refused off the Mac first.)
+        assert_eq!(
+            launch_urls(&args(&["app", "--smoke-reset"]), cwd),
+            Some(vec![])
+        );
+        assert_eq!(
+            launch_urls(&args(&["app", "--hidden", "conduit://chat/c1"]), cwd),
+            Some(vec!["conduit://chat/c1".to_string()])
+        );
+    }
+
     #[test]
     fn a_scripted_run_never_uses_a_profile_it_was_not_given() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -1150,6 +1496,26 @@ mod harness_profile_tests {
         assert!(is_scripted(&args(&["app", "--fixture", "web-media"])));
         assert!(!is_scripted(&args(&["app", "--hidden"])));
         assert!(!is_scripted(&args(&["app", "--cwd", "/tmp/fixture"])));
+        // A flag's value is never a flag: a folder named `--shots`, given to
+        // `--cwd`, is a folder, and the launch is the app's.
+        let folder = args(&["app", "--cwd", "--shots", "notes.md"]);
+        assert!(!is_scripted(&folder));
+        assert!(!scripted::requested(&folder));
+        assert_eq!(arg(&folder, "--shots"), None);
+        assert_eq!(arg(&folder, "--cwd").as_deref(), Some("--shots"));
+        // A launch folder absolute on every OS (Windows needs its drive).
+        let launch = tempfile::tempdir().unwrap();
+        let notes = url::Url::from_file_path(launch.path().join("notes.md")).unwrap();
+        assert_eq!(
+            launch_urls(
+                &folder
+                    .iter()
+                    .map(std::ffi::OsString::from)
+                    .collect::<Vec<_>>(),
+                launch.path()
+            ),
+            Some(vec![notes.to_string()])
+        );
 
         let ordinary =
             std::path::Path::new("/Users/example/Library/Application Support/Conduit Dev");
