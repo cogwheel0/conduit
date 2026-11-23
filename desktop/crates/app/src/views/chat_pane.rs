@@ -4237,44 +4237,63 @@ mod tests {
         }
 
         /// A fresh request (Share, with files) waits for its file check; a
-        /// plain new-chat link (`conduit://new?q=`) after it, in the same
-        /// composition, lands first: Send still waits for the shared
-        /// content, and comes back once that lands.
+        /// request after it, in the same composition, lands first: a plain
+        /// new-chat link (`conduit://new?q=`), or a fresh page read under
+        /// another account (dropped). Neither ends the wait: Send still
+        /// waits for the shared content, and comes back once that lands.
         #[gpui_kit::test]
         fn only_the_fresh_request_ends_its_wait(cx: &mut TestAppContext) {
+            use crate::shell::deep_link::ReadUnder;
             use crate::views::chat_pane::NewChatContent;
-            let (_daemon, stores, pane, vcx) = bench(cx);
-            // Online (the bench has no connection).
-            let sends = |vcx: &mut VisualTestContext| {
-                pane.update_in(vcx, |p, _, cx| {
-                    p.composer.update(cx, |c, _| c.offline = false);
-                    p.composer.read(cx).can_send(cx)
-                })
-            };
-            let shared = open_with_request(&stores, &pane, true, vcx);
-            let plain = open_with_request(&stores, &pane, false, vcx);
-            let later = NewChatContent {
-                text: Some("Later".into()),
-                ..NewChatContent::default()
-            };
-            assert!(pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(&plain, later, window, cx)
-            }));
-            vcx.run_until_parked();
-            assert!(!sends(vcx), "Send came back before the shared content");
-            let note = NewChatContent {
-                text: Some("Shared note".into()),
-                fresh: true,
-                ..NewChatContent::default()
-            };
-            assert!(pane.update_in(vcx, |p, window, cx| {
-                p.compose_new_chat(&shared, note, window, cx)
-            }));
-            vcx.run_until_parked();
-            assert!(
-                sends(vcx),
-                "Send still waits once the shared content landed"
-            );
+            let another_account = Some(ReadUnder(Some("b".into())));
+            for (fresh, owner, lands) in [(false, None, true), (true, another_account, false)] {
+                let (_daemon, stores, pane, vcx) = bench(cx);
+                // Online (the bench has no connection).
+                let sends = |vcx: &mut VisualTestContext| {
+                    pane.update_in(vcx, |p, _, cx| {
+                        p.composer.update(cx, |c, _| c.offline = false);
+                        p.composer.read(cx).can_send(cx)
+                    })
+                };
+                // Unsent words: something Send could send but for the wait.
+                pane.update_in(vcx, |p, window, cx| {
+                    p.composer
+                        .update(cx, |c, cx| c.set_text("Unsent words", window, cx))
+                });
+                let shared = open_with_request(&stores, &pane, true, vcx);
+                stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+                let later = pane.update(vcx, |p, cx| {
+                    p.take_new_chat_ticket(fresh, owner.as_ref(), cx)
+                });
+                let content = NewChatContent {
+                    text: Some("Later".into()),
+                    fresh,
+                    owner,
+                    ..NewChatContent::default()
+                };
+                let landed = pane.update_in(vcx, |p, window, cx| {
+                    p.compose_new_chat(&later, content, window, cx)
+                });
+                assert_eq!(landed, lands);
+                vcx.run_until_parked();
+                assert!(
+                    !sends(vcx),
+                    "Send came back before the shared content (fresh: {fresh})"
+                );
+                let note = NewChatContent {
+                    text: Some("Shared note".into()),
+                    fresh: true,
+                    ..NewChatContent::default()
+                };
+                assert!(pane.update_in(vcx, |p, window, cx| {
+                    p.compose_new_chat(&shared, note, window, cx)
+                }));
+                vcx.run_until_parked();
+                assert!(
+                    sends(vcx),
+                    "Send still waits once the shared content landed"
+                );
+            }
         }
 
         /// Another account takes over while the files are looked at: its
