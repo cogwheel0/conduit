@@ -2107,7 +2107,9 @@ impl ChatStore {
         self.switches = Some(switches);
     }
 
-    fn switches(&self, cx: &App) -> Option<TurnSwitches> {
+    /// The composer's switches and tools as a regenerate or an edit would
+    /// take them now.
+    pub(crate) fn switches(&self, cx: &App) -> Option<TurnSwitches> {
         self.switches.as_ref().and_then(|read| read(cx))
     }
 
