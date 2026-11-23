@@ -1608,9 +1608,15 @@ void main() {
         _Growing.gate = null;
         _chatHeld = null;
       });
-      // The wait held, what changes during it, the chat, and the model the
-      // turn then takes (null: refused, the account having changed).
-      for (final (wait, change, chatId, expected) in const [
+      // The wait held, what changes during it, the chat (null: New Chat, on
+      // north's coding agent), and the model the turn then takes (null:
+      // refused, the account having changed).
+      for (final (wait, change, chatId, expected) in const <(
+        String,
+        String,
+        String?,
+        String?,
+      )>[
         ('chat', 'pick', 'hidden-chat', 'preferred-model'),
         ('chat', 'selection', 'retired-chat', 'preferred-model'),
         ('chat', 'list', 'retired-chat', 'retired-model'),
@@ -1623,12 +1629,19 @@ void main() {
         ('list', 'selection', 'retired-chat', 'preferred-model'),
         ('list', 'list', 'retired-chat', 'retired-model'),
         ('list', 'account', 'retired-chat', null),
+        // New Chat's agent goes with its terminal, switched or taken away.
+        ('list', 'terminal', null, 'first-model'),
+        ('list', 'terminals off', null, 'first-model'),
       ]) {
         _Growing.extra = const <core.Model>[];
         final api = _AgentsApi();
         final container = _agentContainer(api, models: _Growing.new);
         final models = ModelsService(container);
         await container.read(modelsProvider.future);
+        if (chatId == null) {
+          container.read(selectedTerminalIdProvider.notifier).set('north');
+          await models.select(_northAgent);
+        }
         final Future<void> asked;
         switch (wait) {
           case 'chat':
@@ -1665,6 +1678,12 @@ void main() {
               container.invalidate(modelsProvider);
               await container.read(modelsProvider.future);
             }
+          case 'terminal':
+            container.read(selectedTerminalIdProvider.notifier).set('south');
+          case 'terminals off':
+            _offered = [_terminals.last];
+            container.invalidate(terminalAvailableServersProvider);
+            await container.read(terminalAvailableServersProvider.future);
           default:
             _session = Object();
             container.invalidate(openWebUiAuthSessionEpochProvider);

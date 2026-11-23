@@ -121,12 +121,17 @@ Future<core.Model?> currentModel(ProviderContainer container) async {
 
 /// What [ModelsService._resolve] decides a chat's model from, read with no
 /// wait between: the chat's pick record, the account's selection, the
-/// model list and the model id the chat was saved with.
+/// model list, the stored chat (the model it was saved with), the
+/// account's default model, and the selected terminal and the terminal
+/// list New Chat's coding agent was checked against.
 typedef _ModelInputs = ({
   _Pick? pick,
   core.Model? selected,
   List<core.Model>? listed,
-  String? saved,
+  Conversation? chat,
+  String? defaultId,
+  String? terminal,
+  Object? terminals,
 });
 
 /// [ModelsService._resolve]'s answer: the model the chat shows, the model
@@ -1011,22 +1016,38 @@ final class ModelsService {
       pick: _picksOf(account)[slot],
       selected: _container.read(selectedModelProvider),
       listed: _container.read(modelsProvider).value,
-      saved: chat?.read().value?.model?.trim(),
+      chat: chat?.read().value,
+      defaultId: _defaultIdOrNull(),
+      // New Chat's check reads these; a chat's own pick needs neither.
+      terminal: chatId == null
+          ? _container.read(selectedTerminalIdProvider)
+          : null,
+      terminals: chatId == null
+          ? _container.read(terminalAvailableServersProvider).value
+          : null,
     );
     try {
       for (var attempt = 1; ; attempt++) {
-        if (chatId == null) await _checkNewChat(account, temporary: temporary);
         final models = await _models();
         final conversation = chatId == null
             ? null
             : await _conversation(chatId, account);
+        // Last before the inputs are read: what it found holds only while
+        // the terminal it checked against does, which they include.
+        if (chatId == null) await _checkNewChat(account, temporary: temporary);
         account.require('the model in use is read');
         final read = inputs();
+        // The list waited for above is the one read now, or the attempt
+        // starts over: everything below decides with it.
+        if (!identical(read.listed, models)) {
+          if (attempt == _resolveAttempts) throw _keptChanging;
+          continue;
+        }
         final pick = read.pick?.model;
         final pickOffered = pick != null && await _stillOffered(pick, models);
         final holds =
             pickOffered && !(isTerminalAgentModel(pick) && temporary);
-        final savedId = read.saved;
+        final savedId = read.chat?.model?.trim();
         final savedAgent = savedId != null && isTerminalAgentModelId(savedId)
             ? savedId
             : null;
@@ -1056,19 +1077,28 @@ final class ModelsService {
                 : savedAgent ?? (saved ?? runFallback)?.id,
             record: read.pick,
             listed: models,
-            conversation: conversation,
+            conversation: read.chat ?? conversation,
           );
         }
-        if (attempt == _resolveAttempts) {
-          throw const RpcError(
-            code: ConduitErrorCodes.conflict,
-            retryable: true,
-            debugMessage: "the chat's model kept changing while it was read",
-          );
-        }
+        if (attempt == _resolveAttempts) throw _keptChanging;
       }
     } finally {
       chat?.close();
+    }
+  }
+
+  static const _keptChanging = RpcError(
+    code: ConduitErrorCodes.conflict,
+    retryable: true,
+    debugMessage: "the chat's model kept changing while it was read",
+  );
+
+  /// The account's default model id, or null when it cannot be read.
+  String? _defaultIdOrNull() {
+    try {
+      return _defaultModelId();
+    } on Object {
+      return null;
     }
   }
 
@@ -1076,7 +1106,10 @@ final class ModelsService {
       identical(a.pick, b.pick) &&
       identical(a.selected, b.selected) &&
       identical(a.listed, b.listed) &&
-      a.saved == b.saved;
+      identical(a.chat, b.chat) &&
+      a.defaultId == b.defaultId &&
+      a.terminal == b.terminal &&
+      identical(a.terminals, b.terminals);
 
   /// Whether the server still offers [model]: listed, a coding agent (its
   /// terminal's to offer), or hidden from the picker but still offered
