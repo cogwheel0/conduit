@@ -41,7 +41,9 @@
 #   release; a key rotation's bridge release (an app carrying the next key)
 #   only with --next-public-key naming that key, its update and feed signed
 #   with the current key; the release after it, with the keys swapped,
-#   keeping the bridge's item (macOS).
+#   keeping the bridge's item; an attach hdiutil fails once is tried
+#   again, one that keeps failing stops with hdiutil's message, and a
+#   volume still busy at detach does not stop the release (macOS).
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/conduit-release-test.XXXXXX")"
@@ -640,11 +642,15 @@ if [ -n "$sparkle" ]; then
   dmg_with "$tmp/bridge/Conduit-1.3.0.dmg" "$key_b" 1.3.0 || fail "could not make the bridge's DMG"
   dmg_with "$tmp/after/Conduit-1.4.0.dmg" "$key_b" 1.4.0 || fail "could not make the next release's DMG"
   appcast() { # private-key.der public-key work dmg version [appcast.sh options]
-    local der="$1" public="$2" work="$3" dmg_file="$4" version="$5"
+    local der="$1" public="$2" work="$3" dmg_file="$4" version="$5" rc
     shift 5
-    SPARKLE_ED_PRIVATE_KEY="$(private_of "$der")" SPARKLE_PUBLIC_ED_KEY="$public" \
-      "$here/appcast.sh" --dmg "$dmg_file" --version "$version" \
-      --download-url-prefix https://example.org/releases/ --work "$work" "$@"
+    local run=("$here/appcast.sh" --dmg "$dmg_file" --version "$version"
+      --download-url-prefix https://example.org/releases/ --work "$work" "$@")
+    SPARKLE_ED_PRIVATE_KEY="$(private_of "$der")" SPARKLE_PUBLIC_ED_KEY="$public" "${run[@]}"
+    rc=$?
+    [ "$rc" = 0 ] || printf 'appcast.sh exited %s: SPARKLE_PUBLIC_ED_KEY=%s%s\n' \
+      "$rc" "$public" "$(printf ' %q' "${run[@]}")" >&2
+    return "$rc"
   }
   expect 0 "a release whose app carries the signing key goes through generate_appcast" \
     appcast "$tmp/key-a.der" "$key_a" "$tmp/feed-release" "$tmp/release/Conduit-1.3.0.dmg" 1.3.0 --fresh
@@ -678,6 +684,81 @@ if [ -n "$sparkle" ]; then
     --existing "$tmp/feed-bridge/appcast.xml"
   expect 0 "its feed is signed with the next key" feed_check "$tmp/feed-after/appcast.xml" "$key_b"
   expect 1 "and not with the old one" feed_check "$tmp/feed-after/appcast.xml" "$key_a"
+
+  # On a hosted runner hdiutil now and then fails to attach an image, or to
+  # detach one a system service still reads; a later try, or -force,
+  # succeeds. A stub hdiutil fails as the real one does (with -quiet it
+  # says nothing) and otherwise runs it. Its `sleep` skips the wait.
+  mkdir -p "$tmp/busy-bin"
+  cat >"$tmp/busy-bin/hdiutil" <<'STUB'
+#!/bin/bash
+# STUB_ATTACH_FAILS=N: the first N attaches fail. STUB_DETACH=busy: a
+# detach without -force fails, the volume busy. STUB_DETACH=stuck: every
+# detach fails, -force or not (the volume is still let go, so the test
+# leaves nothing mounted).
+quiet() { case " $* " in *" -quiet "*) exec >/dev/null 2>&1 ;; esac; }
+case "$1" in
+  attach)
+    n=$(($(cat "$STUB_ATTACHES" 2>/dev/null || echo 0) + 1))
+    echo "$n" >"$STUB_ATTACHES"
+    if [ "$n" -le "${STUB_ATTACH_FAILS:-0}" ]; then
+      quiet "$@"
+      echo "hdiutil: attach failed - Resource temporarily unavailable" >&2
+      exit 1
+    fi
+    ;;
+  detach)
+    if [ "${STUB_DETACH:-}" = stuck ]; then
+      /usr/bin/hdiutil detach -force "${@: -1}" >/dev/null 2>&1 || true
+      quiet "$@"
+      echo 'hdiutil: couldn'\''t unmount "disk9" - Resource busy' >&2
+      exit 16
+    fi
+    if [ "${STUB_DETACH:-}" = busy ] && [[ " $* " != *" -force "* ]]; then
+      quiet "$@"
+      echo 'hdiutil: couldn'\''t unmount "disk9" - Resource busy' >&2
+      exit 16
+    fi
+    ;;
+esac
+exec /usr/bin/hdiutil "$@"
+STUB
+  printf '#!/bin/bash\nexit 0\n' >"$tmp/busy-bin/sleep"
+  chmod +x "$tmp/busy-bin/hdiutil" "$tmp/busy-bin/sleep"
+  busy() { # work [VAR=value...]: the release through appcast.sh, with the stub hdiutil
+    local work="$1"
+    shift
+    (
+      export PATH="$tmp/busy-bin:$PATH" STUB_ATTACHES="$work.attaches" "$@"
+      appcast "$tmp/key-a.der" "$key_a" "$work" "$tmp/release/Conduit-1.3.0.dmg" 1.3.0 --fresh
+    )
+  }
+  expect 0 "an attach that fails once, as on a busy runner, is tried again" \
+    busy "$tmp/feed-attach-once" STUB_ATTACH_FAILS=1
+  expect 0 "and that release's feed passes verify_feed" \
+    feed_check "$tmp/feed-attach-once/appcast.xml" "$key_a"
+  expect 1 "an attach that keeps failing stops the release" \
+    busy "$tmp/feed-attach-fails" STUB_ATTACH_FAILS=99
+  if grep -q 'Resource temporarily unavailable' "$tmp/out.txt"; then
+    pass "and says what hdiutil said"
+  else
+    fail "an attach that keeps failing stopped without hdiutil's message"
+    sed 's/^/      /' "$tmp/out.txt"
+  fi
+  expect 0 "a volume still busy when it is detached does not stop the release" \
+    busy "$tmp/feed-detach-busy" STUB_DETACH=busy
+  expect 0 "and that release's feed passes verify_feed" \
+    feed_check "$tmp/feed-detach-busy/appcast.xml" "$key_a"
+  expect 0 "a volume that won't detach even with -force only warns" \
+    busy "$tmp/feed-detach-stuck" STUB_DETACH=stuck
+  if grep -q 'could not detach' "$tmp/out.txt" && grep -q 'Resource busy' "$tmp/out.txt"; then
+    pass "and the warning says what hdiutil said"
+  else
+    fail "a detach that failed with -force gave no warning with hdiutil's message"
+    sed 's/^/      /' "$tmp/out.txt"
+  fi
+  expect 0 "and that release's feed passes verify_feed" \
+    feed_check "$tmp/feed-detach-stuck/appcast.xml" "$key_a"
 fi
 
 echo

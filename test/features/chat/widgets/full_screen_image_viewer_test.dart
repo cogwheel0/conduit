@@ -165,9 +165,17 @@ void main() {
     tester,
   ) async {
     await pumpBubble(tester, urls: const [_wide]);
-    // Let the thumbnail decode so the viewer knows the image's aspect ratio.
+    // The viewer takes the image's aspect ratio from the decoded thumbnail,
+    // and the engine decodes outside the fake clock: await that decode.
+    final thumbnail = find.descendant(
+      of: find.byType(EnhancedImageAttachment),
+      matching: find.byType(Image),
+    );
     await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      () => precacheImage(
+        tester.widget<Image>(thumbnail).image,
+        tester.element(thumbnail),
+      ),
     );
     await tester.pump();
 
