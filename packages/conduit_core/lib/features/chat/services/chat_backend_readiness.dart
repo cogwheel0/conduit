@@ -95,11 +95,8 @@ ChatBackendNotReady? chatBackendNotReady(
   return openWebUiSignedIn(ref) ? null : ChatBackendNotReady.openWebUiSignedOut;
 }
 
-/// Whether an Open WebUI account is signed in, with its client built.
-///
-/// Both: a configured server whose session ended still has a client, and a
-/// signed-in account has none while its server list is read again (an
-/// account added, switched to, or its servers saved).
+/// Whether a turn answers on Hermes: always in a native Hermes chat, and on a
+/// Hermes model unless the open chat alone decides ([byChat]).
 bool _answersOnHermes(
   Model model,
   Conversation? conversation, {
@@ -108,6 +105,11 @@ bool _answersOnHermes(
     isNativeHermesConversation(conversation) ||
     (!byChat && isHermesModel(model));
 
+/// Whether an Open WebUI account is signed in, with its client built.
+///
+/// Both: a configured server whose session ended still has a client, and a
+/// signed-in account has none while its server list is read again (an
+/// account added, switched to, or its servers saved).
 bool openWebUiSignedIn(dynamic ref) =>
     ref.read(apiServiceProvider) != null &&
     ref.read(isAuthenticatedProvider2) == true;

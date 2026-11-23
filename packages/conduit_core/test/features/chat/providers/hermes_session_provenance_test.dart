@@ -941,6 +941,27 @@ void main() {
         ).contains('Count the egrets');
       });
 
+      test('unchanged, is offered nothing and does nothing', () async {
+        final bound = await bind(
+          accept: true,
+          connectionIdentity: otherIdentity,
+          activeAnswers: false,
+        );
+        addTearDown(bound.container.dispose);
+        final shown = [question, ...bound.container.read(chatMessagesProvider)];
+        bound.container.read(chatMessagesProvider.notifier).setMessages(shown);
+
+        check(
+          await resendEditedUserMessage(
+            bound.container,
+            messageId: 'bound-question',
+            newText: question.content,
+          ),
+        ).isFalse();
+        check(bound.asked).isEmpty();
+        check(bound.container.read(chatMessagesProvider)).deepEquals(shown);
+      });
+
       test('declined on a connection that cannot answer, leaves the '
           'transcript as it was', () async {
         final bound = await bind(
