@@ -1313,8 +1313,11 @@ impl MasterKeyStore for KeyFile {
         let failed =
             |e: std::io::Error| SecretError::Store(format!("{}: {e}", self.path.display()));
         let dir = parent_or_here(&self.path);
+        // The folders that are there, before any is made through them (a
+        // link would have them made where it leads), and again after, so one
+        // another user made first is caught too.
+        check_folders_above(&self.path)?;
         make_folders_durably(dir).map_err(failed)?;
-        // After making them, so one another user made first is caught too.
         check_folders_above(&self.path)?;
         let name = self.path.file_name().unwrap_or_default().to_string_lossy();
         let staged = dir.join(format!(".{name}.{:016x}", rand::random::<u64>()));
@@ -2432,7 +2435,10 @@ mod tests {
             matches!(linked.add(&new_master_key()), Err(SecretError::Store(_))),
             "made under a link"
         );
-        assert!(!real.join("share").join(name).exists());
+        assert!(
+            !real.join("share").exists(),
+            "nothing made where the link leads"
+        );
         // The same folder, named without the link, holds it.
         let key = load_or_create_master_key(&KeyFile::new(real.join("share").join(name))).unwrap();
         assert!(is_valid_master_key(&key));
