@@ -1,10 +1,12 @@
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:crypto/crypto.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/services/answer_tail_cursor.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/services/semantic_message_builder.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
@@ -1094,6 +1096,18 @@ final class DirectStreamingReplace extends DirectStreamingProjection {
 
 const int _kDirectMaxGeneratedImages = 10;
 
+/// The shortest wait between full streaming projections, the same cadence at
+/// which the chat publishes streamed text (`streamingContentUpdateInterval`).
+const Duration kDirectFullProjectionMinInterval = Duration(milliseconds: 100);
+
+/// Characters a second that full streaming projections may render. When an
+/// answer with code needs them continually, they take 7–13% of the stream's
+/// duration on an M-series Mac
+/// (`tool/benchmarks/direct_streaming_projection.md`). The wait after a
+/// projection grows with its length once it exceeds what this budget allows in
+/// [kDirectFullProjectionMinInterval].
+const int kDirectFullProjectionCharactersPerSecond = 200000;
+
 /// Accumulates normalized provider events into the ChatMessage representation
 /// used by Conduit's renderer.
 final class DirectStreamingAccumulator {
@@ -1122,8 +1136,17 @@ final class DirectStreamingAccumulator {
   int _projectedTextLength = 0;
   int _projectedReasoningLength = 0;
   int _nextFullProjectionLength = 1;
+  DateTime? _lastFullProjectionAt;
+  Duration _fullProjectionWait = Duration.zero;
+  // While the answer carries code delimiters, the exact visible snapshot and a
+  // cursor at the end of its answer text let deltas extend it without a full
+  // render. Both are replaced by every full projection.
+  StringBuffer? _exactVisible;
+  AnswerTailCursor? _tailCursor;
   int _fullProjectionCount = 0;
   int _appendProjectionCount = 0;
+  int _tailRewriteCount = 0;
+  int _cursorRefusalCount = 0;
   int _fullProjectionCharacterCount = 0;
 
   String get text => _text.toString();
@@ -1171,6 +1194,8 @@ final class DirectStreamingAccumulator {
   /// not provider events or the one final authoritative render.
   int get fullProjectionCount => _fullProjectionCount;
   int get appendProjectionCount => _appendProjectionCount;
+  int get tailRewriteCount => _tailRewriteCount;
+  int get cursorRefusalCount => _cursorRefusalCount;
   int get fullProjectionCharacterCount => _fullProjectionCharacterCount;
 
   bool apply(DirectStreamEvent event) {
@@ -1282,13 +1307,17 @@ final class DirectStreamingAccumulator {
 
   /// Returns the smallest safe UI update after [event] has been [apply]ed.
   ///
-  /// Answer text is appended while the active assistant remains the tail.
-  /// Reasoning lives before that text inside a semantic details block, so it
-  /// cannot be appended without corrupting the markup. Those replacements are
-  /// emitted only when the accumulated payload crosses a geometric threshold.
-  /// The total number of characters materialized by normal replacements is
-  /// therefore linear in the final payload size rather than quadratic in the
-  /// provider event count.
+  /// Plain answer text is appended while the active assistant remains the
+  /// tail. After a possible code delimiter, one full render makes the visible
+  /// text exact, and [AnswerTailCursor] then extends it wherever it proves the
+  /// delta renders as the full escaper would. Reasoning lives before the
+  /// answer inside a semantic details block, so it, and any delta the cursor
+  /// refuses, waits for a full replacement. One is due once the payload has
+  /// doubled, or once the previous replacement has been shown for
+  /// [kDirectFullProjectionMinInterval] or for its length at
+  /// [kDirectFullProjectionCharactersPerSecond], whichever is longer. A burst
+  /// of events therefore renders under twice the final payload in aggregate,
+  /// and a steady stream at most that budget per second on top.
   DirectStreamingProjection? projectStreamingEvent(
     DirectStreamEvent event, {
     required bool forceReplace,
@@ -1319,12 +1348,35 @@ final class DirectStreamingAccumulator {
           _appendProjectionCount += 1;
           return DirectStreamingAppend(appendContent);
         }
+        if (canAppend && !_answerAppendIsPlain && appendIsSynchronized) {
+          final visible = _exactVisible;
+          if (visible == null) return _fullStreamingProjection(logicalLength);
+          final cursor = _tailCursor ??= AnswerTailCursor(
+            _text.toString().substring(0, textLengthBeforeEvent),
+          );
+          final edit = cursor.render(content);
+          if (edit != null) {
+            _projectedTextLength = _text.length;
+            if (edit.remove == 0) {
+              visible.write(edit.insert);
+              _appendProjectionCount += 1;
+              return DirectStreamingAppend(edit.insert);
+            }
+            // The delta changed how the answer's last line renders (a closing
+            // backtick, a completed autolink): splice only that line.
+            final current = visible.toString();
+            final spliced =
+                current.substring(0, current.length - edit.remove) +
+                edit.insert;
+            _exactVisible = StringBuffer(spliced);
+            _tailRewriteCount += 1;
+            return DirectStreamingReplace(spliced);
+          }
+          _cursorRefusalCount += 1;
+        }
         if (!_hasStreamingProjection ||
-            (canAppend &&
-                (_answerAppendIsPlain
-                    ? !appendIsSynchronized
-                    : logicalLength >= _nextFullProjectionLength)) ||
-            logicalLength >= _nextFullProjectionLength) {
+            (canAppend && _answerAppendIsPlain && !appendIsSynchronized) ||
+            _fullProjectionIsDue(logicalLength)) {
           return _fullStreamingProjection(logicalLength);
         }
         return null;
@@ -1333,7 +1385,7 @@ final class DirectStreamingAccumulator {
         if (!_hasStreamingProjection ||
             !_hasReasoningProjection ||
             (_reasoningHasVisibleText && !_reasoningProjectionIsVisible) ||
-            logicalLength >= _nextFullProjectionLength) {
+            _fullProjectionIsDue(logicalLength)) {
           return _fullStreamingProjection(logicalLength);
         }
         return null;
@@ -1352,14 +1404,34 @@ final class DirectStreamingAccumulator {
     }
   }
 
+  bool _fullProjectionIsDue(int logicalLength) {
+    if (logicalLength >= _nextFullProjectionLength) return true;
+    // A wall clock set back reads as a negative wait: render rather than wait
+    // for it to catch up.
+    final waited = clock.now().difference(_lastFullProjectionAt!);
+    return waited.isNegative || waited >= _fullProjectionWait;
+  }
+
   DirectStreamingReplace _fullStreamingProjection(int logicalLength) {
     final content = render(done: false);
+    final wait = Duration(
+      microseconds:
+          content.length *
+          Duration.microsecondsPerSecond ~/
+          kDirectFullProjectionCharactersPerSecond,
+    );
+    _lastFullProjectionAt = clock.now();
+    _fullProjectionWait = wait > kDirectFullProjectionMinInterval
+        ? wait
+        : kDirectFullProjectionMinInterval;
     _hasStreamingProjection = true;
     _hasReasoningProjection = _reasoning.isNotEmpty;
     _reasoningProjectionIsVisible = _reasoningHasVisibleText;
     _projectedTextLength = _text.length;
     _projectedReasoningLength = _reasoning.length;
     _nextFullProjectionLength = logicalLength == 0 ? 1 : logicalLength * 2;
+    _exactVisible = _answerAppendIsPlain ? null : StringBuffer(content);
+    _tailCursor = null;
     _fullProjectionCount += 1;
     _fullProjectionCharacterCount += content.length;
     return DirectStreamingReplace(content);
