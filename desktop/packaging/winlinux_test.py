@@ -19,6 +19,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import winlinux  # noqa: E402
+import winlinux_feed  # noqa: E402
 
 INFO_PLIST = HERE / "macos" / "Info.plist"
 ISS = HERE / "windows" / "conduit.iss"
@@ -88,6 +89,7 @@ class Tree:
     def windows(self):
         self.file("conduit-desktop.exe", pe(["KERNEL32.dll", "USER32.dll"], ["d3d11.dll"]))
         self.file("conduit.ico", b"\0\0\1\0")
+        self.file("WinSparkle.dll", pe(["KERNEL32.dll", "WININET.dll"]))
         self.file("conduitd/bin/conduitd.exe", pe(["KERNEL32.dll"]))
         self.file("conduitd/lib/sqlite3.dll", pe(["KERNEL32.dll"]))
         self.file("conduitd/model_logos/catalog.json", b"{}")
@@ -143,6 +145,43 @@ class Versions(unittest.TestCase):
             winlinux.windows_file_version("70000.0.0")
 
 
+class FeedVersions(unittest.TestCase):
+    """The Windows and Linux feeds order releases by the Mac's build
+    numbers, which the apps compute too (updates::config)."""
+
+    def test_build_numbers(self):
+        self.assertEqual(winlinux_feed.build_number("1.2.0"), 1020099)
+        self.assertEqual(winlinux_feed.build_number("1.2.0-beta.3"), 1020003)
+        self.assertEqual(winlinux_feed.build_number("0.0.0"), 99)
+        for bad in ("1.2", "01.2.0", "1.100.0", "1.2.0-beta.99", "1.2.0-beta.0", "1.2.0\n"):
+            with self.assertRaises(winlinux_feed.FeedError, msg=bad):
+                winlinux_feed.build_number(bad)
+
+    @unittest.skipIf(os.name == "nt", "lib.sh is the Mac's bash library")
+    def test_agree_with_the_mac_scripts(self):
+        lib = HERE / "macos" / "lib.sh"
+        for version in ("0.0.0", "1.2.0", "1.2.1", "1.10.0", "10.99.99", "1.2.0-beta.1", "1.2.0-beta.98"):
+            mac = subprocess.run(
+                ["bash", "-c", '. "$1" && build_number "$2"', "bash", str(lib), version],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(str(winlinux_feed.build_number(version)), mac, version)
+
+    def test_each_feed_sits_beside_the_mac_appcast(self):
+        env = {"RELEASE_REPO": "owner/project", "APPCAST_RELEASE_TAG": "feeds", "APPCAST_BRANCH": "feed-branch"}
+        for hosting, url in (
+            ("release-asset", "https://github.com/owner/project/releases/download/feeds/appcast-windows.xml"),
+            ("pages", "https://owner.github.io/project/desktop/appcast-windows.xml"),
+            ("branch", "https://raw.githubusercontent.com/owner/project/feed-branch/appcast-windows.xml"),
+        ):
+            self.assertEqual(winlinux_feed.feed_url("windows", {**env, "APPCAST_HOSTING": hosting}), url)
+        self.assertTrue(
+            winlinux_feed.feed_url("linux", {**env, "APPCAST_HOSTING": "release-asset"}).endswith("/appcast-linux.xml")
+        )
+
+
 class FileTypes(unittest.TestCase):
     """The Mac's document types (Info.plist) are the source for Windows'
     Open With registrations and the Linux desktop entry's MIME types."""
@@ -188,6 +227,24 @@ class InstallerIdentity(unittest.TestCase):
         self.assertIn("\nAppId={{{#AppGuid}}\n", text)
 
 
+class UpdateInstall(unittest.TestCase):
+    """What WinSparkle runs the downloaded installer with, and what the
+    installer does with it."""
+
+    def test_winsparkle_runs_the_installer_silently_and_it_relaunches_the_app(self):
+        args = winlinux_feed.INSTALLER_ARGUMENTS.split()
+        self.assertIn("/SILENT", args)
+        self.assertIn("/RELAUNCH=1", args)
+        text = ISS.read_text(encoding="utf-8")
+        # The app again once the update is in, whatever /SILENT skips.
+        run = next(l for l in text.splitlines() if "Check: RelaunchAfterUpdate" in l)
+        self.assertIn('Filename: "{app}\\conduit-desktop.exe"', run)
+        self.assertNotIn("skipifsilent", run)
+        self.assertIn("ExpandConstant('{param:RELAUNCH|0}') = '1'", text)
+        # A running Conduit and its conduitd are closed first.
+        self.assertIn("\nCloseApplications=force\n", text)
+
+
 class PeImports(unittest.TestCase):
     def test_reads_imports_and_delay_loads(self):
         image = pe(["KERNEL32.dll", "VCRUNTIME140.dll"], ["d3d11.dll"])
@@ -206,6 +263,17 @@ class Layout(unittest.TestCase):
 
     def test_a_complete_linux_install(self):
         self.assertEqual(winlinux.layout_problems(Tree(self).linux().root, "linux"), [])
+
+    def test_winsparkle_sits_beside_the_app(self):
+        # The app loads it from its own folder (updates::winsparkle); in
+        # conduitd\\ or missing, the installed app has no updater.
+        tree = Tree(self).windows()
+        (tree.root / "WinSparkle.dll").unlink()
+        problems = winlinux.layout_problems(tree.root, "windows")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("WinSparkle.dll", problems[0])
+        tree.file("conduitd/bin/WinSparkle.dll", pe(["KERNEL32.dll"]))
+        self.assertEqual(len(winlinux.layout_problems(tree.root, "windows")), 1)
 
     def test_the_daemon_and_its_sqlite_are_required(self):
         tree = Tree(self).linux()

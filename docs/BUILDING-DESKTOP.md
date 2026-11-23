@@ -382,17 +382,21 @@ Windows gets a per-user installer (Inno Setup) and Linux a `.deb` and an
 on the same paths as the Mac bundle (`Windows installer (rehearsal)`,
 `Linux packages (rehearsal)`), keeps them as workflow artifacts (never a
 release), and installs them on fresh runners (`Windows install smoke`,
-`Linux install smoke`). They don't update themselves yet.
+`Linux install smoke`). Given an update key, Windows updates itself through
+WinSparkle and Linux shows when a newer version exists (see
+[Updates on Windows and Linux](#updates-on-windows-and-linux)).
 
 ```powershell
 desktop\packaging\windows\build.ps1 -Notices <file>   # version 0.0.0
 desktop\packaging\windows\build.ps1 -Notices <file> -Version 1.2.0
+desktop\packaging\windows\build.ps1 -Notices <file> -Version 1.2.0 -UpdatePublicKey <WINDOWS_PUBLIC_ED_KEY>
 desktop\packaging\windows\smoke.ps1 -Installer desktop\target\windows\Conduit-1.2.0\Conduit-1.2.0-windows-x64-setup.exe
 ```
 
 ```sh
 desktop/packaging/linux/package.sh                   # version 0.0.0
 desktop/packaging/linux/package.sh --version 1.2.0
+desktop/packaging/linux/package.sh --version 1.2.0 --update-public-key <LINUX_PUBLIC_ED_KEY>
 desktop/packaging/notices/notices.sh --target x86_64-pc-windows-msvc --out <file>   # build.ps1's -Notices
 desktop/packaging/linux/smoke.sh desktop/target/linux/Conduit-1.2.0/conduit-desktop_1.2.0-1_amd64.deb
 ```
@@ -421,13 +425,14 @@ use; without it the script downloads the Inno Setup that
 `desktop/target/inno/<version>/`. `conduit.iss` installs, per user with no
 administrator, into `%LOCALAPPDATA%\Programs\Conduit`:
 
-- the app with `conduitd\` beside it, a Start menu entry (and a desktop
-  one if chosen);
+- the app with `WinSparkle.dll` and `conduitd\` beside it, a Start menu
+  entry (and a desktop one if chosen);
 - under `HKCU\Software\Classes`: `conduit://`, and Open With for the
   Mac's document types (`OpenWithProgids`, `Applications\conduit-desktop.exe\SupportedTypes`),
   never as their default app;
 - Windows' Restart Manager closes a running Conduit and its conduitd
-  before files are replaced;
+  before files are replaced; run with `/RELAUNCH=1` (as WinSparkle runs an
+  update), it starts the app again when it's done;
 - uninstalling removes all of that and always keeps the user's data,
   without asking: chats and files saved on the computer, settings and logs
   in `%LOCALAPPDATA%\Conduit`, and the key that encrypts them in Credential
@@ -475,7 +480,11 @@ with GNOME Keyring on an unencrypted default keyring of the smoke's own,
 never the user's, so nothing prompts), check no conduitd is left, and
 uninstall,
 checking nothing is left but the user's data; `smoke.ps1` also installs
-over the running app. `smoke.sh --container PACKAGE` checks a package in a
+over the running app, as WinSparkle runs an update, and checks the app
+starts again. With `-UpdateFeed DIR` / `--update-feed DIR` they serve
+`DIR` on 127.0.0.1 while the smoke pass runs, and its update check (the
+`--smoke` pass asks the updater for one) must find nothing newer: CI's
+rehearsal builds the packages with a throwaway key and that feed's URL. `smoke.sh --container PACKAGE` checks a package in a
 clean distribution container: its dependencies resolve every library and
 the app starts. Run them only on a machine meant for it (CI, a test VM).
 
@@ -737,8 +746,41 @@ Without the framework (dev builds) the menu item is disabled and About says
 updates come with the installed app. Sparkle's decisions go to the app log
 (`updates: found …`, `none`, `downloaded`, `installing`, `stopped: …`).
 Sparkle is the Mac's `Updater` (`crates/app/src/updates.rs`), the interface
-the menu and About use; Windows and Linux have none yet, so there the menu
-item is disabled and About says the same.
+the menu and About use.
+
+### Updates on Windows and Linux
+
+A build given an update key has an updater: `build.ps1 -UpdatePublicKey`
+and `package.sh --update-public-key` compile the key and the feed URL into
+the app (`CONDUIT_UPDATE_PUBLIC_ED_KEY`, `CONDUIT_UPDATE_FEED_URL`;
+`crates/app/src/updates/config.rs`). The feed defaults to
+`appcast-windows.xml` or `appcast-linux.xml` beside the Mac's appcast
+(`packaging/winlinux_feed.py url`); `-UpdateFeedUrl` / `--update-feed-url`
+name another (CI's rehearsal serves one on 127.0.0.1). Without a key there
+is no updater: the menu item is disabled and About says updates come with
+the installed app. Both check daily and on **Check Now**, on by default,
+with "Check for Updates Automatically" in Settings › About (kept in
+`update-checks.json` under userData), and reach only that feed.
+
+- **Windows: WinSparkle** (`updates/winsparkle.rs`). The app loads
+  `WinSparkle.dll` from its own folder at run time (`build.ps1` ships the
+  release `packaging/windows/tools.env` pins); **☰ › Help › Check for
+  Updates…** and Check Now open WinSparkle's window. It checks the
+  downloaded installer's EdDSA signature with the build's key and runs it
+  with the item's arguments (`/SILENT /SP- /SUPPRESSMSGBOXES /NORESTART
+  /RELAUNCH=1`): the installer closes the app and conduitd, replaces the
+  files and starts the app again. Its own settings (the last check, a
+  skipped version) are under `HKCU\Software\Conduit\Updates`.
+- **Linux: a notice** (`updates/notice.rs`). The app reads the signed
+  feed over HTTPS (the system's certificate store), checks its signature as
+  `lib.sh verify_feed` does (`updates/feed.rs`), and when it lists a newer
+  release, About's button becomes **Download**, which opens the release's
+  page. It never installs anything: the package manager, or the user with
+  the new package, does.
+
+What each decides goes to the app log (`updates: up to date`, `found …`,
+`failed: …`). The feeds, the keys and their rotation are in
+[RELEASING-DESKTOP.md](RELEASING-DESKTOP.md#windows-and-linux-updates).
 
 The Sparkle key, the signed appcast and where it is hosted, the release
 workflow (tags make **draft** releases; publishing a draft makes its feed

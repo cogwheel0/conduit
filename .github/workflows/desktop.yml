@@ -535,11 +535,65 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+  # The Windows and Linux update feeds' scripts, checked against keys made
+  # here (winlinux_feed_test.sh); then the rehearsal's own keys and feeds: a
+  # throwaway key pair per OS, whose public halves the rehearsal packages
+  # are built with (their feeds on 127.0.0.1), and whose private halves,
+  # which never leave this job, sign the feeds for version 0.0.0 that the
+  # install smokes serve: WinSparkle and the Linux notice read them and
+  # find nothing newer.
+  update-feeds:
+    name: Update feeds (rehearsal)
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.packages != 'false') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      windows-key: ${{ steps.feeds.outputs.windows }}
+      linux-key: ${{ steps.feeds.outputs.linux }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: The feed scripts' checks
+        run: desktop/packaging/winlinux_feed_test.sh
+      - name: Throwaway keys, and the feeds the install smokes serve
+        id: feeds
+        run: |
+          keys="$RUNNER_TEMP/keys"
+          mkdir -m 700 "$keys"
+          installer="$RUNNER_TEMP/dist/Conduit-0.0.0-windows-x64-setup.exe"
+          mkdir -p "$(dirname "$installer")" feeds
+          printf 'a synthetic installer, never downloaded' >"$installer"
+          for os in windows linux; do
+            openssl genpkey -algorithm ed25519 -outform DER -out "$keys/$os.der"
+            public="$(openssl pkey -inform DER -in "$keys/$os.der" -pubout -outform DER | tail -c 32 | base64 -w0)"
+            echo "$os=$public" >>"$GITHUB_OUTPUT"
+            OS="$(printf '%s' "$os" | tr a-z A-Z)"
+            args=(--os "$os" --version 0.0.0 --fresh --work "$RUNNER_TEMP/feed-$os")
+            [ "$os" = linux ] || args+=(--installer "$installer")
+            # The private key in the environment (a builtin, never argv).
+            (
+              export "${OS}_ED_PRIVATE_KEY=$(tail -c 32 "$keys/$os.der" | base64 -w0)" "${OS}_PUBLIC_ED_KEY=$public"
+              desktop/packaging/winlinux-appcast.sh "${args[@]}"
+            )
+            mkdir -p "feeds/$os"
+            cp "$RUNNER_TEMP/feed-$os/appcast-$os.xml" "feeds/$os/"
+          done
+      - name: Keep the feeds
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conduit-desktop-update-feeds-${{ github.sha }}
+          path: feeds
+          if-no-files-found: error
+          retention-days: 5
+
   package-linux:
     name: Linux packages (rehearsal)
-    needs: notices
+    needs: [notices, update-feeds]
     # The notices job runs where these do; without its notices, no package.
-    if: ${{ !cancelled() && needs.notices.result == 'success' }}
+    # The update-feeds job's key is the rehearsal's update notice's.
+    if: ${{ !cancelled() && needs.notices.result == 'success' && needs.update-feeds.result == 'success' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
@@ -609,10 +663,16 @@ jobs:
         with:
           name: conduit-desktop-notices-${{ github.sha }}
           path: notices
+      # Its update notice reads the rehearsal's feed on 127.0.0.1 (the install
+      # smoke serves it), checked with the update-feeds job's throwaway key.
       - name: Build the .deb and the .rpm
+        env:
+          UPDATE_KEY: ${{ needs.update-feeds.outputs.linux-key }}
         run: >-
           desktop/packaging/linux/package.sh --version 0.0.0
           --notices notices/linux/THIRD_PARTY_NOTICES.md
+          --update-public-key "$UPDATE_KEY"
+          --update-feed-url http://127.0.0.1:8471/appcast-linux.xml
       # What Debian's and Fedora's linters say, for the record: neither
       # fails the job yet (these packages aren't Debian's or Fedora's own).
       - name: lintian and rpmlint (informational)
@@ -666,14 +726,21 @@ jobs:
         with:
           name: conduit-desktop-linux-unsigned-${{ github.sha }}
           path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conduit-desktop-update-feeds-${{ github.sha }}
+          path: feeds
       - name: Install Xvfb, Mesa, GNOME Keyring, secret-tool and desktop-file-utils
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             xvfb xauth dbus mesa-vulkan-drivers libegl1 libgl1-mesa-dri \
             gnome-keyring libsecret-tools desktop-file-utils
+      # The update notice's check reads the rehearsal's feed, served here.
       - name: Install, smoke-test and remove the .deb
-        run: desktop/packaging/linux/smoke.sh dist/*.deb "$RUNNER_TEMP/conduit-smoke"
+        run: >-
+          desktop/packaging/linux/smoke.sh --update-feed feeds/linux --update-feed-port 8471
+          dist/*.deb "$RUNNER_TEMP/conduit-smoke"
       - name: The .deb in clean Ubuntu 22.04 and Debian 12
         run: |
           for image in ubuntu:22.04 debian:12; do
@@ -699,9 +766,10 @@ jobs:
   # the release tools.env pins (packaging/windows/build.ps1).
   package-windows:
     name: Windows installer (rehearsal)
-    needs: notices
+    needs: [notices, update-feeds]
     # The notices job runs where these do; without its notices, no package.
-    if: ${{ !cancelled() && needs.notices.result == 'success' }}
+    # The update-feeds job's key is the rehearsal's WinSparkle's.
+    if: ${{ !cancelled() && needs.notices.result == 'success' && needs.update-feeds.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
@@ -768,11 +836,17 @@ jobs:
         with:
           name: conduit-desktop-notices-${{ github.sha }}
           path: notices
+      # Its WinSparkle reads the rehearsal's feed on 127.0.0.1 (the install
+      # smoke serves it) and trusts the update-feeds job's throwaway key.
       - name: Build the installer
         shell: pwsh
+        env:
+          UPDATE_KEY: ${{ needs.update-feeds.outputs.windows-key }}
         run: >-
           ./desktop/packaging/windows/build.ps1 -Version 0.0.0
           -Notices notices/windows/THIRD_PARTY_NOTICES.md
+          -UpdatePublicKey $env:UPDATE_KEY
+          -UpdateFeedUrl http://127.0.0.1:8471/appcast-windows.xml
       - name: Disk left
         if: always()
         shell: bash
@@ -813,12 +887,18 @@ jobs:
         with:
           name: conduit-desktop-windows-unsigned-${{ github.sha }}
           path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conduit-desktop-update-feeds-${{ github.sha }}
+          path: feeds
+      # WinSparkle's first check reads the rehearsal's feed, served here.
       - name: Install, smoke-test and uninstall
         shell: pwsh
         run: >-
           ./desktop/packaging/windows/smoke.ps1
           -Installer dist/Conduit-0.0.0-windows-x64-setup.exe
           -Work "$env:RUNNER_TEMP/conduit-smoke"
+          -UpdateFeed feeds/windows -UpdateFeedPort 8471
       - name: Keep the smoke's logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

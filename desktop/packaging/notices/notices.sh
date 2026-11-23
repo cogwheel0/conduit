@@ -1,7 +1,7 @@
 #!/bin/bash
 # Generates THIRD_PARTY_NOTICES.md for Conduit Desktop: the components bundled
-# directly (vendored gpui-pre, Sparkle, whisper.cpp, SQLite, the Dart
-# runtime, mermaid, Chart.js, noVNC, Lucide, KaTeX fonts), the Rust crates in
+# directly (vendored gpui-pre, Sparkle or WinSparkle, whisper.cpp, SQLite,
+# the Dart runtime, mermaid, Chart.js, noVNC, Lucide, KaTeX fonts), the Rust crates in
 # the conduit-desktop binary (cargo-about) and the Dart packages in conduitd.
 #
 #   desktop/packaging/notices/notices.sh [--out FILE] [--target TRIPLE]
@@ -10,7 +10,8 @@
 # --target: the Rust target the app is built for, default Apple Silicon
 # (aarch64-apple-darwin); x86_64-pc-windows-msvc and
 # x86_64-unknown-linux-gnu make the Windows and Linux packages' notices,
-# with what those bundle (no Sparkle, no whisper library). Any of them can
+# with what those bundle (no Sparkle, no whisper library; WinSparkle on
+# Windows). Any of them can
 # be made on any of the three systems.
 #
 # The file is not committed. packaging/macos/bundle.sh writes it into each

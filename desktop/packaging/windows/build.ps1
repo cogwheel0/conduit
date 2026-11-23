@@ -2,15 +2,19 @@
 Builds Conduit Desktop's Windows installer (x64, per user, unsigned):
 
   desktop\packaging\windows\build.ps1 -Notices <THIRD_PARTY_NOTICES.md> [-Version 1.2.0] [-Out <folder>]
+                                      [-UpdatePublicKey <key> [-UpdateFeedUrl <url>]]
                                       [-SkipRust] [-SkipDaemon]
 
 1. The app: cargo build --release for x86_64-pc-windows-msvc, without the
    test harness (no `harness` feature), CONDUIT_VERSION set, and the C
    runtime linked in (+crt-static), so it needs no Visual C++
-   Redistributable on the machine it is installed on.
+   Redistributable on the machine it is installed on. With
+   -UpdatePublicKey, its updater too (CONDUIT_UPDATE_PUBLIC_ED_KEY and
+   CONDUIT_UPDATE_FEED_URL), as the Mac's bundle.sh writes SUPublicEDKey.
 2. conduitd: `dart build cli` in apps\daemon (conduitd.exe and its
    sqlite3.dll), with the Dart code generated first when it isn't.
-3. The install folder, staged in <out>\stage: conduit-desktop.exe,
+3. The install folder, staged in <out>\stage: conduit-desktop.exe with
+   WinSparkle.dll beside it (the updater; the pinned release, tools.env),
    conduitd\ beside it (where paths::packaged_daemon_for looks), the model
    logo catalog conduitd reads, the icon and the third-party notices; then
    checked (winlinux.py layout: complete, no test harness, no runtime DLL
@@ -23,6 +27,12 @@ Builds Conduit Desktop's Windows installer (x64, per user, unsigned):
 -Out: default desktop\target\windows\Conduit-<version>. An earlier one is
 moved aside, never deleted.
 -SkipRust, -SkipDaemon: reuse what an earlier build left.
+-UpdatePublicKey: the EdDSA public key (base64 of 32 bytes) the app's
+WinSparkle trusts: WINDOWS_PUBLIC_ED_KEY for a release
+(docs/RELEASING-DESKTOP.md). Without it the app has no updater, as a Mac
+bundle without SPARKLE_PUBLIC_ED_KEY has none. -UpdateFeedUrl: the feed it
+reads (default: winlinux_feed.py url windows, beside the Mac's appcast;
+CI's rehearsal names a fixture served on this machine).
 -Notices: the licences of what the Windows build includes, made on a Mac or
 Linux with packaging/notices/notices.sh --target x86_64-pc-windows-msvc
 --out <file> (it needs bash and cargo-about); checked before anything
@@ -30,7 +40,8 @@ builds.
 
 Inno Setup: ISCC in the environment, else the release tools.env pins,
 downloaded once into desktop\target\inno\<version>, checked against its
-SHA-256 and installed there.
+SHA-256 and installed there. WinSparkle: tools.env's release, downloaded
+once into desktop\target\winsparkle\<version> and checked the same way.
 
 Needs Rust (rustup with MSVC), Flutter/Dart with `flutter pub get` done at
 the repository root, and Python 3.
@@ -40,6 +51,8 @@ param(
   [string]$Notices,
   [string]$Version = '0.0.0',
   [string]$Out,
+  [string]$UpdatePublicKey,
+  [string]$UpdateFeedUrl,
   [switch]$SkipRust,
   [switch]$SkipDaemon
 )
@@ -139,6 +152,37 @@ function Get-Iscc {
   $iscc
 }
 
+# WinSparkle.dll: tools.env's release, downloaded once and checked.
+function Get-WinSparkle {
+  $tools = Read-Env (Join-Path $PSScriptRoot 'tools.env')
+  $root = Join-Path $desktop "target\winsparkle\$($tools.WINSPARKLE_VERSION)"
+  $dll = Join-Path $root 'WinSparkle.dll'
+  if (Test-Path -LiteralPath $dll) { return $dll }
+  New-Item -ItemType Directory -Force -Path $root | Out-Null
+  $zip = Join-Path $root "WinSparkle-$($tools.WINSPARKLE_VERSION).zip"
+  if (-not (Test-Path -LiteralPath $zip)) {
+    Log "downloading WinSparkle $($tools.WINSPARKLE_VERSION)"
+    Invoke-WebRequest -Uri $tools.WINSPARKLE_URL -OutFile "$zip.part" -MaximumRetryCount 3
+    Move-Item -LiteralPath "$zip.part" -Destination $zip
+  }
+  $sum = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+  if ($sum -ne $tools.WINSPARKLE_SHA256) {
+    Move-Aside $zip
+    throw "WinSparkle's release has SHA-256 $sum, not tools.env's $($tools.WINSPARKLE_SHA256)"
+  }
+  Log "WinSparkle $($tools.WINSPARKLE_VERSION) checksum verified"
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+  try {
+    $entry = $archive.GetEntry("WinSparkle-$($tools.WINSPARKLE_VERSION)/x64/Release/WinSparkle.dll")
+    if (-not $entry) { throw "the WinSparkle release has no x64/Release/WinSparkle.dll" }
+    # Renamed into place once written: a half-written copy is never used.
+    [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, "$dll.part", $true)
+  } finally { $archive.Dispose() }
+  Move-Item -LiteralPath "$dll.part" -Destination $dll
+  $dll
+}
+
 $fileVersion = & python $winlinux version $Version --windows
 if (-not $Notices) {
   throw '-Notices <file>: make it with packaging/notices/notices.sh --target x86_64-pc-windows-msvc --out <file>'
@@ -146,6 +190,20 @@ if (-not $Notices) {
 $Notices = (Resolve-Path -LiteralPath $Notices).ProviderPath
 & python $winlinux notices $Notices --os windows
 if (-not $Out) { $Out = Join-Path $desktop "target\windows\Conduit-$Version" }
+# The updater's key and feed, checked before anything builds.
+$update = @{}
+if ($UpdatePublicKey) {
+  $bytes = @()
+  try { $bytes = [Convert]::FromBase64String($UpdatePublicKey) } catch { }
+  if ($bytes.Length -ne 32) {
+    throw '-UpdatePublicKey is not an EdDSA public key (base64 of 32 bytes, as generate_keys -p prints it)'
+  }
+  if (-not $UpdateFeedUrl) { $UpdateFeedUrl = & python (Join-Path $packaging 'winlinux_feed.py') url windows }
+  if ($UpdateFeedUrl -notmatch '^https?://') { throw "-UpdateFeedUrl $UpdateFeedUrl is not an http(s) URL" }
+  $update = @{ CONDUIT_UPDATE_PUBLIC_ED_KEY = $UpdatePublicKey; CONDUIT_UPDATE_FEED_URL = $UpdateFeedUrl }
+} elseif ($UpdateFeedUrl) {
+  throw '-UpdateFeedUrl needs -UpdatePublicKey: an updater without a key would run unsigned updates'
+}
 $Out = [IO.Path]::GetFullPath($Out)
 # The build moves an earlier -Out aside, notices in it included.
 $outPrefix = $Out.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
@@ -157,14 +215,23 @@ if ($Notices.StartsWith($outPrefix, [StringComparison]::OrdinalIgnoreCase)) {
 $exe = Join-Path $desktop "target\$target\release\conduit-desktop.exe"
 if ($SkipRust) {
   if (-not (Test-Path -LiteralPath $exe)) { throw "-SkipRust: no $exe" }
-  Log "reusing $exe"
+  Log "reusing $exe (its updater is the one it was built with)"
 } else {
+  if ($update.Count) {
+    Log "the updater trusts $UpdatePublicKey and reads $UpdateFeedUrl"
+  } else {
+    Log 'no -UpdatePublicKey: no updater in this build'
+  }
   Log "cargo build --release --target $target (version $Version, static C runtime)"
   Push-Location $desktop
   try {
     Invoke-WithEnv @{
       CONDUIT_VERSION = $Version
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
+      # Unset without -UpdatePublicKey: a key is never taken from the
+      # caller's environment.
+      CONDUIT_UPDATE_PUBLIC_ED_KEY = $update.CONDUIT_UPDATE_PUBLIC_ED_KEY
+      CONDUIT_UPDATE_FEED_URL = $update.CONDUIT_UPDATE_FEED_URL
     } { cargo build --release --locked --target $target -p conduit-desktop }
   } finally { Pop-Location }
 }
@@ -189,6 +256,7 @@ $stage = Join-Path $Out 'stage'
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Log "staging the install folder in $stage"
 Copy-Item -LiteralPath $exe -Destination $stage
+Copy-Item -LiteralPath (Get-WinSparkle) -Destination $stage
 Copy-Item -LiteralPath $daemonBundle -Destination (Join-Path $stage 'conduitd') -Recurse
 # The models.dev logo catalog: conduitd looks for it beside its bin\.
 $logos = Join-Path $stage 'conduitd\model_logos'
