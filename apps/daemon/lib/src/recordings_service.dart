@@ -34,6 +34,8 @@ final class RecordingsService {
   final DraftsService _drafts;
   final DictationService _dictation;
   final Map<String, _Open> _open = <String, _Open>{};
+  final Set<Future<RecordingStarted>> _starting = <Future<RecordingStarted>>{};
+  bool _closed = false;
 
   /// 16 kHz mono 16-bit: 32 bytes a millisecond.
   static int durationMs(int byteCount) => byteCount ~/ 32;
@@ -68,6 +70,15 @@ final class RecordingsService {
   Future<RecordingStarted> begin(
     RecordingTarget target, {
     required String sessionId,
+  }) {
+    final starting = _begin(target, sessionId: sessionId);
+    _starting.add(starting);
+    return starting.whenComplete(() => _starting.remove(starting));
+  }
+
+  Future<RecordingStarted> _begin(
+    RecordingTarget target, {
+    required String sessionId,
   }) async {
     final context = await _drafts.contextFor(target.chatId, target.folderId);
     final store = context.store;
@@ -86,7 +97,16 @@ final class RecordingsService {
       // The chat was deleted meanwhile: nothing to keep it under.
       return const RecordingStarted(stored: false);
     }
-    _open[id] = _Open(store.recordings, writer, sessionId);
+    final open = _Open(store.recordings, writer, sessionId);
+    if (_closed) {
+      // Everything closed while this one started: nobody will close it.
+      await _close(id, open);
+      throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the recordings are closed',
+      );
+    }
+    _open[id] = open;
     return RecordingStarted(id: id);
   }
 
@@ -162,6 +182,10 @@ final class RecordingsService {
   /// Closes what every window left recording, as each window's closing
   /// would ([closeOwnedBy]): the services are going first.
   Future<void> closeAll() async {
+    _closed = true;
+    // One still starting closes itself once it has started ([begin]).
+    await Future.wait(_starting.toList())
+        .then<void>((_) {}, onError: (Object _) {});
     for (final id in _open.keys.toList()) {
       final open = _open.remove(id);
       if (open != null) await _close(id, open);
