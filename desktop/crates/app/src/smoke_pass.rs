@@ -19,12 +19,13 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use conduit_daemon::rpc::ConnectionState;
 use conduit_daemon::supervisor::{ExitInfo, StopOutcome};
 use conduit_protocol::{NoParams, methods::SystemExportDiagnostics};
 use gpui_kit::{App, AsyncApp};
 
 use crate::AppState;
-use crate::stores::connection::Status;
+use crate::stores::connection::{DaemonPhase, Status};
 use crate::stores::session::Route;
 use crate::views::settings::Tab;
 
@@ -121,7 +122,11 @@ async fn check(report: &RefCell<SmokeReport>, started: Instant, cx: &mut AsyncAp
         started.elapsed()
     ));
     if status != Status::Connected {
-        report.borrow_mut().fail("never connected");
+        let why = cx.update(|cx| {
+            let c = cx.global::<AppState>().connection.read(cx);
+            never_connected(c.waiting_for_key(), &c.daemon, &c.rpc)
+        });
+        report.borrow_mut().fail(why);
         return;
     }
     let lines = cx.update(|cx| {
@@ -184,6 +189,17 @@ async fn check(report: &RefCell<SmokeReport>, started: Instant, cx: &mut AsyncAp
         ));
     } else {
         report.borrow_mut().fail("settings window did not open");
+    }
+}
+
+/// What a pass that never connected was still waiting for.
+fn never_connected(waiting_for_key: bool, daemon: &DaemonPhase, rpc: &ConnectionState) -> String {
+    if waiting_for_key {
+        "never connected: still waiting for the master key from the system's secret store \
+         (a keyring prompt, or a locked keyring)"
+            .into()
+    } else {
+        format!("never connected: conduitd {daemon:?}, connection {rpc:?}")
     }
 }
 
@@ -275,6 +291,30 @@ mod tests {
             assert_eq!(report.finish(), 1, "{outcome:?}");
             assert!(written(&dir).ends_with(why), "{}", written(&dir));
         }
+    }
+
+    /// A pass that never connected says what it was still waiting for: the
+    /// key from the system's secret store (a keyring that prompts, or stays
+    /// locked, holds the daemon back), else conduitd and the connection.
+    #[test]
+    fn never_connected_says_what_it_waited_for() {
+        assert_eq!(
+            never_connected(
+                true,
+                &DaemonPhase::Starting,
+                &ConnectionState::WaitingForDaemon
+            ),
+            "never connected: still waiting for the master key from the system's secret \
+             store (a keyring prompt, or a locked keyring)"
+        );
+        assert_eq!(
+            never_connected(
+                false,
+                &DaemonPhase::Restarting,
+                &ConnectionState::WaitingForDaemon
+            ),
+            "never connected: conduitd Restarting, connection WaitingForDaemon"
+        );
     }
 
     /// A report the system won't take (a full disk) fails the pass: its
