@@ -1,181 +1,148 @@
 //! A daemon too stuck to notice stdin closing still ends with the app,
-//! however the app ends. The app here is this test binary started again in
-//! an app role: it supervises a fake `conduitd` that ignores stdin EOF, and
-//! the test kills it outright, as a crash or Task Manager would. The fake
-//! must end with it, before it would have given up on its own and written
-//! `outlived` (so a failure ends too, rather than hanging).
-#![cfg(any(windows, target_os = "linux"))]
+//! however the app ends (Windows: the job; Linux: the parent-death signal).
+//!
+//! One binary, three roles, so no wait here needs a clock:
+//!
+//! * **The test** listens on loopback, starts the app role and, once that
+//!   says its daemon is ready, kills it outright, as a crash or Task Manager
+//!   would. Then it asks the daemon, over the connection the daemon made,
+//!   whether it is still there.
+//! * **The app** supervises this binary as its `conduitd`, then waits to be
+//!   killed.
+//! * **The daemon** connects to the test, answers the bootstrap line with
+//!   the ready line, and then ignores stdin, as a stuck daemon would. It
+//!   answers the test's question only if it is still running.
+//!
+//! A daemon that ended with the app can't answer: the test reads the end of
+//! the connection. One that ran on answers `outlived`, and the test fails.
+//!
+//! No libtest harness (`harness = false`): the supervisor starts the daemon
+//! with `--user-data`, which libtest would refuse, and libtest's own output
+//! on stdout would run into the roles' lines.
 
-use std::io::{BufRead as _, BufReader};
-use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::Duration;
-
-use conduit_daemon::supervisor::{Supervisor, SupervisorConfig, SupervisorEvent};
-
-/// Set in the app role's environment: the test's folder.
-const APP_ROLE: &str = "CONDUIT_TEST_APP_ROLE_DIR";
-const TEST: &str = "a_stuck_daemon_ends_with_a_killed_app";
-
-#[cfg(target_os = "linux")]
-const FAKE_NAME: &str = "fake-conduitd";
-#[cfg(target_os = "linux")]
-const FAKE: &str = r#"#!/bin/sh
-IFS= read -r line
-echo '{"ready":true,"port":4242}'
-i=0
-while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done
-echo outlived > "$FAKE_DIR/outlived"
-"#;
-
-#[cfg(windows)]
-const FAKE_NAME: &str = "fake-conduitd.cmd";
-#[cfg(windows)]
-const FAKE: &str = "@echo off\r\n\
-set /p line=\r\n\
-echo {\"ready\":true,\"port\":4242}\r\n\
-ping -n 11 127.0.0.1 >nul\r\n\
-echo outlived>\"%FAKE_DIR%\\outlived\"\r\n";
-
-#[test]
-fn a_stuck_daemon_ends_with_a_killed_app() {
-    if let Some(dir) = std::env::var_os(APP_ROLE) {
-        run_app(Path::new(&dir));
-    }
-    let scratch = tempfile::Builder::new()
-        .prefix("supervisor-app-death-")
-        .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
-        .expect("a temporary folder");
-    let dir = scratch.path();
-    std::fs::write(dir.join(FAKE_NAME), FAKE).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(dir.join(FAKE_NAME), std::fs::Permissions::from_mode(0o755))
-            .unwrap();
-    }
-
-    let mut app = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", TEST, "--nocapture", "--test-threads=1"])
-        .env(APP_ROLE, dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("start the app role");
-    let mut said = vec![];
-    let mut lines = BufReader::new(app.stdout.take().unwrap()).lines();
-    let pid = loop {
-        let line = lines
-            .next()
-            .unwrap_or_else(|| panic!("the app role ended first, having said {said:#?}"))
-            .unwrap();
-        if let Some(pid) = line.strip_prefix("daemon pid ") {
-            break pid.parse::<u32>().unwrap();
-        }
-        said.push(line);
-    };
-    // Opened while the daemon runs, so its pid can't be another's.
-    let daemon = Exit::watch(pid);
-    app.kill().unwrap();
-    app.wait().unwrap();
-    daemon.wait();
-    assert!(
-        !dir.join("outlived").exists(),
-        "conduitd ran on after the app was killed"
-    );
+fn main() {
+    // The Mac relies on stdin EOF alone.
+    #[cfg(any(windows, target_os = "linux"))]
+    roles::main();
 }
 
-/// The app's part: supervise the fake until killed.
-fn run_app(dir: &Path) -> ! {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(async {
-        let mut config = SupervisorConfig::new(
-            dir.join(FAKE_NAME),
-            dir.join("userData"),
-            dir.join("logs"),
-            "t".repeat(43),
-            "k".into(),
-        );
-        config.env = vec![("FAKE_DIR".into(), dir.to_string_lossy().into())];
-        config.ready_timeout = Duration::from_secs(10);
-        let (_supervisor, mut events) =
-            Supervisor::spawn(config, &tokio::runtime::Handle::current());
-        loop {
-            match events.recv().await {
-                Some(SupervisorEvent::Ready { pid, .. }) => {
-                    println!("daemon pid {pid}");
-                    break;
-                }
-                Some(SupervisorEvent::Fatal(reason)) => {
-                    println!("the fake never got ready: {reason:?}");
-                    std::process::exit(1);
-                }
-                Some(_) => {}
-                None => std::process::exit(1),
-            }
+#[cfg(any(windows, target_os = "linux"))]
+mod roles {
+    use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+    use std::net::{Shutdown, TcpListener, TcpStream};
+    use std::process::{Command, Stdio};
+
+    use conduit_daemon::supervisor::{Supervisor, SupervisorConfig, SupervisorEvent};
+
+    const ROLE: &str = "CONDUIT_TEST_ROLE";
+    const PORT: &str = "CONDUIT_TEST_PORT";
+    const DIR: &str = "CONDUIT_TEST_DIR";
+
+    pub fn main() {
+        match std::env::var(ROLE).as_deref() {
+            Ok("app") => run_app(),
+            Ok("daemon") => run_daemon(),
+            _ => a_stuck_daemon_ends_with_a_killed_app(),
         }
-        std::future::pending::<()>().await;
-    });
-    unreachable!()
-}
-
-/// Waits for a process that isn't this one's child to end.
-#[cfg(target_os = "linux")]
-struct Exit(std::os::fd::OwnedFd);
-
-#[cfg(target_os = "linux")]
-impl Exit {
-    fn watch(pid: u32) -> Self {
-        use std::os::fd::FromRawFd as _;
-        // SAFETY: pidfd_open(2) takes a pid and flags and returns a new fd.
-        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
-        assert!(fd >= 0, "pidfd_open: {}", std::io::Error::last_os_error());
-        // SAFETY: the fd was just opened and nothing else owns it.
-        Self(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd as libc::c_int) })
     }
 
-    fn wait(self) {
-        use std::os::fd::AsRawFd as _;
-        let mut poll = libc::pollfd {
-            fd: self.0.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        // A pidfd reads as ready once its process has ended.
+    fn a_stuck_daemon_ends_with_a_killed_app() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let scratch = tempfile::Builder::new()
+            .prefix("supervisor-app-death-")
+            .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
+            .expect("a temporary folder");
+        let mut app = Command::new(std::env::current_exe().unwrap())
+            .env(ROLE, "app")
+            .env(PORT, port.to_string())
+            .env(DIR, scratch.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start the app role");
+        // Its one line, or its end if the daemon never got ready.
+        let said = BufReader::new(app.stdout.take().unwrap()).lines().next();
+        let pid = match &said {
+            Some(Ok(line)) => line.strip_prefix("daemon ready, pid "),
+            _ => None,
+        }
+        .unwrap_or_else(|| panic!("the app role said {said:?}"))
+        .to_string();
+        let mut daemon = connection_of(&listener, &pid);
+
+        app.kill().unwrap();
+        app.wait().unwrap();
+        // A write or read error means the connection is gone with the daemon.
+        let _ = daemon.write_all(b"?");
+        let mut answer = String::new();
+        let _ = daemon.read_to_string(&mut answer);
+        assert_eq!(answer, "", "conduitd ran on after the app was killed");
+        println!("a_stuck_daemon_ends_with_a_killed_app ... ok");
+    }
+
+    /// The connection the daemon with `pid` made. Each daemon connects and
+    /// says its pid before its ready line, so the ready one's connection is
+    /// already queued (with any from a start that failed before it).
+    fn connection_of(listener: &TcpListener, pid: &str) -> TcpStream {
         loop {
-            // SAFETY: one valid pollfd; no timeout.
-            match unsafe { libc::poll(&mut poll, 1, -1) } {
-                1 => return,
-                _ => {
-                    let e = std::io::Error::last_os_error();
-                    assert_eq!(e.kind(), std::io::ErrorKind::Interrupted, "poll: {e}");
-                }
+            let (connection, _) = listener.accept().unwrap();
+            let mut said = String::new();
+            let _ = BufReader::new(connection.try_clone().unwrap()).read_line(&mut said);
+            if said.trim_end() == pid {
+                return connection;
             }
         }
     }
-}
 
-#[cfg(windows)]
-struct Exit(windows::Win32::Foundation::HANDLE);
-
-#[cfg(windows)]
-impl Exit {
-    fn watch(pid: u32) -> Self {
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
-        // SAFETY: opens a handle that only waits on the process.
-        Self(unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }.expect("open conduitd"))
+    /// The app's part: supervise this binary as the daemon until killed.
+    fn run_app() {
+        let dir = std::path::PathBuf::from(std::env::var_os(DIR).unwrap());
+        let port = std::env::var(PORT).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let mut config = SupervisorConfig::new(
+                std::env::current_exe().unwrap(),
+                dir.join("userData"),
+                dir.join("logs"),
+                "t".repeat(43),
+                "k".into(),
+            );
+            config.env = vec![(ROLE.into(), "daemon".into()), (PORT.into(), port)];
+            let (_supervisor, mut events) =
+                Supervisor::spawn(config, &tokio::runtime::Handle::current());
+            let pid = loop {
+                match events.recv().await {
+                    Some(SupervisorEvent::Ready { pid, .. }) => break pid,
+                    Some(SupervisorEvent::Fatal(reason)) => {
+                        println!("the daemon never got ready: {reason:?}");
+                        std::process::exit(1);
+                    }
+                    Some(_) => {}
+                    None => std::process::exit(1),
+                }
+            };
+            println!("daemon ready, pid {pid}");
+            std::future::pending::<()>().await;
+        });
     }
 
-    fn wait(self) {
-        use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
-        use windows::Win32::System::Threading::{INFINITE, WaitForSingleObject};
-        // SAFETY: a handle opened above with SYNCHRONIZE, closed once.
-        unsafe {
-            assert_eq!(WaitForSingleObject(self.0, INFINITE), WAIT_OBJECT_0);
-            let _ = CloseHandle(self.0);
+    /// The daemon's part: ready, then deaf to stdin.
+    fn run_daemon() {
+        let port: u16 = std::env::var(PORT).unwrap().parse().unwrap();
+        let mut test = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        writeln!(test, "{}", std::process::id()).unwrap();
+        let mut bootstrap = String::new();
+        std::io::stdin().read_line(&mut bootstrap).unwrap();
+        println!(r#"{{"ready":true,"port":4242}}"#);
+        // Only the test's question (or the test ending) ends it now.
+        let mut asked = [0u8; 1];
+        if matches!(test.read(&mut asked), Ok(1)) {
+            let _ = test.write_all(b"outlived");
+            let _ = test.shutdown(Shutdown::Write);
         }
     }
 }

@@ -57,5 +57,10 @@ tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "sync", "ti
 # A fresh folder per test that writes files.
 tempfile = "3"
 
+# Its own main: it runs this binary again as the app and as conduitd.
+[[test]]
+name = "supervisor_app_death"
+harness = false
+
 [lints]
 workspace = true
