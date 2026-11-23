@@ -582,6 +582,9 @@ jobs:
   install-linux:
     name: Linux install smoke
     needs: package-linux
+    # On a push or a run by hand, `changes` is skipped: without this the
+    # install job would be skipped with it, though package-linux ran.
+    if: ${{ !cancelled() && needs.package-linux.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -694,6 +697,9 @@ jobs:
   install-windows:
     name: Windows install smoke
     needs: package-windows
+    # On a push or a run by hand, `changes` is skipped: without this the
+    # install job would be skipped with it, though package-windows ran.
+    if: ${{ !cancelled() && needs.package-windows.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
