@@ -129,6 +129,12 @@ class Versions(unittest.TestCase):
                 ours = False
             self.assertEqual(ours, mac, version)
 
+    def test_the_whole_value_is_the_version(self):
+        # Nothing before or after it, a final newline included.
+        for version in ("1.2.3\n", "1.2.3\nfoo", " 1.2.3", "1.2.3 "):
+            with self.assertRaises(ValueError, msg=repr(version)):
+                winlinux.check_version(version)
+
     def test_windows_file_version_is_four_numbers(self):
         self.assertEqual(winlinux.windows_file_version("1.2.3"), "1.2.3.0")
         self.assertEqual(winlinux.windows_file_version("1.2.3-beta.4"), "1.2.3.0")

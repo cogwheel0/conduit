@@ -53,7 +53,7 @@ _VERSION = re.compile(rf"^{_PART}\.{_PART}\.{_PART}(-beta\.{_PART})?$")
 
 
 def check_version(version):
-    if not _VERSION.match(version):
+    if not _VERSION.fullmatch(version):
         raise ValueError(f"version '{version}' is not X.Y.Z or X.Y.Z-beta.N (no leading zeros)")
     return version
 
