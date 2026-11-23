@@ -485,6 +485,7 @@ void main() {
       final alpha = manager.openFor(_server('alpha'));
       await alpha.customSelect('SELECT 1').get();
       final lease = manager.tryAcquireLease(alpha)!;
+      addTearDown(lease.release);
       final beta = manager.openFor(_server('beta'));
       await beta.customSelect('SELECT 1').get();
 

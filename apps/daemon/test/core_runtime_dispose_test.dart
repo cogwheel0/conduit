@@ -119,6 +119,7 @@ void main() {
       interceptDatabase: (fileName) =>
           fileName == kDirectLocalDatabaseFileName ? _CloseFails() : null,
     );
+    addTearDown(runtime.dispose);
     final direct = runtime.container.read(directLocalDatabaseProvider);
     await direct.customSelect('SELECT 1').get();
     final account = await _openWebUiDatabase(runtime);
@@ -128,6 +129,7 @@ void main() {
       daemonVersion: '0.0.0-test',
       log: DaemonLog(level: 'error', sink: NullSink()),
     );
+    addTearDown(daemon.stop);
     await daemon.start();
     daemon.attachCore(runtime);
 

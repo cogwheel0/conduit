@@ -109,12 +109,14 @@ void main() {
     );
 
     // The provider streams a word, then holds the reply until the test ends.
+    final asked = provider.asked('hold:ridge');
     final accepted = SendTurnAccepted.fromJson(
       (await peer.sendRequest(
         ConduitMethods.turnsSend,
         SendTurn(model: model, text: 'hold:ridge Thinking it over').toJson(),
       )) as Map<String, dynamic>,
     );
+    await asked;
 
     // Signing in to an Open WebUI account changes the account's client, and
     // the daemon closes every open chat with it.
