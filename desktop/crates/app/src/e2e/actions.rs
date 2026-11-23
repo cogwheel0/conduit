@@ -17,7 +17,9 @@
 //!   update, delete;
 //! * Generate Title, Mark as Unread (the sidebar's dot, gone on opening),
 //!   Regenerate and Edit with no model named running on the model picked
-//!   now, and Save Chat for a temporary chat.
+//!   now, and Save Chat for a temporary chat;
+//! * a chat with no pick (conduitd started again) opening on the model it
+//!   was saved with, a pick made in it winning after switching back.
 //!
 //! Every chat this pass makes is deleted at the end.
 
@@ -217,9 +219,12 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= title_and_unread(&chat_id, main, dir, cx).await;
     pass &= selected_now(&model, &mut made, cx).await;
     pass &= save_temporary(&mut made, main, dir, cx).await;
+    pass &= saved_model(&model, &mut made, cx).await;
 
     // ── Clean up ───────────────────────────────────────────────────────
     new_chat(false, cx).await;
+    // Asked again: conduitd started again above.
+    let rpc = cx.update(|cx| cx.global::<AppState>().stores.connection.read(cx).rpc());
     for id in made {
         let gone = rpc
             .call::<methods::ChatsDelete>(&ChatRef { id })
@@ -1059,5 +1064,72 @@ async fn save_temporary(
     if saved {
         made.push(id);
     }
+    pass
+}
+
+/// A chat with no pick here (conduitd started again, and picks live in it)
+/// opens on the model it was saved with, not the account's, and answers
+/// with it; a pick made in it still wins after switching away and back.
+async fn saved_model(model: &str, made: &mut Vec<String>, cx: &mut AsyncApp) -> bool {
+    new_chat(false, cx).await;
+    let mut pass = ok("the second model is picked", pick(MODEL_B, cx).await);
+    send("Reply with exactly the word: kappa", cx).await;
+    let answered = wait_answer(cx, Duration::from_secs(60)).await
+        && cx.update(|cx| last_answer(cx).is_some_and(|i| i.text.starts_with("B:")));
+    pass &= ok("the chat answered on the second model", answered);
+    let stored = wait_until(cx, Duration::from_secs(30), |cx| {
+        !open_id(cx).starts_with("local:")
+    })
+    .await;
+    pass &= ok("the chat is stored", stored);
+    let chat = cx.update(open_id);
+    made.push(chat.clone());
+    // New Chat on the first model, so the account's is not the chat's.
+    new_chat(false, cx).await;
+    pass &= ok("New Chat is on the first model", pick(model, cx).await);
+    pass &= super::servers::restart_daemon(cx).await;
+    new_chat(false, cx).await;
+    let account = wait_until(cx, Duration::from_secs(30), |cx| {
+        shown_model(cx).is_some_and(|m| m != MODEL_B)
+    })
+    .await;
+    pass &= ok(
+        &format!(
+            "New Chat shows the account's model, not the chat's ({:?})",
+            cx.update(shown_model)
+        ),
+        account,
+    );
+    pass &= ok("the chat opens", open_chat(&chat, cx).await);
+    let shown = wait_until(cx, Duration::from_secs(30), |cx| {
+        shown_model(cx).as_deref() == Some(MODEL_B)
+    })
+    .await;
+    pass &= ok(
+        "the composer shows the model the chat was saved with",
+        shown,
+    );
+    send("Reply with exactly the word: lambda", cx).await;
+    let answered = wait_answer(cx, Duration::from_secs(60)).await
+        && cx.update(|cx| {
+            last_answer(cx).is_some_and(|i| i.text.starts_with("B:") && i.text.contains("lambda"))
+        });
+    pass &= ok("and answers with it (B:)", answered);
+    // A pick made in the chat wins over the saved model.
+    pass &= ok(
+        "the first model is picked in the chat",
+        pick(model, cx).await,
+    );
+    new_chat(false, cx).await;
+    pass &= ok("the chat opens again", open_chat(&chat, cx).await);
+    let want = model.to_string();
+    let kept = wait_until(cx, Duration::from_secs(30), move |cx| {
+        shown_model(cx).as_deref() == Some(want.as_str())
+    })
+    .await;
+    pass &= ok(
+        "the pick made in it still shows after switching away and back",
+        kept,
+    );
     pass
 }
