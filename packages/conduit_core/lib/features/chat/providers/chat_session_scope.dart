@@ -85,14 +85,26 @@ final class ChatSessionScope {
   /// Disposes the container, and with it every stream, socket handler and
   /// database watch the scope's transcript held. Idempotent.
   void dispose() {
-    if (_disposed) return;
+    if (_markDisposed()) container.dispose();
+  }
+
+  /// [dispose], from a provider listener: the listener runs inside whichever
+  /// read rebuilt the provider, which may be a read of this scope, and
+  /// disposing the container under that read breaks it. The scope reads as
+  /// disposed at once; its container goes once the read is done.
+  void disposeAfterRead() {
+    if (_markDisposed()) scheduleMicrotask(container.dispose);
+  }
+
+  bool _markDisposed() {
+    if (_disposed) return false;
     _disposed = true;
     try {
       _parent.read(chatSessionRegistryProvider)._remove(this);
     } catch (_) {
       // The root may already be gone at shutdown.
     }
-    container.dispose();
+    return true;
   }
 }
 

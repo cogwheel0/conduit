@@ -59,7 +59,6 @@ void main() {
       );
       container.invalidate(primaryAccountProvider);
       container.read(primaryAccountProvider);
-      await pumpEventQueue();
 
       expect(turns.temporary.contains('local:sketch-ideas'), isFalse);
     },

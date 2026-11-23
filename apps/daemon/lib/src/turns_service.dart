@@ -173,12 +173,11 @@ final class TurnsService implements ChatTurns, AddressReplies {
         previous,
         next,
       ) {
-        _closeAllAfterRead(reason: 'account-changed');
+        _closeAll(reason: 'account-changed');
+        this.temporary.clear();
       }),
       _container.listen<Object?>(apiServiceProvider, (previous, next) {
-        if (!identical(previous, next)) {
-          _closeAllAfterRead(reason: 'session-changed', keepTemporary: true);
-        }
+        if (!identical(previous, next)) _closeAll(reason: 'session-changed');
       }),
       // The account in charge of the chats: one LibreChat account after
       // another changes neither Open WebUI's session nor its client.
@@ -187,7 +186,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
         next,
       ) {
         if (previous == null || previous == next) return;
-        _closeAllAfterRead(reason: 'account-changed');
+        _closeAll(reason: 'account-changed');
+        this.temporary.clear();
       }),
       // The terminal the account selects (`terminal.select`) is every open
       // chat's from then on: whichever way its next turn goes out (typed,
@@ -3890,7 +3890,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
     if (!running && session.pending == null) _scheduleLinger(session);
   }
 
-  void _close(_ChatSession session) {
+  /// [afterRead]: closed from a provider listener ([_closeAll]), which runs
+  /// inside the read that noticed the change; what the close reads is read
+  /// now, and only the scope's container waits for that read to finish.
+  void _close(_ChatSession session, {bool afterRead = false}) {
     session.linger?.cancel();
     session.turn?.ticker?.cancel();
     for (final subscription in session.subscriptions) {
@@ -3905,22 +3908,12 @@ final class TurnsService implements ChatTurns, AddressReplies {
         temporary.replace(conversation.id, session.scope.messages);
       }
     }
-    session.scope.dispose();
+    if (afterRead) {
+      session.scope.disposeAfterRead();
+    } else {
+      session.scope.dispose();
+    }
     _sessions.remove(session);
-  }
-
-  /// [_closeAll] once the read that rebuilt the account's providers is
-  /// done. These listeners run inside that read, and it may be a read of a
-  /// chat's own scope (a frame's): disposing the scope underneath it would
-  /// break the read.
-  void _closeAllAfterRead({
-    required String reason,
-    bool keepTemporary = false,
-  }) {
-    scheduleMicrotask(() {
-      _closeAll(reason: reason);
-      if (!keepTemporary) temporary.clear();
-    });
   }
 
   void _closeAll({required String reason}) {
@@ -3972,7 +3965,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
           ),
         );
       }
-      _close(session);
+      _close(session, afterRead: true);
     }
   }
 

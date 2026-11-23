@@ -349,6 +349,36 @@ void main() {
       expect(scope.isDisposed, isTrue);
       expect(turns.isRunning(garden.chatId), isFalse);
     });
+
+    // A temporary chat lives only in the daemon: closing its scope keeps
+    // its transcript, which the core empties as it notices the new client.
+    test('a client change keeps the transcript of a temporary chat it '
+        'closes', () async {
+      owui.chats.holdStream = Completer<void>();
+      final picnic = await clock.during(
+        turns.send(
+          const SendTurn(
+            model: 'kettle-model',
+            text: 'Plan a picnic',
+            temporary: true,
+          ),
+        ),
+      );
+      final scope = runtime.container
+          .read(chatSessionRegistryProvider)
+          .scopes
+          .single;
+
+      runtime.container.invalidate(apiServiceProvider);
+      scope.messages;
+      await pumpEventQueue();
+
+      expect(scope.isDisposed, isTrue);
+      expect(
+        turns.temporary.transcript(picnic.chatId).map((m) => m.content),
+        contains('Plan a picnic'),
+      );
+    });
   });
 
   group('against a fake Open WebUI, then a fake LibreChat', () {
