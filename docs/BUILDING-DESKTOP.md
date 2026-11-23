@@ -758,36 +758,18 @@ the app (`CONDUIT_UPDATE_PUBLIC_ED_KEY`, `CONDUIT_UPDATE_FEED_URL`;
 `appcast-windows.xml` or `appcast-linux.xml` beside the Mac's appcast
 (`packaging/winlinux_feed.py url`); `-UpdateFeedUrl` / `--update-feed-url`
 name another (CI's rehearsal serves one on 127.0.0.1). Without a key there
-is no updater: the menu item is disabled and About says updates come with
-the installed app. Both check daily and on **Check Now**, on by default,
-with "Check for Updates Automatically" in Settings › About (kept in
-`update-checks.json` under userData), and reach only that feed. The daily
-checks are the app's own on both: a failed one is tried again an hour
-later, and turning the switch on starts them at once.
+is no updater, and About says updates come with the installed app. Both
+check that feed daily (on by default) and on **Check Now**.
 
-- **Windows: WinSparkle** (`updates/winsparkle.rs`). The app loads
-  `WinSparkle.dll` from its own folder at run time (`build.ps1` ships the
-  release `packaging/windows/tools.env` pins); **☰ › Help › Check for
-  Updates…** and Check Now open WinSparkle's window. It checks the
-  downloaded installer's EdDSA signature with the build's key and runs it
-  with the item's arguments (`/SILENT /SP- /SUPPRESSMSGBOXES /NORESTART
-  /RELAUNCH=1`): the installer closes the app and conduitd, replaces the
-  files and starts the app again. Before it starts the installer, it asks
-  the app, which says no while a sheet is busy, asking something or holding
-  unsaved edits (it comes forward), and otherwise runs the saves Quit waits
-  for first; WinSparkle then offers the install again later. Its own
-  settings (a skipped version) are under `HKCU\Software\Conduit\Updates`;
-  its own periodic checks stay off (0.9.4's end at the first failure).
-- **Linux: a notice** (`updates/notice.rs`). The app reads the signed
-  feed over HTTPS (the system's certificate store), checks its signature as
-  `lib.sh verify_feed` does (`updates/feed.rs`), and when it lists a newer
-  release, About says so ("Conduit 1.3.0 is available.") and its button
-  becomes **Download**, which opens the release's page, after a restart
-  too, until the app is that version or newer. After Check Now finds
-  nothing, or can't read the feed, About says that; the daily checks stay
-  quiet. Betas are never offered. It never installs anything: the package
-  manager, or the user with the new package, does. The packages require
-  `ca-certificates`, the store it trusts.
+- **Windows: WinSparkle** (`updates/winsparkle.rs`). `build.ps1` ships the
+  `WinSparkle.dll` that `packaging/windows/tools.env` pins, beside the app.
+  WinSparkle checks the downloaded installer's EdDSA signature with the
+  build's key and runs it with the feed item's arguments; the installer
+  closes the app, replaces the files and starts the app again.
+- **Linux: a notice** (`updates/notice.rs`). The app checks the feed's own
+  signature as `lib.sh verify_feed` does (`updates/feed.rs`) and offers a
+  newer stable release's download page. It never installs anything. The
+  packages require `ca-certificates`, which the HTTPS feed needs.
 
 What each decides goes to the app log (`updates: up to date`, `found …`,
 `failed: …`). The feeds, the keys and their rotation are in
