@@ -506,8 +506,14 @@ class Conversations extends _$Conversations {
   /// (no database holds the chat, or the write failed, which takes the read
   /// shown back); throws at once when the chat cannot be looked up. A read
   /// no later than the one shown completes with the write still storing
-  /// that one.
-  Future<void> markConversationRead(String id, DateTime readAt) {
+  /// that one, unless it is [explicit], the user's own Mark as Read, which
+  /// is always stored: it ends a hold the read shown can't tell
+  /// ([ChatsDao.setLastReadAt]).
+  Future<void> markConversationRead(
+    String id,
+    DateTime readAt, {
+    bool explicit = false,
+  }) {
     if (id.isEmpty) return Future<void>.value();
     final identity = ChatStorageIdentity.parse(id);
     final rawId = identity.rawId;
@@ -524,6 +530,15 @@ class Conversations extends _$Conversations {
     if (listed != null) {
       final existing = listed.lastReadAt;
       if (existing != null && !readAt.isAfter(existing)) {
+        if (explicit && db != null && !temporary) {
+          // The list shows a read no earlier: this write only ends a hold,
+          // and the reads skipped here go on waiting for the read shown.
+          return db.chatsDao.setLastReadAt(
+            rawId,
+            _epochSecondsOf(readAt),
+            explicit: true,
+          );
+        }
         return (db == null ? null : _readWrites[(db, rawId)])?.newest ??
             Future<void>.value();
       }
@@ -535,7 +550,11 @@ class Conversations extends _$Conversations {
     // Pre-existing UI-only read marks come from the device clock; the DAO's
     // max() rule means the column is never lowered and the value never enters
     // watermark logic.
-    final write = db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt));
+    final write = db.chatsDao.setLastReadAt(
+      rawId,
+      _epochSecondsOf(readAt),
+      explicit: explicit,
+    );
     final key = (db, rawId);
     final writes = _readWrites.putIfAbsent(key, _ReadWrites.new);
     if (listed != null && !writes.seeded) {
@@ -1164,10 +1183,15 @@ bool isTemporaryChat(String? id) => id != null && id.startsWith('local:');
 /// Marks [conversationId] read up to [readAt] (or now). Completes once the
 /// read is stored on this device: true, or false when it could not be
 /// (logged). Never throws, so a caller may leave it unawaited.
+///
+/// [explicit] is the user's own Mark as Read: it also ends a hold on the
+/// chat for the server's text not stored here yet, which the reads the app
+/// makes itself (opening or leaving a chat, [ShownChats]) leave in place.
 Future<bool> markConversationRead(
   dynamic ref,
   String? conversationId, {
   DateTime? readAt,
+  bool explicit = false,
 }) async {
   final scopedId = conversationId?.trim();
   if (scopedId == null || scopedId.isEmpty) {
@@ -1199,7 +1223,11 @@ Future<bool> markConversationRead(
     stored =
         ref
                 .read(conversationsProvider.notifier)
-                .markConversationRead(resolvedSelectionId, timestamp)
+                .markConversationRead(
+                  resolvedSelectionId,
+                  timestamp,
+                  explicit: explicit,
+                )
             as Future<void>;
   } catch (error, stackTrace) {
     failure = error;
@@ -1244,7 +1272,12 @@ Future<bool> markConversationRead(
       failureStack = stackTrace;
     }
   }
-  if (failure == null) return true;
+  if (failure == null) {
+    if (explicit && onServer) {
+      unawaited(_pullTextMarkedRead(ref, resolvedSelectionId, id));
+    }
+    return true;
+  }
   DebugLogger.error(
     'read-mark-failed',
     scope: 'conversations',
@@ -1253,4 +1286,30 @@ Future<bool> markConversationRead(
     data: {'id': id},
   );
   return false;
+}
+
+/// After the user's own Mark as Read of [scopedId], a chat whose server text
+/// that read covers isn't stored here yet is pulled at once: the text shows,
+/// and a later save made here goes over it.
+Future<void> _pullTextMarkedRead(
+  dynamic ref,
+  String scopedId,
+  String rawId,
+) async {
+  try {
+    final conversations =
+        ref.read(conversationsProvider.notifier) as Conversations;
+    final db = conversations._readDatabaseOf(scopedId);
+    if (db == null) return;
+    if ((await db.chatsDao.getChat(rawId))?.heldTextAt == null) return;
+    // The engine pulls into the signed-in account's database only.
+    if (!identical(ref.read(appDatabaseProvider), db)) return;
+    await ref.read(syncEngineProvider.notifier).pullChatNow(rawId);
+  } catch (error) {
+    DebugLogger.warning(
+      'marked-read-pull-failed',
+      scope: 'conversations',
+      data: {'id': rawId, 'error': '$error'},
+    );
+  }
 }

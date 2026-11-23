@@ -35,8 +35,9 @@ use conduit_components::views::focus::ShortcutHints;
 use crate::AppState;
 use crate::actions::*;
 use crate::keymap::{
-    FixedCommand, KeyStroke, Keymap, ShortcutAction, describe, fixed_stroke, from_gpui,
-    new_chat_alias, to_gpui,
+    AreaKey, FixedCommand, KeyOs, KeyStroke, Keymap, ShortcutAction, app_chords, area_stroke,
+    area_stroke_on, console_app_chords, describe, fixed_shortcuts, fixed_stroke, from_gpui,
+    new_chat_alias, shell_chords, to_gpui, to_gpui_on,
 };
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::prefs::{Appearance, TEXT_SIZE_MAX, TEXT_SIZE_MIN};
@@ -258,71 +259,37 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         .unwrap_or_default();
     cx.clear_key_bindings();
     cx.bind_keys(kit);
+    let mut fixed = vec![];
+    for (command, stroke) in fixed_shortcuts() {
+        for context in fixed_contexts(command) {
+            match KeyBinding::load(
+                &to_gpui(&stroke),
+                fixed_action(command),
+                context.map(predicate),
+                false,
+                None,
+                cx,
+            ) {
+                Ok(b) => fixed.push(b),
+                Err(e) => log::warn!("cannot bind {command:?}: {e:?}"),
+            }
+        }
+    }
+    // Edit › Clear Scrollback in a terminal's console: Terminal's own
+    // ⌥⌘K (its ⌘K, Clear to Start, stays the palette here).
+    let console = crate::views::terminal::console::CONSOLE_CONTEXT;
+    if let Ok(b) = KeyBinding::load(
+        &to_gpui(&area_stroke(AreaKey::TerminalClearScrollback)),
+        Box::new(crate::views::terminal::console::ClearScrollback),
+        Some(predicate(console)),
+        false,
+        None,
+        cx,
+    ) {
+        fixed.push(b);
+    }
+    cx.bind_keys(fixed);
     cx.bind_keys([
-        KeyBinding::new("cmd-q", Quit, None),
-        KeyBinding::new("cmd-,", OpenSettings, None),
-        KeyBinding::new("cmd-h", Hide, None),
-        KeyBinding::new("alt-cmd-h", HideOthers, None),
-        KeyBinding::new("cmd-w", CloseWindow, None),
-        KeyBinding::new("cmd-m", Minimize, None),
-        KeyBinding::new("ctrl-cmd-f", ToggleFullScreen, None),
-        // Edit › Find › Find…: also from a text field, where Kit's own ⌘F
-        // (search inside a code editor) would otherwise take it.
-        KeyBinding::new("cmd-f", FindInChat, None),
-        KeyBinding::new("cmd-f", FindInChat, Some("Input")),
-        KeyBinding::new("cmd-g", FindNext, None),
-        KeyBinding::new("cmd-shift-g", FindPrevious, None),
-        // Edit › Find › Search Chats, as Mail's Mailbox Search.
-        KeyBinding::new("alt-cmd-f", FindChats, None),
-        // File › New Temporary Chat, as Safari's New Private Window.
-        KeyBinding::new("shift-cmd-n", NewTemporaryChat, None),
-        // Chat › Regenerate.
-        KeyBinding::new("cmd-r", RegenerateLastAnswer, None),
-        // Chat › Stop Speaking: ⌘., the Mac's Cancel, from a text field too.
-        KeyBinding::new("cmd-.", crate::actions::StopSpeaking, None),
-        KeyBinding::new("cmd-.", crate::actions::StopSpeaking, Some("Input")),
-        // Chat › Expand Editor and Ask Conduit, from the message field too.
-        KeyBinding::new("shift-cmd-e", crate::actions::ExpandEditor, None),
-        KeyBinding::new("shift-cmd-a", crate::actions::AskConduit, None),
-        // Chat › Chat Settings… (Get Info's chord).
-        KeyBinding::new("cmd-i", crate::actions::ChatSettings, None),
-        // Chat › Previous Chat and Next Chat, as ⌃⇥ steps through Safari's
-        // tabs (from a text field too).
-        KeyBinding::new("ctrl-shift-tab", PreviousChat, None),
-        KeyBinding::new("ctrl-tab", NextChat, None),
-        // View › Actual Size, Zoom In (⌘+, and ⌘= without Shift) and Zoom
-        // Out. The first binding is the one the menu shows.
-        KeyBinding::new("cmd-0", ActualSize, None),
-        KeyBinding::new("cmd-+", ZoomIn, None),
-        KeyBinding::new("cmd-=", ZoomIn, None),
-        KeyBinding::new("cmd--", ZoomOut, None),
-        // Edit › Clear Scrollback in a terminal's console: Terminal's own
-        // ⌥⌘K (its ⌘K, Clear to Start, stays the palette here).
-        KeyBinding::new(
-            "alt-cmd-k",
-            crate::views::terminal::console::ClearScrollback,
-            Some(crate::views::terminal::console::CONSOLE_CONTEXT),
-        ),
-        // Chat › Delete…, from the sidebar's list (a text field keeps ⌘⌫
-        // for deleting to the start of the line).
-        KeyBinding::new("cmd-backspace", DeleteChat, Some(SIDEBAR_LIST_CONTEXT)),
-        // Go › Back and Forward (Finder's ⌘[ and ⌘]); Go › the sidebar's
-        // sections, ⌘1… in its order (the phone's ⌘1–⌘5 pick its tabs).
-        KeyBinding::new("cmd-[", GoBack, None),
-        KeyBinding::new("cmd-]", GoForward, None),
-        KeyBinding::new("cmd-1", GoToSection { index: 1 }, None),
-        KeyBinding::new("cmd-2", GoToSection { index: 2 }, None),
-        KeyBinding::new("cmd-3", GoToSection { index: 3 }, None),
-        KeyBinding::new("cmd-4", GoToSection { index: 4 }, None),
-        KeyBinding::new("cmd-5", GoToSection { index: 5 }, None),
-        KeyBinding::new("cmd-6", GoToSection { index: 6 }, None),
-        KeyBinding::new("cmd-7", GoToSection { index: 7 }, None),
-        KeyBinding::new("cmd-8", GoToSection { index: 8 }, None),
-        // Go › Move Focus to Next and Previous Area: ⌥⌘` and ⌥⌘~ (the Mac
-        // reports Shift with ` as ~), as Xcode's, from a text field and the
-        // terminal too.
-        KeyBinding::new("alt-cmd-`", crate::actions::MoveFocusToNextArea, None),
-        KeyBinding::new("alt-cmd-~", crate::actions::MoveFocusToPreviousArea, None),
         // Tab through the chat in the messages' order, rows off screen
         // included (the window's own order holds only what is drawn).
         KeyBinding::new(
@@ -339,6 +306,17 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
     let table = keymap.table();
     let mut bindings = vec![];
     for shortcut in &table {
+        let saved = keymap
+            .overrides
+            .get(shortcut.action.name())
+            .and_then(|e| crate::keymap::decode(e))
+            .map(|s| crate::keymap::for_os(s, KeyOs::CURRENT));
+        if saved.is_some_and(|s| s != shortcut.stroke) {
+            log::warn!(
+                "{}: its saved shortcut is another command's here; not used",
+                shortcut.action.name()
+            );
+        }
         if !shortcut.action.is_live() {
             continue;
         }
@@ -393,19 +371,147 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
     // bound before, New Chat would take ⌘N and the palette ⌘K (Link).
     cx.bind_keys(crate::views::notes::editor::bindings());
     cx.bind_keys(crate::views::notes::list::bindings());
-    cx.bind_keys([
-        KeyBinding::new(
-            "cmd-n",
-            crate::views::notes::NewNote,
-            Some(crate::views::notes::list::NOTES_LIST_CONTEXT),
-        ),
-        KeyBinding::new(
-            "cmd-n",
-            crate::views::notes::NewNote,
-            Some(crate::views::notes::pane::NOTE_PANE_CONTEXT),
-        ),
-    ]);
+    let new_note = to_gpui(&area_stroke(AreaKey::NewNote));
+    let new_note: Vec<KeyBinding> = [
+        crate::views::notes::list::NOTES_LIST_CONTEXT,
+        crate::views::notes::pane::NOTE_PANE_CONTEXT,
+    ]
+    .into_iter()
+    .filter_map(|context| {
+        KeyBinding::load(
+            &new_note,
+            Box::new(crate::views::notes::NewNote),
+            Some(predicate(context)),
+            false,
+            None,
+            cx,
+        )
+        .ok()
+    })
+    .collect();
+    cx.bind_keys(new_note);
+    bind_console_keys(KeyOs::CURRENT, keymap, quick_ask_stroke(cx).as_ref(), cx);
+    // The app's own prompts (Windows and Linux), last: their Esc must win
+    // over Stop Generating's, which has no context.
+    if !KeyOs::CURRENT.is_mac() {
+        cx.bind_keys(crate::shell::app_prompt::bindings());
+        cx.bind_keys(crate::shell::date_picker::bindings());
+        let chords = app_chords(keymap, quick_ask_stroke(cx).as_ref(), KeyOs::CURRENT);
+        let guard = crate::shell::app_prompt::guard_bindings(&chords, KeyOs::CURRENT, cx);
+        cx.bind_keys(guard);
+    }
     cx.set_global(shortcut_hints(keymap, quick_ask_stroke(cx).as_ref()));
+}
+
+/// Off the Mac, a terminal's console takes the Edit commands with Shift
+/// (the Mac's menu bar answers ⌘C there), and gives the shell Ctrl and a
+/// letter, whatever the app binds them to elsewhere ([`shell_chords`]).
+/// Bound last: GPUI ranks a binding without a context as deep as the
+/// focus, and the later of two equals wins.
+pub fn bind_console_keys(os: KeyOs, keymap: &Keymap, quick_ask: Option<&KeyStroke>, cx: &mut App) {
+    use gpui_kit::component::input::{Copy, Paste, SelectAll};
+    let console = crate::views::terminal::console::CONSOLE_CONTEXT;
+    cx.set_global(crate::views::terminal::console::AppKeys {
+        os,
+        chords: console_app_chords(keymap, quick_ask, os),
+    });
+    if os.is_mac() {
+        return;
+    }
+    let edit: [(AreaKey, Box<dyn gpui_kit::Action>); 4] = [
+        (AreaKey::TerminalCopy, Box::new(Copy)),
+        (AreaKey::TerminalPaste, Box::new(Paste)),
+        (AreaKey::TerminalSelectAll, Box::new(SelectAll)),
+        (AreaKey::TerminalFind, Box::new(FindInChat)),
+    ];
+    let mut bindings = vec![];
+    for stroke in shell_chords(os) {
+        match KeyBinding::load(
+            &to_gpui_on(&stroke, os),
+            Box::new(gpui_kit::NoAction),
+            Some(predicate(console)),
+            false,
+            None,
+            cx,
+        ) {
+            Ok(b) => bindings.push(b),
+            Err(e) => log::warn!("cannot leave {stroke:?} to the shell: {e:?}"),
+        }
+    }
+    for (key, action) in edit {
+        match KeyBinding::load(
+            &to_gpui_on(&area_stroke_on(key, os), os),
+            action,
+            Some(predicate(console)),
+            false,
+            None,
+            cx,
+        ) {
+            Ok(b) => bindings.push(b),
+            Err(e) => log::warn!("cannot bind {key:?}: {e:?}"),
+        }
+    }
+    cx.bind_keys(bindings);
+}
+
+/// A key context predicate the app writes (always well formed).
+fn predicate(context: &str) -> std::rc::Rc<gpui_kit::KeyBindingContextPredicate> {
+    std::rc::Rc::new(
+        gpui_kit::KeyBindingContextPredicate::parse(context)
+            .unwrap_or_else(|e| panic!("{context}: {e:?}")),
+    )
+}
+
+/// Where a fixed chord is bound: everywhere, and from a text field too
+/// where a field would otherwise take it; Delete only in the sidebar's
+/// list (a text field keeps ⌘⌫ for deleting to the start of the line).
+fn fixed_contexts(command: FixedCommand) -> &'static [Option<&'static str>] {
+    use FixedCommand as F;
+    match command {
+        // Edit › Find › Find…: also from a text field, where Kit's own ⌘F
+        // (search inside a code editor) would otherwise take it. Chat ›
+        // Stop Speaking: ⌘., the Mac's Cancel, from a text field too.
+        F::FindInChat | F::StopSpeaking => &[None, Some("Input")],
+        F::DeleteChat => &[Some(SIDEBAR_LIST_CONTEXT)],
+        _ => &[None],
+    }
+}
+
+/// The action a fixed chord fires.
+pub fn fixed_action(command: FixedCommand) -> Box<dyn gpui_kit::Action> {
+    use FixedCommand as F;
+    match command {
+        F::NewTemporaryChat => Box::new(NewTemporaryChat),
+        F::SearchChats => Box::new(FindChats),
+        F::DeleteChat => Box::new(DeleteChat),
+        F::NextChat => Box::new(NextChat),
+        F::PreviousChat => Box::new(PreviousChat),
+        F::Regenerate => Box::new(RegenerateLastAnswer),
+        F::StopSpeaking => Box::new(crate::actions::StopSpeaking),
+        F::ExpandEditor => Box::new(crate::actions::ExpandEditor),
+        F::AskConduit => Box::new(crate::actions::AskConduit),
+        F::ChatSettings => Box::new(crate::actions::ChatSettings),
+        F::FindInChat => Box::new(FindInChat),
+        F::FindNext => Box::new(FindNext),
+        F::FindPrevious => Box::new(FindPrevious),
+        F::ActualSize => Box::new(ActualSize),
+        F::ZoomIn => Box::new(ZoomIn),
+        F::ZoomOut => Box::new(ZoomOut),
+        F::Settings => Box::new(OpenSettings),
+        F::Quit => Box::new(Quit),
+        F::Hide => Box::new(Hide),
+        F::HideOthers => Box::new(HideOthers),
+        F::CloseWindow => Box::new(CloseWindow),
+        F::Minimize => Box::new(Minimize),
+        F::FullScreen => Box::new(ToggleFullScreen),
+        F::Back => Box::new(GoBack),
+        F::Forward => Box::new(GoForward),
+        F::GoToSection(n) => Box::new(GoToSection {
+            index: usize::from(n),
+        }),
+        F::NextArea => Box::new(crate::actions::MoveFocusToNextArea),
+        F::PreviousArea => Box::new(crate::actions::MoveFocusToPreviousArea),
+    }
 }
 
 /// The Quick Ask chord (Settings › Desktop), global or not.
@@ -2123,46 +2229,118 @@ mod tests {
         });
     }
 
-    /// The action a fixed chord fires.
-    #[cfg(target_os = "macos")]
-    fn fixed_action(command: crate::keymap::FixedCommand) -> Box<dyn gpui_kit::Action> {
-        use crate::keymap::FixedCommand as F;
-        match command {
-            F::NewTemporaryChat => Box::new(NewTemporaryChat),
-            F::SearchChats => Box::new(FindChats),
-            F::DeleteChat => Box::new(DeleteChat),
-            F::NextChat => Box::new(NextChat),
-            F::PreviousChat => Box::new(PreviousChat),
-            F::Regenerate => Box::new(RegenerateLastAnswer),
-            F::StopSpeaking => Box::new(crate::actions::StopSpeaking),
-            F::ExpandEditor => Box::new(crate::actions::ExpandEditor),
-            F::AskConduit => Box::new(crate::actions::AskConduit),
-            F::ChatSettings => Box::new(crate::actions::ChatSettings),
-            F::FindInChat => Box::new(FindInChat),
-            F::FindNext => Box::new(FindNext),
-            F::FindPrevious => Box::new(FindPrevious),
-            F::ActualSize => Box::new(ActualSize),
-            F::ZoomIn => Box::new(ZoomIn),
-            F::ZoomOut => Box::new(ZoomOut),
-            F::Settings => Box::new(OpenSettings),
-            F::Quit => Box::new(Quit),
-            F::Hide => Box::new(Hide),
-            F::HideOthers => Box::new(HideOthers),
-            F::CloseWindow => Box::new(CloseWindow),
-            F::Minimize => Box::new(Minimize),
-            F::FullScreen => Box::new(ToggleFullScreen),
-            F::Back => Box::new(GoBack),
-            F::Forward => Box::new(GoForward),
-            F::GoToSection(n) => Box::new(GoToSection {
-                index: usize::from(n),
-            }),
-            F::NextArea => Box::new(crate::actions::MoveFocusToNextArea),
-            F::PreviousArea => Box::new(crate::actions::MoveFocusToPreviousArea),
+    /// The Notes editor's keys off the Mac: the Format chords Settings ›
+    /// Keyboard lists, with Ctrl, and nothing on the Windows or Super key,
+    /// on Ctrl+Alt (AltGr) or twice.
+    #[test]
+    fn the_notes_editor_keys_off_the_mac() {
+        use crate::keymap::{AreaKey as K, KeyOs, area_shortcuts_on, from_gpui_on};
+        use crate::views::notes::editor as e;
+        use gpui_kit::Action as _;
+        for os in [KeyOs::Windows, KeyOs::Linux] {
+            let bindings = e::bindings_on(os);
+            let mut seen = std::collections::HashSet::new();
+            for b in &bindings {
+                let ks = b.keystrokes()[0].inner();
+                assert!(!ks.modifiers.platform, "{os:?}: {ks:?}");
+                assert!(
+                    !(ks.modifiers.control && ks.modifiers.alt),
+                    "{os:?}: {ks:?} is AltGr's"
+                );
+                assert!(seen.insert(ks.clone()), "{os:?}: {ks:?} twice");
+            }
+            let action_for = |stroke: &KeyStroke| -> Option<&'static str> {
+                bindings
+                    .iter()
+                    .find(|b| from_gpui_on(b.keystrokes()[0].inner(), os).as_ref() == Some(stroke))
+                    .map(|b| b.action().name())
+            };
+            for (key, stroke) in area_shortcuts_on(os) {
+                let action: &dyn gpui_kit::Action = match key {
+                    K::Title => &e::Title,
+                    K::Heading => &e::Heading,
+                    K::Subheading => &e::Subheading,
+                    K::Body => &e::Body,
+                    K::Bold => &e::ToggleBold,
+                    K::Italic => &e::ToggleItalic,
+                    K::Strikethrough => &e::ToggleStrike,
+                    K::Code => &e::ToggleCode,
+                    K::Link => &e::AddLink,
+                    K::BulletedList => &e::BulletList,
+                    K::NumberedList => &e::NumberedList,
+                    K::Checklist => &e::Checklist,
+                    K::MarkChecked => &e::ToggleChecked,
+                    K::Quote => &e::QuoteBlock,
+                    K::CodeBlock => &e::CodeBlock,
+                    _ => continue,
+                };
+                assert_eq!(action_for(&stroke), Some(action.name()), "{os:?}: {key:?}");
+            }
+            // Windows' and Linux's text keys: Home and End for the line,
+            // Ctrl with an arrow for a word; the Mac's Emacs keys are not
+            // there to take Ctrl+A (Select All) and Ctrl+E (Code).
+            let ks = |s: &'static str| gpui_kit::Keystroke::parse(s).unwrap();
+            let name = |s: &'static str| {
+                bindings
+                    .iter()
+                    .find(|b| b.keystrokes()[0].inner() == &ks(s))
+                    .map(|b| b.action().name())
+            };
+            assert_eq!(name("home"), Some(e::MoveLineStart.name()));
+            assert_eq!(name("ctrl-end"), Some(e::MoveDocEnd.name()));
+            assert_eq!(name("ctrl-left"), Some(e::MoveWordLeft.name()));
+            assert_eq!(name("ctrl-a"), Some(e::SelectAll.name()));
+            assert_eq!(name("ctrl-e"), Some(e::ToggleCode.name()));
+            assert_eq!(name("ctrl-y"), Some(e::Redo.name()));
+            let list = crate::views::notes::list::bindings_on(os);
+            assert!(
+                list.iter()
+                    .any(|b| b.keystrokes()[0].inner() == &ks("delete"))
+            );
         }
     }
 
-    /// Settings › Keyboard's Notes keys are the ones Notes binds.
-    #[cfg(target_os = "macos")]
+    /// Off the Mac a terminal's console gives Ctrl and a letter to the
+    /// shell, whatever the app binds them to elsewhere (Regenerate's
+    /// Ctrl+R is the shell's history search there), and takes its Copy,
+    /// Paste, Select All and Find with Shift.
+    #[gpui_kit::test]
+    fn off_the_mac_the_console_leaves_ctrl_letters_to_the_shell(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::Action as _;
+        use gpui_kit::component::input::{Copy, Paste};
+        cx.update(|cx| {
+            cx.set_global(L10n::new("en"));
+            bind_keys(&Keymap::default(), cx);
+            // Off the Mac the table binds Regenerate as Ctrl+R everywhere.
+            cx.bind_keys([KeyBinding::new("ctrl-r", RegenerateLastAnswer, None)]);
+            bind_console_keys(crate::keymap::KeyOs::Linux, &Keymap::default(), None, cx);
+            let winner = |stroke: &'static str, stack: &[&str]| -> Option<&'static str> {
+                let input = [gpui_kit::Keystroke::parse(stroke).unwrap()];
+                let contexts: Vec<gpui_kit::KeyContext> = stack
+                    .iter()
+                    .map(|c| gpui_kit::KeyContext::parse(c).unwrap())
+                    .collect();
+                let (bindings, _) = cx
+                    .key_bindings()
+                    .borrow()
+                    .bindings_for_input(&input, &contexts);
+                bindings.first().map(|b| b.action().name())
+            };
+            let console = ["Window", crate::views::terminal::console::CONSOLE_CONTEXT];
+            assert_eq!(
+                winner("ctrl-r", &["Window"]),
+                Some(RegenerateLastAnswer.name())
+            );
+            assert_eq!(winner("ctrl-r", &console), None, "the shell's");
+            assert_eq!(winner("ctrl-shift-c", &console), Some(Copy.name()));
+            assert_eq!(winner("ctrl-shift-v", &console), Some(Paste.name()));
+            assert_eq!(winner("ctrl-shift-f", &console), Some(FindInChat.name()));
+            assert_eq!(winner("ctrl-tab", &console), Some(NextChat.name()));
+        });
+    }
+
+    /// Settings › Keyboard's Notes keys are the ones Notes binds, on every
+    /// OS.
     #[gpui_kit::test]
     fn the_notes_chords_settings_shows_are_bound(cx: &mut gpui_kit::TestAppContext) {
         use crate::keymap::AreaKey as K;
@@ -2271,8 +2449,7 @@ mod tests {
     }
 
     /// Settings › Keyboard's fixed chords are the ones bound (it shows
-    /// them, and refuses them to other commands).
-    #[cfg(target_os = "macos")]
+    /// them, and refuses them to other commands), on every OS.
     #[gpui_kit::test]
     fn the_fixed_chords_settings_shows_are_bound(cx: &mut gpui_kit::TestAppContext) {
         cx.update(|cx| {

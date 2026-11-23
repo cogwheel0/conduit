@@ -12,7 +12,7 @@ use gpui_kit::{
 
 use crate::assets::IconName;
 use crate::strings::{ActiveStrings as _, fill};
-use crate::theme::{ActiveConduitTheme, MONO_FONT, with_alpha};
+use crate::theme::{ActiveConduitTheme, mono_font, with_alpha};
 use crate::views::composer::composer_frame;
 use crate::views::focus::{
     Ring, control_focus_handle, full_keyboard_access, pressed_fill, radio_keys, radio_step,
@@ -303,7 +303,7 @@ impl RenderOnce for ApprovalCard {
                             .border_1()
                             .border_color(r.border)
                             .bg(inset_fill(&t))
-                            .font_family(MONO_FONT)
+                            .font_family(mono_font())
                             .text_size(px(m.code))
                             .line_height(relative(1.5))
                             .text_color(r.text)
@@ -665,7 +665,7 @@ impl RenderOnce for ApprovalCard {
                                 .border_1()
                                 .border_color(r.border)
                                 .bg(inset_fill(&t))
-                                .font_family(MONO_FONT)
+                                .font_family(mono_font())
                                 .text_size(px(m.code))
                                 .line_height(relative(1.5))
                                 .text_color(r.text)

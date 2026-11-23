@@ -1381,6 +1381,14 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self
     }
 
+    /// Mark this element as a live region: assistive technology announces its
+    /// label when the node appears and whenever the label changes (AccessKit's
+    /// `live`; UIA's LiveRegionChanged, AT-SPI's announcement).
+    fn aria_live(mut self, live: accesskit::Live) -> Self {
+        self.interactivity().aria.live = Some(live);
+        self
+    }
+
     /// Set the accessible description for this element. Unlike the label (which
     /// names the element), the description provides supplementary information
     /// that assistive technology announces after the name, role, and value -
@@ -2175,6 +2183,7 @@ pub(crate) struct AriaProperties {
     pub(crate) column_index: Option<usize>,
     pub(crate) row_count: Option<usize>,
     pub(crate) column_count: Option<usize>,
+    pub(crate) live: Option<accesskit::Live>,
 }
 
 /// The interactivity struct. Powers all of the general-purpose
@@ -3655,6 +3664,9 @@ impl Interactivity {
         }
         if let Some(count) = self.aria.column_count {
             node.set_column_count(count);
+        }
+        if let Some(live) = self.aria.live {
+            node.set_live(live);
         }
         if !self.click_listeners.is_empty() {
             node.add_action(accesskit::Action::Click);

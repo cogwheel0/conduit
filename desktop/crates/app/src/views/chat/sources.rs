@@ -18,7 +18,7 @@ use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
-use conduit_components::theme::{UI_FONT, with_alpha};
+use conduit_components::theme::{ui_font, with_alpha};
 use conduit_components::views::focus::{ControlExt as _, Ring};
 use conduit_components::views::kit::{Button, grouped_tones};
 use conduit_protocol::ChatSourceDto;
@@ -321,7 +321,7 @@ impl Render for SourcesSheet {
             .track_focus(&self.focus)
             .size_full()
             .overflow_y_scroll()
-            .font_family(UI_FONT)
+            .font_family(ui_font())
             .bg(page)
             .text_color(r.text)
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, window, cx| {

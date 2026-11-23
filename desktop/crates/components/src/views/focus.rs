@@ -31,7 +31,7 @@ use gpui_kit::{
     SharedString, Stateful, Window, div, point, px,
 };
 
-use crate::theme::{ActiveConduitTheme, ConduitTheme, UI_FONT, composite, with_alpha};
+use crate::theme::{ActiveConduitTheme, ConduitTheme, composite, ui_font, with_alpha};
 
 /// How long the pointer rests on a control before its tooltip shows (AppKit
 /// waits about a second).
@@ -479,7 +479,7 @@ impl Render for Tip {
                     spread_radius: px(0.),
                     inset: false,
                 }])
-                .font_family(UI_FONT)
+                .font_family(ui_font())
                 .text_size(px(11.5))
                 .text_color(r.text)
                 .whitespace_nowrap()

@@ -1172,6 +1172,11 @@ abstract class MarkUnread with _$MarkUnread {
 
     /// False marks it read, as opening it does.
     @Default(true) bool unread,
+
+    /// With [unread] false: the user's own Mark as Read. It also ends a hold
+    /// on the chat for the server's text not stored here yet, which a read
+    /// the app makes itself (opening or leaving the chat) leaves in place.
+    @Default(false) bool explicit,
   }) = _MarkUnread;
 
   factory MarkUnread.fromJson(Map<String, dynamic> json) =>

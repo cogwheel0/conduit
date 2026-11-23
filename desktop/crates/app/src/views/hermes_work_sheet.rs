@@ -19,7 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
-use conduit_components::theme::MONO_FONT;
+use conduit_components::theme::mono_font;
 use conduit_components::views::focus::{ControlExt as _, Ring};
 use conduit_components::views::kit::{
     Button, ButtonKind, IconButton, bare_input, field_frame, heading, section_label,
@@ -546,7 +546,7 @@ impl BackgroundWorkSheet {
                                         .gap(px(1.))
                                         .child(
                                             div()
-                                                .font_family(MONO_FONT)
+                                                .font_family(mono_font())
                                                 .text_size(px(m.code))
                                                 .text_color(r.text)
                                                 .line_clamp(2)
@@ -649,7 +649,7 @@ impl BackgroundWorkSheet {
                         .border_1()
                         .border_color(r.border)
                         .bg(r.raised)
-                        .font_family(MONO_FONT)
+                        .font_family(mono_font())
                         .text_size(px(m.code - 1.))
                         .line_height(relative(1.45))
                         .text_color(r.text)

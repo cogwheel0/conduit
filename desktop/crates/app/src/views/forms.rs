@@ -787,7 +787,7 @@ pub fn pem_picker_locked(
                 div()
                     .max_w(px(180.))
                     .truncate()
-                    .font_family(conduit_components::theme::MONO_FONT)
+                    .font_family(conduit_components::theme::mono_font())
                     .text_size(px(t.metrics.small))
                     .text_color(r.text_subtle)
                     .child(f.label.clone()),

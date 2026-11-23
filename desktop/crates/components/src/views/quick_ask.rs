@@ -11,7 +11,7 @@ use gpui_kit::{
 
 use crate::assets::{IconName, icon};
 use crate::strings::ActiveStrings as _;
-use crate::theme::{ActiveConduitTheme, UI_FONT, with_alpha};
+use crate::theme::{ActiveConduitTheme, ui_font, with_alpha};
 use crate::views::kit::{ESC_KEYCAP, IconButton, keycap, shortcut};
 use crate::views::markdown::text_view;
 use crate::views::shell::ModelPickerButton;
@@ -82,7 +82,7 @@ impl Render for QuickAsk {
             .size_full()
             .flex()
             .flex_col()
-            .font_family(UI_FONT)
+            .font_family(ui_font())
             .text_color(r.text)
             .rounded(px(16.))
             .bg(tint)

@@ -1124,6 +1124,13 @@
   "desktopStoreUnreadableBody": "Data na tomto Macu byla uložena s klíčem, který už Conduit nemá, obvykle starší verzí. Obnovením místních dat začnete znovu. Stará složka se zachová pod novým názvem; nic se nesmaže.",
   "desktopResetLocalData": "Obnovit místní data",
   "desktopResetFailed": "Stará data se nepodařilo přesunout. Zkuste to znovu, nebo klikněte na „Zobrazit protokoly“ a zobrazte podrobnosti.",
+  "desktopKeychainPromptTitle": "Conduit potřebuje heslo ke klíčence",
+  "desktopKeychainPromptBody": "Klíč k datům Conduitu na tomto Macu uložila starší verze. Aby ho bylo možné použít, macOS požádá o heslo k přihlašovací klíčence; klikněte na „Vždy povolit“, aby se zeptal jen jednou. Nebo klikněte na „Začít znovu“: znovu se přihlásíte. Chaty na vašich serverech tam zůstanou; chaty uložené jen na tomto Macu se přesunou stranou se starými daty, nesmažou se.",
+  "desktopKeychainPromptStartFresh": "Začít znovu",
+  "desktopKeychainPromptFailed": "macOS Conduitu klíč nepředal. Zkuste to znovu, nebo klikněte na „Začít znovu“.",
+  "desktopKeychainPromptFreshFailed": "Conduit nedokázal vytvořit nový klíč. Zkuste to znovu, nebo klikněte na „Zobrazit protokoly“ a zobrazte podrobnosti.",
+  "desktopKeychainMissingTitle": "Conduit nemůže najít svůj klíč",
+  "desktopKeychainMissingBody": "Klíč k datům Conduitu na tomto Macu už ve vaší přihlašovací klíčence není. Klikněte na „Začít znovu“: znovu se přihlásíte. Chaty na vašich serverech tam zůstanou; chaty uložené jen na tomto Macu se přesunou stranou se starými daty, nesmažou se.",
   "desktopExportDiagnosticsHint": "Uloží protokoly a anonymizovanou konfiguraci do souboru zip a zobrazí ho ve Finderu. Nic se nenahrává.",
   "desktopExporting": "Exportování…",
   "desktopDiagnosticsSaved": "Uloženo: {name}",
@@ -1960,5 +1967,7 @@
   "desktopYourDevices": "Vaše zařízení",
   "@desktopYourDevices": {
     "description": "Heading in the message box's + menu above the tools and terminals the user's own computers offer through Tether (Open WebUI 0.13.4 and later), in Title Case as Mac menu headings are."
-  }
+  },
+  "desktopPickerHour": "Hodina",
+  "desktopPickerMinute": "Minuta"
 }

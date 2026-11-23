@@ -399,19 +399,24 @@ impl HermesRoomPane {
                     .update(cx, |s, cx| s.set_submit_on_enter(on_enter, cx));
             }),
             // The mention list's keys, ahead of the field's own.
-            cx.intercept_keystrokes(move |event, window, cx| {
+            crate::shell::app_prompt::intercept_behind(cx, move |event, window, cx| {
                 let key = event.keystroke.key.as_str();
                 let m = event.keystroke.modifiers;
                 let Some(this) = weak.upgrade() else {
                     return;
                 };
-                if key == "enter" && m.platform && !m.shift && !m.alt && !m.control {
+                if key == "enter" && crate::keymap::held(&m).only_primary() {
                     let handled = this.update(cx, |p, cx| {
                         let focused = p.input.read(cx).focus_handle(cx).is_focused(window);
-                        if focused {
+                        // An input method composing keeps its keys, as in
+                        // the composer.
+                        let composing = focused
+                            && p.input
+                                .update(cx, |s, cx| s.marked_text_range(window, cx).is_some());
+                        if focused && !composing {
                             p.send(window, cx);
                         }
-                        focused
+                        focused && !composing
                     });
                     if handled {
                         cx.stop_propagation();
@@ -1965,6 +1970,33 @@ mod tests {
                 h.on_event(&Event::HermesRoomsChanged(view), cx)
             });
             vcx.run_until_parked();
+        }
+
+        /// ⌘↩ (Ctrl+Enter off the Mac) sends nothing while an input
+        /// method is composing, as the composer's doesn't.
+        #[gpui_kit::test]
+        fn nothing_is_sent_while_an_input_method_composes(cx: &mut TestAppContext) {
+            let daemon = FakeDaemon::new();
+            daemon.returns::<methods::HermesRoomsWatch>(room(None));
+            daemon.returns::<methods::HermesRoomsSend>(HermesRoomSendResult::default());
+            let (_stores, pane, vcx) = open(cx, &daemon, "composing");
+            use gpui_kit::EntityInputHandler as _;
+            let input = pane.read_with(vcx, |p, _| p.input.clone());
+            vcx.update(|window, cx| {
+                let focus = input.read(cx).focus_handle(cx);
+                window.focus(&focus, cx);
+                input.update(cx, |s, cx| {
+                    s.replace_and_mark_text_in_range(None, "かな", None, window, cx)
+                });
+            });
+            vcx.run_until_parked();
+            let send = crate::keymap::to_gpui(&crate::keymap::KeyStroke::new("enter").primary());
+            vcx.simulate_keystrokes(&send);
+            vcx.run_until_parked();
+            assert!(
+                daemon.calls::<methods::HermesRoomsSend>().is_empty(),
+                "sent while composing"
+            );
         }
 
         #[gpui_kit::test]

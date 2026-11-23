@@ -7,6 +7,7 @@ import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/utils/conversation_unread.dart';
 import 'package:conduit_core/features/librechat/models/librechat_server.dart';
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
@@ -337,13 +338,24 @@ void main() {
     check(workerPort.runs).equals(1);
   });
 
-  test('rename, pin and archive change the chat and reach the server', () async {
+  test('rename, pin and archive change the chat and reach the server, and a '
+      'read chat stays read', () async {
     await pull();
+    // The list on screen.
+    container.listen(conversationsProvider, (_, _) {});
+    Conversation shown() => container
+        .read(conversationsProvider)
+        .requireValue
+        .firstWhere((conversation) => conversation.id == 'lc-1');
+    await listed();
+    check(isConversationUnread(shown())).isFalse();
     final scoped = const ChatStorageIdentity(
       rawId: 'lc-1',
       storage: ChatStorageKind.libreChat,
     ).scopedId;
     await renameLibreChatConversation(container, scoped, 'Weather in Paris');
+    check(shown().title).equals('Weather in Paris');
+    check(isConversationUnread(shown())).isFalse();
     await pinConversation(container, scoped, true);
     await archiveConversation(container, scoped, true);
 
@@ -360,6 +372,11 @@ void main() {
     check((await libreChatDb.chatsDao.getChat('lc-1'))!.dirty).isFalse();
     // Open WebUI's API was never asked.
     check(owuiSync.pulls).isEmpty();
+
+    await pull();
+    // Archived, so out of the list: as its row shows it.
+    final stored = (await libreChatDb.chatsDao.getChatMeta('lc-1'))!;
+    check(stored.lastReadAt).isNotNull().isGreaterOrEqual(stored.updatedAt);
   });
 
   test('pinning the open chat keeps the messages it shows', () async {

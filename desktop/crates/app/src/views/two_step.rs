@@ -21,7 +21,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use conduit_components::ActiveConduitTheme as _;
-use conduit_components::theme::MONO_FONT;
+use conduit_components::theme::mono_font;
 use conduit_components::views::kit::{Button, ClickHandler, grouped_tones};
 use conduit_components::views::onboarding::{back_link, link, title_block};
 use conduit_daemon::RpcError;
@@ -550,7 +550,7 @@ impl Render for TwoStepView {
                                         )
                                         .child(
                                             div()
-                                                .font_family(MONO_FONT)
+                                                .font_family(mono_font())
                                                 .text_size(px(m.control))
                                                 .line_height(relative(1.4))
                                                 .text_color(r.text)
@@ -625,7 +625,7 @@ impl Render for TwoStepView {
                 .flex()
                 .flex_col()
                 .gap(px(4.))
-                .font_family(MONO_FONT)
+                .font_family(mono_font())
                 .text_size(px(m.control))
                 .text_color(r.text)
                 .children(codes.into_iter().map(|c| div().child(c)));

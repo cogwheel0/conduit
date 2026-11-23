@@ -47,6 +47,24 @@ alacritty_terminal = { version = "=0.26.0", default-features = false }
 gpui-webview = "=0.9.0"
 wry = { package = "lb-wry", version = "=0.53.3" }
 
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+# Dates in the app's language (views::dates; the Mac uses NSDateFormatter):
+# the same ICU4X release GPUI's segmenter comes from.
+icu_datetime = "2.4"
+icu_locale_core = "2.4"
+# The first day of a week, for the date picker's grid.
+icu_calendar = "2.4"
+
+[target.'cfg(windows)'.dependencies]
+# The display languages and the regional format (l10n::locale); the accent
+# colour and animation effects (shell::system_look).
+windows = { version = "0.62", features = ["Win32_Globalization", "Win32_System_Registry", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The desktop portal's accent colour and Reduce Motion (shell::system_look),
+# with the features GPUI uses.
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 objc2-foundation = { workspace = true, features = ["NSLocale", "NSError", "NSBundle", "NSDictionary", "NSValue", "NSAppleEventDescriptor", "NSAppleEventManager", "NSSet", "NSDate", "NSDateFormatter", "NSFormatter", "NSURL", "NSRange"] }

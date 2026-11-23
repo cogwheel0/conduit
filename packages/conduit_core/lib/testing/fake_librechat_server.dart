@@ -575,7 +575,17 @@ final class FakeLibreChatServer implements HttpClientAdapter {
         }, statusCode: 404);
       }
       apply(conversation, arg);
-      return FakeLibreChatResponse.json(conversation);
+      // LibreChat answers with the saved conversation, whose `messages` are
+      // the database ids of every message it holds. Its message routes
+      // leave those ids out, so only their number means anything here.
+      final stored = messages[arg['conversationId']] ?? const [];
+      return FakeLibreChatResponse.json({
+        ...conversation,
+        'messages': [
+          for (var index = 0; index < stored.length; index++)
+            index.toRadixString(16).padLeft(24, '0'),
+        ],
+      });
     }
 
     on(

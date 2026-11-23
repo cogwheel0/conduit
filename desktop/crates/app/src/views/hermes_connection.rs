@@ -1781,7 +1781,10 @@ impl Render for HermesConnectionSheet {
             )
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &e.keystroke;
-                if k.key == "enter" && k.modifiers.platform && this.can_save(cx) {
+                if k.key == "enter"
+                    && crate::keymap::held(&k.modifiers).primary
+                    && this.can_save(cx)
+                {
                     this.save(window, cx);
                     cx.stop_propagation();
                 }

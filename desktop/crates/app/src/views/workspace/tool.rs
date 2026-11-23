@@ -690,7 +690,7 @@ impl Render for ToolEditor {
                         .child(icon(IconName::Code, 13., r.text_subtle))
                         .child(
                             div()
-                                .font_family(conduit_components::theme::MONO_FONT)
+                                .font_family(conduit_components::theme::mono_font())
                                 .text_size(px(t.metrics.small + 0.5))
                                 .child(f.clone()),
                         )

@@ -251,7 +251,7 @@ impl Render for PdfViewer {
             .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &e.keystroke;
-                match (k.modifiers.platform, k.key.as_str()) {
+                match (crate::keymap::held(&k.modifiers).primary, k.key.as_str()) {
                     (false, "escape") => window.remove_window(),
                     (true, "s") => this.save(cx),
                     _ => return,

@@ -25,7 +25,7 @@ use std::time::Instant;
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
-use conduit_components::theme::{ConduitTheme, MONO_FONT, with_alpha};
+use conduit_components::theme::{ConduitTheme, mono_font, with_alpha};
 use conduit_components::views::focus::ControlExt as _;
 use conduit_components::views::kit::Button;
 use conduit_components::views::markdown::CodeBlock;
@@ -360,7 +360,7 @@ fn mono_box(label: &str, content: String, t: &ConduitTheme) -> Div {
                 ))
                 .border_1()
                 .border_color(r.border)
-                .font_family(MONO_FONT)
+                .font_family(mono_font())
                 .text_size(px(t.metrics.code - 0.5))
                 .line_height(relative(1.5))
                 .text_color(r.text)
@@ -1422,7 +1422,7 @@ impl AssistantRow {
                                         .text_color(r.text_subtle)
                                         .map(|d| {
                                             if detail.mono {
-                                                d.font_family(MONO_FONT).text_size(px(m.code))
+                                                d.font_family(mono_font()).text_size(px(m.code))
                                             } else {
                                                 d.text_size(px(m.body))
                                             }
@@ -1484,7 +1484,7 @@ impl AssistantRow {
                 .when(!raw.is_empty(), |d| {
                     d.child(
                         div()
-                            .font_family(MONO_FONT)
+                            .font_family(mono_font())
                             .text_size(px(m.code - 0.5))
                             .text_color(r.text_subtle)
                             .child(SharedString::from(raw.to_string())),

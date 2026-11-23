@@ -1070,7 +1070,7 @@ impl WorkspacePane {
                 }
                 true
             }
-            "backspace" | "delete" if m.platform && !(m.alt || m.control || m.shift) => {
+            key if crate::keymap::deletes_item(key, m) => {
                 if let Some(i) = current
                     && shown[i].write_access
                 {
