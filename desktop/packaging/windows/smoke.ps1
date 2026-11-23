@@ -235,7 +235,8 @@ try {
     }
     do {
       $joined = $false
-      foreach ($started in @($unmatched)) {
+      # ToArray, not @(): PowerShell 7.4's @() can throw on a List[object].
+      foreach ($started in $unmatched.ToArray()) {
         if ($family.ContainsKey([int]$started.ParentProcessID)) {
           $family[[int]$started.ProcessID] = $true
           if ($started.ProcessName -eq 'conduit-desktop.exe') { $relaunched = [int]$started.ProcessID }
