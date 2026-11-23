@@ -19,13 +19,18 @@ dart compile exe tool/benchmarks/direct_streaming_projection.dart -o /path/to/be
 ```
 
 The harness streams newly invented answers, in four-character deltas at 2,800
-characters a second on a simulated clock. Each answer opens with plain prose,
-and its first backtick comes near character 1,900. There are two shapes:
+characters a second on a simulated clock. There are four shapes:
 
 - **fences**: prose with inline code and fenced Python.
 - **tutorial**: headings, numbered steps that hold indented fences, nested
   bullets, a table with inline code, comparisons, an autolink and an unmatched
   backtick.
+- **json-fenced** and **json-unfenced**: one short line with inline code, then
+  a single line of minified JSON that runs to the end of the answer, inside a
+  fence or not.
+
+The first two open with plain prose, so their first backtick comes near
+character 1,900.
 
 Each case runs three times. The harness times only `apply` and
 `projectStreamingEvent`, on the real clock, and prints one
@@ -34,8 +39,9 @@ longest simulated time between two updates.
 
 Dart native AOT on an M-series Mac, with other builds running on the machine.
 These are CPU measurements, not phone frame times. Ranges cover the three
-runs. The three builds are main before the fix (`6c935585ca`), the time
-ceiling alone (`186a1f316c`), and the time ceiling plus the cursor.
+runs. The three builds are main before the fix, the time ceiling alone (the
+branch's first commit), and the time ceiling plus the cursor. The first table
+was measured on `6c935585ca`, and the long-line table on `d87ce41dfd`.
 
 ## Results
 
@@ -62,3 +68,29 @@ can't tell whether the parser keeps that line as indented code or as list
 text. So each such line costs a full render at the next ceiling, and on that
 shape the work stays near the time ceiling's budget. That is about 0.6 µs a
 character, or 7–13% of one core.
+
+## Long single lines
+
+The cursor copies the answer's current last line on every delta it takes, even
+inside a fence. So on one long line its work grows with the square of the
+line's length. The worst single call stays far below a frame, though, and the
+total is a small share of the time the answer takes to stream. Machine load was
+heavier for this run than for the table above.
+
+| Answer | Build | Full projections | Appends | Projection work | Worst single call | Worst visible gap |
+| --- | --- | --- | --- | --- | --- | --- |
+| json-fenced, 51,200 chars, 18 s | before | 13 | 2 | 7.6–7.9 ms | 2.2–3.9 ms | 5,851 ms |
+| json-fenced, 51,200 chars, 18 s | time ceiling | 143 | 2 | 168–177 ms | 3.1–3.3 ms | 250 ms |
+| json-fenced, 51,200 chars, 18 s | with cursor | 2 | 12,798 | 13.9–15.7 ms | 0.05–0.13 ms | 1.4 ms |
+| json-unfenced, 51,200 chars, 18 s | before | 13 | 2 | 10.6–12.8 ms | 5.0–5.8 ms | 5,851 ms |
+| json-unfenced, 51,200 chars, 18 s | time ceiling | 138 | 2 | 262–273 ms | 4.9–5.3 ms | 274 ms |
+| json-unfenced, 51,200 chars, 18 s | with cursor | 2 | 12,798 | 22.8–24.3 ms | 0.04–0.06 ms | 1.4 ms |
+| json-fenced, 204,800 chars, 73 s | before | 15 | 2 | 29–38 ms | 12.7–19.6 ms | 23,406 ms |
+| json-fenced, 204,800 chars, 73 s | time ceiling | 243 | 2 | 854–859 ms | 12.8–13.6 ms | 1,004 ms |
+| json-fenced, 204,800 chars, 73 s | with cursor | 2 | 51,198 | 149–157 ms | 0.05–0.13 ms | 1.4 ms |
+| json-unfenced, 204,800 chars, 73 s | before | 15 | 2 | 47–52 ms | 22.0–24.8 ms | 23,406 ms |
+| json-unfenced, 204,800 chars, 73 s | time ceiling | 229 | 2 | 1,188–1,218 ms | 19.2–20.0 ms | 1,086 ms |
+| json-unfenced, 204,800 chars, 73 s | with cursor | 2 | 51,198 | 195–197 ms | 0.06–0.12 ms | 1.4 ms |
+
+At 204,800 characters, the cursor's copying costs about 0.2–0.3% of one core
+across the stream.

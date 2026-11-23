@@ -45,17 +45,34 @@ const _tutorial =
     'Press the ` key to toggle the view, then compare a <b>bold</b> tally '
     'with ~~struck~~ ones & move on.\n\n';
 
-/// A newly invented answer of [size] characters whose first code fence starts
-/// near character 1,900, like the answer measured on the simulator. The
-/// tutorial shape repeats [_tutorial] after the same plain opening.
-String _answer(int size, {required bool tutorial}) {
+// One record of minified JSON, repeated on a single line.
+const _jsonRecord =
+    '{"rock":"north","count":412,"note":"tide < 2 m & calm",'
+    '"tags":["gull","tern"]},';
+
+/// A newly invented answer of [size] characters. The `fences` and `tutorial`
+/// shapes open with plain prose, so the first code delimiter comes near
+/// character 1,900, like the answer measured on the simulator. The JSON
+/// shapes are one short line with inline code and then a single line of
+/// minified JSON, inside a fence or not, that runs to the end.
+String _answer(int size, {required String shape}) {
   final out = StringBuffer();
+  if (shape.startsWith('json')) {
+    out.write('The survey as `json`:\n\n');
+    if (shape == 'json-fenced') out.write('```json\n');
+    while (out.length < size) {
+      out.write(_jsonRecord);
+    }
+    return out.toString().substring(0, size);
+  }
   while (out.length < 1900) {
     out.write(_prose);
   }
   var unit = 0;
   while (out.length < size) {
-    out.write(tutorial ? _tutorial : (unit.isEven ? _code : _prose * 6));
+    out.write(
+      shape == 'tutorial' ? _tutorial : (unit.isEven ? _code : _prose * 6),
+    );
     unit += 1;
   }
   return out.toString().substring(0, size);
@@ -67,13 +84,17 @@ void main(List<String> args) {
   const charsPerSecond = 2800;
   const tokenLength = 4;
   final results = <Map<String, Object>>[];
-  for (final (size, tutorial) in [
-    (30751, false),
-    (30751, true),
-    (204800, false),
-    (204800, true),
+  for (final (size, shape) in [
+    (30751, 'fences'),
+    (30751, 'tutorial'),
+    (204800, 'fences'),
+    (204800, 'tutorial'),
+    (51200, 'json-fenced'),
+    (51200, 'json-unfenced'),
+    (204800, 'json-fenced'),
+    (204800, 'json-unfenced'),
   ]) {
-    final answer = _answer(size, tutorial: tutorial);
+    final answer = _answer(size, shape: shape);
     for (var run = 0; run < 3; run++) {
       var simulatedMicros = 0;
       final accumulator = withClock(
@@ -118,7 +139,7 @@ void main(List<String> args) {
       }
       results.add({
         'size': size,
-        'shape': tutorial ? 'tutorial' : 'fences',
+        'shape': shape,
         'run': run,
         'updates': updates,
         'fullProjections': accumulator.fullProjectionCount,

@@ -2209,6 +2209,9 @@ void main() {
         'Press the ` key, then ${'type words & more < less ' * 12}'
             'and `close` it.\nnext `line` > x\n',
         '```json\n${'{"a":"<b>&amp;","c":[1,2]},' * 12}\n```\nafter & more\n',
+        // One long line of minified JSON, inside a fence and outside one.
+        '```json\n${'{"n":"x < 2 & y","t":["a","b"]},' * 60}\n```\n',
+        'As `json`: ${'{"n":"x < 2 & y","t":["a","b"]},' * 60}\n',
       ];
       final random = Random(20261123);
       var cursorAppends = 0;
