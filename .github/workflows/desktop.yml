@@ -83,6 +83,7 @@ jobs:
     outputs:
       macos: ${{ steps.diff.outputs.macos }}
       bundle: ${{ steps.diff.outputs.bundle }}
+      packages: ${{ steps.diff.outputs.packages }}
     steps:
       # The checked-out ref is the merge commit, so its first parent is the
       # base branch and the diff between them is the pull request's.
@@ -102,19 +103,23 @@ jobs:
           # licences too), the whisper library only the bundle compiles, and
           # the workflows that build it. The daemon's code has its own macOS
           # build and smoke job (ci.yml), and the app's the workspace job.
-          bundle=$FULL
+          # The Windows and Linux packages follow the same paths, on any
+          # pull request: their runners are free.
+          packages=$FULL
           if git diff --name-only HEAD^1 HEAD -- \
               desktop/packaging desktop/vendor desktop/Cargo.lock \
               desktop/rust-toolchain.toml ':(glob)desktop/**/Cargo.toml' \
               apps/daemon/native apps/daemon/pubspec.yaml pubspec.lock \
               .github/workflows/desktop.yml .github/workflows/release-desktop.yml |
               grep -q .; then
-            bundle=true
+            packages=true
           fi
+          bundle=$packages
           [ "$macos" = true ] || bundle=false
           {
             echo "macos=$macos"
             echo "bundle=$bundle"
+            echo "packages=$packages"
           } >> "$GITHUB_OUTPUT"
 
   # desktop/crates/protocol/src/generated.rs must be exactly what the
@@ -468,4 +473,356 @@ jobs:
           path: |
             desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0.dmg
             desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0-dSYMs.zip
+          retention-days: 5
+
+  # Windows and Linux: the release path as a rehearsal, unsigned. Each OS
+  # builds its packages from a release build (no test harness) and keeps
+  # them as workflow artifacts (never a release); a second job on a fresh
+  # runner installs them as a user would, runs the installed app's --smoke
+  # pass, and uninstalls (packaging/{windows,linux}/smoke.*). The runners
+  # are free, so a pull request runs them on the bundle job's paths whatever
+  # its base; not required checks yet.
+  #
+  # Linux builds on Ubuntu 22.04: the .deb's dependencies (dpkg-shlibdeps)
+  # and the binaries' glibc are that release's, the oldest the packages
+  # support (glibc 2.35). Should the runner image retire, the same steps
+  # run in an ubuntu:22.04 container.
+  # The third-party notices both packages carry, made once for each target
+  # (packaging/notices/notices.sh --target): cargo-about and cargo tree read
+  # the target's dependency graph, so Linux makes Windows' too.
+  notices:
+    name: Third-party notices (Windows, Linux)
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.packages != 'false') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Restore the Cargo registry
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: desktop-registry-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock') }}
+          restore-keys: desktop-registry-${{ runner.os }}-
+      - name: Install cargo-about
+        run: cargo install cargo-about --locked --features cli --version 0.9.3
+      - name: Make the notices and check the licence sets
+        run: |
+          desktop/packaging/notices/notices.sh --target x86_64-pc-windows-msvc \
+            --out notices/windows/THIRD_PARTY_NOTICES.md
+          desktop/packaging/notices/notices.sh --target x86_64-unknown-linux-gnu \
+            --out notices/linux/THIRD_PARTY_NOTICES.md
+      - name: Keep the notices
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conduit-desktop-notices-${{ github.sha }}
+          path: notices
+          if-no-files-found: error
+          retention-days: 5
+
+  package-linux:
+    name: Linux packages (rehearsal)
+    needs: notices
+    # The notices job runs where these do; without its notices, no package.
+    if: ${{ !cancelled() && needs.notices.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # The build libraries as the workspace job's, the checks the packages
+      # get (desktop-file-validate, lintian, rpmlint, and rpm to list the
+      # .rpm's modes), and room for the release target.
+      - name: Install the build and packaging tools
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            libwayland-dev libfontconfig-dev libfreetype-dev \
+            dpkg-dev desktop-file-utils lintian rpm rpmlint
+          df -h / | tail -1
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Generate Dart code
+        run: |
+          for dir in packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Restore the Cargo registry
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: desktop-registry-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock') }}
+          restore-keys: desktop-registry-${{ runner.os }}-
+      - name: Packaging helper tests
+        run: python3 desktop/packaging/winlinux_test.py
+      # The refusal itself: --notices inside --out (named through ..) stops
+      # the build before anything compiles, and nothing is moved or staged.
+      - name: package.sh refuses notices inside its output folder
+        run: |
+          out="$RUNNER_TEMP/guard-out"
+          mkdir -p "$out" "$RUNNER_TEMP/guard-x"
+          printf '# Third-party notices: Conduit Desktop for Linux\n' >"$out/THIRD_PARTY_NOTICES.md"
+          status=0
+          desktop/packaging/linux/package.sh --out "$RUNNER_TEMP/guard-x/../guard-out" \
+            --notices "$out/THIRD_PARTY_NOTICES.md" >"$RUNNER_TEMP/guard.log" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/guard.log"
+          [ "$status" != 0 ] || { echo "::error::package.sh accepted notices inside --out"; exit 1; }
+          grep -q 'is inside --out' "$RUNNER_TEMP/guard.log" || { echo "::error::not the guard's refusal"; exit 1; }
+          [ -f "$out/THIRD_PARTY_NOTICES.md" ] && [ ! -e "$out/stage" ] &&
+            ! ls -d "$RUNNER_TEMP"/guard-out.old-* 2>/dev/null ||
+            { echo "::error::the refused build moved or staged something"; exit 1; }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conduit-desktop-notices-${{ github.sha }}
+          path: notices
+      - name: Build the .deb and the .rpm
+        run: >-
+          desktop/packaging/linux/package.sh --version 0.0.0
+          --notices notices/linux/THIRD_PARTY_NOTICES.md
+      # What Debian's and Fedora's linters say, for the record: neither
+      # fails the job yet (these packages aren't Debian's or Fedora's own).
+      - name: lintian and rpmlint (informational)
+        run: |
+          echo "::group::lintian"
+          lintian --no-tag-display-limit desktop/target/linux/Conduit-0.0.0/*.deb || true
+          echo "::endgroup::"
+          echo "::group::rpmlint"
+          rpmlint desktop/target/linux/Conduit-0.0.0/*.rpm || true
+          echo "::endgroup::"
+      - name: Disk left
+        if: always()
+        run: df -h / | tail -1 && du -sh desktop/target 2>/dev/null || true
+      - name: Save the Cargo registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: desktop-registry-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock') }}
+      - name: Keep the packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conduit-desktop-linux-unsigned-${{ github.sha }}
+          path: |
+            desktop/target/linux/Conduit-0.0.0/*.deb
+            desktop/target/linux/Conduit-0.0.0/*.rpm
+          if-no-files-found: error
+          retention-days: 5
+
+  # On a fresh Ubuntu 24.04: the .deb installed with apt, the app's smoke
+  # pass under Xvfb (Mesa's software renderers) with GNOME Keyring as the
+  # Secret Service, and the removal. Then each package in a clean
+  # container of the oldest Ubuntu, Debian and the newest Fedora: its
+  # dependencies alone resolve every library, and the app starts.
+  install-linux:
+    name: Linux install smoke
+    needs: package-linux
+    # On a push or a run by hand, `changes` is skipped: without this the
+    # install job would be skipped with it, though package-linux ran.
+    if: ${{ !cancelled() && needs.package-linux.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conduit-desktop-linux-unsigned-${{ github.sha }}
+          path: dist
+      - name: Install Xvfb, Mesa, GNOME Keyring, secret-tool and desktop-file-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xauth dbus mesa-vulkan-drivers libegl1 libgl1-mesa-dri \
+            gnome-keyring libsecret-tools desktop-file-utils
+      - name: Install, smoke-test and remove the .deb
+        run: desktop/packaging/linux/smoke.sh dist/*.deb "$RUNNER_TEMP/conduit-smoke"
+      - name: The .deb in clean Ubuntu 22.04 and Debian 12
+        run: |
+          for image in ubuntu:22.04 debian:12; do
+            echo "::group::$image"
+            docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" "$image" \
+              bash /src/desktop/packaging/linux/smoke.sh --container "/src/$(ls dist/*.deb)"
+            echo "::endgroup::"
+          done
+      - name: The .rpm in a clean Fedora
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" fedora:latest \
+            bash /src/desktop/packaging/linux/smoke.sh --container "/src/$(ls dist/*.rpm)"
+      - name: Keep the smoke's logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conduit-desktop-linux-smoke-${{ github.sha }}
+          path: ${{ runner.temp }}/conduit-smoke
+          retention-days: 5
+
+  # Built on D:\ (the workspace's drive), with the C runtime linked in so
+  # the installed app needs no Visual C++ Redistributable; Inno Setup is
+  # the release tools.env pins (packaging/windows/build.ps1).
+  package-windows:
+    name: Windows installer (rehearsal)
+    needs: notices
+    # The notices job runs where these do; without its notices, no package.
+    if: ${{ !cancelled() && needs.notices.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Generate Dart code
+        shell: bash
+        run: |
+          for dir in packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Restore the Cargo registry
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: desktop-registry-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock') }}
+          restore-keys: desktop-registry-${{ runner.os }}-
+      - name: Packaging helper tests
+        run: python desktop/packaging/winlinux_test.py
+      # The refusal itself: -Notices inside -Out (named through ..) stops the
+      # build before anything compiles, and nothing is moved or staged.
+      - name: build.ps1 refuses notices inside its output folder
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'guard-out'
+          New-Item -ItemType Directory -Force -Path $out, (Join-Path $env:RUNNER_TEMP 'guard-x') | Out-Null
+          $notices = Join-Path $out 'THIRD_PARTY_NOTICES.md'
+          Set-Content -LiteralPath $notices -Value '# Third-party notices: Conduit Desktop for Windows'
+          # In this process, so the refusal is the exception's own message.
+          $refusal = $null
+          try {
+            & ./desktop/packaging/windows/build.ps1 -Notices $notices `
+              -Out (Join-Path $env:RUNNER_TEMP 'guard-x\..\guard-out')
+          } catch {
+            $refusal = $_.Exception.Message
+          }
+          Write-Host "build.ps1: $refusal"
+          if (-not $refusal) { throw 'build.ps1 accepted notices inside -Out' }
+          if ($refusal -notmatch 'is inside -Out') { throw "not the guard's refusal: $refusal" }
+          $moved = @(Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'guard-out.old-*')
+          if (-not (Test-Path -LiteralPath $notices) -or (Test-Path -LiteralPath (Join-Path $out 'stage')) -or $moved.Count) {
+            throw 'the refused build moved or staged something'
+          }
+          exit 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conduit-desktop-notices-${{ github.sha }}
+          path: notices
+      - name: Build the installer
+        shell: pwsh
+        run: >-
+          ./desktop/packaging/windows/build.ps1 -Version 0.0.0
+          -Notices notices/windows/THIRD_PARTY_NOTICES.md
+      - name: Disk left
+        if: always()
+        shell: bash
+        run: df -h . | tail -1 && du -sh desktop/target 2>/dev/null || true
+      - name: Save the Cargo registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: desktop-registry-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock') }}
+      - name: Keep the installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conduit-desktop-windows-unsigned-${{ github.sha }}
+          path: desktop/target/windows/Conduit-0.0.0/Conduit-0.0.0-windows-x64-setup.exe
+          if-no-files-found: error
+          retention-days: 5
+
+  # On a fresh runner, as its user: install, registrations, the app's smoke
+  # pass (D3D11 on the runner's WARP adapter), an install over the running
+  # app, then the uninstall (packaging/windows/smoke.ps1).
+  install-windows:
+    name: Windows install smoke
+    needs: package-windows
+    # On a push or a run by hand, `changes` is skipped: without this the
+    # install job would be skipped with it, though package-windows ran.
+    if: ${{ !cancelled() && needs.package-windows.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: conduit-desktop-windows-unsigned-${{ github.sha }}
+          path: dist
+      - name: Install, smoke-test and uninstall
+        shell: pwsh
+        run: >-
+          ./desktop/packaging/windows/smoke.ps1
+          -Installer dist/Conduit-0.0.0-windows-x64-setup.exe
+          -Work "$env:RUNNER_TEMP/conduit-smoke"
+      - name: Keep the smoke's logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conduit-desktop-windows-smoke-${{ github.sha }}
+          path: ${{ runner.temp }}/conduit-smoke
           retention-days: 5

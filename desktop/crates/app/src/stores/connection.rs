@@ -472,6 +472,12 @@ impl ConnectionStore {
         self.rpc_handle.clone()
     }
 
+    /// Whether the secret store hasn't answered for the master key yet: a
+    /// keyring that prompts or stays locked holds the daemon back.
+    pub fn waiting_for_key(&self) -> bool {
+        self.resolving_key
+    }
+
     /// The window's status. `routed` and `session_error` come from the
     /// session store.
     pub fn status(&self, routed: bool, session_error: Option<&str>) -> Status {

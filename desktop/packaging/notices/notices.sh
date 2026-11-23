@@ -4,8 +4,14 @@
 # runtime, mermaid, Chart.js, noVNC, Lucide, KaTeX fonts), the Rust crates in
 # the conduit-desktop binary (cargo-about) and the Dart packages in conduitd.
 #
-#   desktop/packaging/notices/notices.sh [--out FILE]
-#   desktop/packaging/notices/notices.sh --check
+#   desktop/packaging/notices/notices.sh [--out FILE] [--target TRIPLE]
+#   desktop/packaging/notices/notices.sh --check [--target TRIPLE]
+#
+# --target: the Rust target the app is built for, default Apple Silicon
+# (aarch64-apple-darwin); x86_64-pc-windows-msvc and
+# x86_64-unknown-linux-gnu make the Windows and Linux packages' notices,
+# with what those bundle (no Sparkle, no whisper library). Any of them can
+# be made on any of the three systems.
 #
 # The file is not committed. packaging/macos/bundle.sh writes it into each
 # bundle (Contents/Resources/THIRD_PARTY_NOTICES.md); without --out it goes
@@ -13,7 +19,7 @@
 # temporary folder only (CI runs it).
 #
 # Either way it fails unless the licence set is complete:
-# * every crate cargo builds into the app for Apple Silicon (its normal
+# * every crate cargo builds into the app for the target (its normal
 #   dependencies, as `cargo tree` resolves them) is listed with its licence,
 #   except the workspace's own crates and the vendored gpui-pre (listed
 #   with the bundled components);
@@ -32,14 +38,22 @@ here="$(cd "$(dirname "$0")" && pwd)"
 
 check=0
 out="$DESKTOP_DIR/target/notices/THIRD_PARTY_NOTICES.md"
+target="$RUST_TARGET"
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) check=1 ;;
     --out) out="$2"; shift ;;
+    --target) target="$2"; shift ;;
     *) die "unknown argument: $1 (see the header of $0)" ;;
   esac
   shift
 done
+case "$target" in
+  *-apple-darwin) platform=macos ;;
+  *-windows-*) platform=windows ;;
+  *-linux-*) platform=linux ;;
+  *) die "--target $target: notices are made for macOS, Windows and Linux targets" ;;
+esac
 work="$(mktemp -d "${TMPDIR:-/tmp}/conduit-notices.XXXXXX")"
 [ "$check" = 1 ] && out="$work/THIRD_PARTY_NOTICES.md"
 mkdir -p "$(dirname "$out")"
@@ -55,8 +69,8 @@ command -v cargo-about >/dev/null || die "cargo-about is missing: cargo install 
 log "Cargo.lock's crates (cargo fetch --locked)"
 (cd "$DESKTOP_DIR" && cargo fetch --locked)
 
-log "Rust crates (cargo-about)"
-(cd "$DESKTOP_DIR" && cargo about generate --offline --locked \
+log "Rust crates for $target (cargo-about)"
+(cd "$DESKTOP_DIR" && cargo about generate --offline --locked --target "$target" \
   -c packaging/notices/about.toml -m crates/app/Cargo.toml \
   packaging/notices/about.hbs -o "$work/rust.md") 2>"$work/cargo-about.log" || {
   cat "$work/cargo-about.log" >&2
@@ -66,7 +80,7 @@ log "Rust crates (cargo-about)"
 # target, as cargo resolves them.
 # --color never: CI sets CARGO_TERM_COLOR=always, which would wrap the
 # `(*)` and `(proc-macro)` markers in escape codes.
-(cd "$DESKTOP_DIR" && cargo --color never tree -p conduit-desktop -e normal --target "$RUST_TARGET" \
+(cd "$DESKTOP_DIR" && cargo --color never tree -p conduit-desktop -e normal --target "$target" \
   --prefix none --format '{p}' --locked --offline) >"$work/crates.txt"
 
 log "Dart packages (conduitd)"
@@ -92,12 +106,17 @@ done
 registry="$(cd "$DESKTOP_DIR" && cargo metadata --format-version 1 --locked --offline |
   python3 -I -c 'import json,sys,os; m=json.load(sys.stdin); print(next(os.path.dirname(os.path.dirname(p["manifest_path"])) for p in m["packages"] if p["name"]=="gpui-kit-assets"))')"
 
+# Sparkle ships in the Mac's bundle only.
+sparkle=()
+if [ "$platform" = macos ]; then sparkle=(--sparkle-license "$(sparkle_dir)/LICENSE"); fi
+
 python3 -I "$here/notices.py" \
+  --platform "$platform" \
+  ${sparkle[@]+"${sparkle[@]}"} \
   --rust "$work/rust.md" \
   --expected-crates "$work/crates.txt" \
   --pub-deps "$work/pub-deps.json" \
   --package-config "$config" \
-  --sparkle-license "$(sparkle_dir)/LICENSE" \
   --dart-sdk-license "$sdk_license" \
   --cargo-registry "$registry" \
   --repo "$REPO_ROOT" \
