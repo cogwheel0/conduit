@@ -1534,6 +1534,40 @@ void main() {
       check(await turn).equals('preferred-model');
     });
 
+    test('a pick or a selection naming a model the server no longer has is '
+        'neither listed nor sent, and the chat falls back', () async {
+      _Growing.extra = const <core.Model>[
+        core.Model(id: 'gone-model', name: 'Gone'),
+      ];
+      addTearDown(() => _Growing.extra = const <core.Model>[]);
+      final container = _agentContainer(_AgentsApi(), models: _Growing.new);
+      final models = ModelsService(container);
+      await models.select('gone-model', chatId: 'plain-chat');
+      // Deleted on the server since: listed nowhere, hidden nowhere.
+      _Growing.extra = const <core.Model>[];
+      container.invalidate(modelsProvider);
+      await container.read(modelsProvider.future);
+      final chat = await models.list(
+        const ModelListQuery(chatId: 'plain-chat'),
+      );
+      check(chat.selectedId).equals('first-model');
+      check(chat.models.map((m) => m.id)).not((it) => it.contains('gone-model'));
+      check(await models.modelFor('plain-chat')).equals('first-model');
+      // The account's own selection, gone too: New Chat falls back, and no
+      // control takes it.
+      container
+          .read(selectedModelProvider.notifier)
+          .set(const core.Model(id: 'gone-model', name: 'Gone'));
+      check((await models.list()).selectedId).not((it) => it.equals('gone-model'));
+      check(await models.modelFor(null)).not((it) => it.equals('gone-model'));
+      await expectLater(
+        models.setReasoningEffort(
+          const SetReasoningEffort(modelId: 'gone-model', effort: 'high'),
+        ),
+        refused(ConduitErrorCodes.notFound),
+      );
+    });
+
     test('a selection made while the saved model is looked up is the one '
         'answered', () async {
       final api = _AgentsApi()..hiddenHeld = Completer<void>();

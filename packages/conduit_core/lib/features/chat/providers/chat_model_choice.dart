@@ -89,19 +89,15 @@ final _hiddenModelLookupsProvider =
       return <String, ({List<Model> listed, Model? model})>{};
     });
 
-/// The model [id] names for a turn, a control or a setting: the one
-/// selected now, a listed one, or one the server hides from the picker but
-/// still offers ([modelSavedWithChat]): a chat saved on it runs on it, as
-/// mobile's selection keeps it. Null for any other. A coding agent is
-/// named by its terminal, not here.
+/// The model [id] names for a turn, a control or a setting: a listed one,
+/// or one the server hides from the picker but still offers
+/// ([modelSavedWithChat]): a chat saved on it runs on it, as mobile's
+/// selection keeps it. Null for one the server no longer offers, even when
+/// it is still selected. A coding agent is named by its terminal, not here.
 Future<Model?> modelForId(
   T Function<T>(ProviderListenable<T> provider) read,
   String id,
-) async {
-  final selected = read(selectedModelProvider);
-  if (selected?.id == id) return selected;
-  return modelSavedWithChat(read, id);
-}
+) => modelSavedWithChat(read, id);
 
 /// The model the user last picked in an open chat, with the ids of the
 /// prompts the chat held then. Open WebUI 0.12.5 regenerates an answer with

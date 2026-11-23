@@ -461,25 +461,33 @@ final class ModelsService {
     // actually use is worse than showing none. The list only reports what
     // the terminal offers: it never decides the selection (the window keeps
     // each chat's own pick), so nothing is added to it for the selection.
-    // The chat's own pick wins: its saved model is looked up only when there
-    // is none (a lookup can ask the server). A pick only ever replaces
-    // another, so one read here still holds once the answer is put
+    // The chat's own pick wins while the server still offers its model: its
+    // saved model is looked up only when there is none (a lookup can ask
+    // the server). A pick only ever replaces another, and a new one comes
+    // from the list, so one read here still holds once the answer is put
     // together.
     bool applies(core.Model? pick) =>
         pick != null && !(isTerminalAgentModel(pick) && query.temporary);
-    final picked = applies(
-      _picksOf(account)[_slotOf(chatId, temporary: query.temporary)]?.model,
-    );
+    final early = _picksOf(
+      account,
+    )[_slotOf(chatId, temporary: query.temporary)]?.model;
+    final picked = applies(early) && await _stillOffered(early!, models);
     final saved = picked ? null : await _savedModel(conversation, account);
     if (chatId == null) {
       await _checkNewChat(account, temporary: query.temporary);
     }
     // Read after the waits above, so a selection made meanwhile is the one
-    // answered; an agent selected for another chat is never this one's.
+    // answered; an agent selected for another chat is never this one's,
+    // and one the server no longer offers is no one's.
     final current = await currentModel(_container);
-    final fallback = current != null && isTerminalAgentModel(current)
-        ? await _regularDefault(models)
-        : current;
+    final fallback =
+        current != null &&
+            !isTerminalAgentModel(current) &&
+            await _stillOffered(current, models)
+        ? current
+        : current == null
+        ? null
+        : await _regularDefault(models);
     // Checked right before the answer is put together, after its last
     // wait: the account it was asked for, and the terminal its agents came
     // from, are still the ones in charge.
@@ -495,7 +503,8 @@ final class ModelsService {
       temporary: query.temporary,
     )];
     final pick = record?.model;
-    final selected = applies(pick) ? pick : saved ?? fallback;
+    final holds = applies(pick) && (!identical(pick, early) || picked);
+    final selected = holds ? pick : saved ?? fallback;
     final selectedId = selected?.id;
     final found2 = _container.read(selectedTerminalIdProvider) == terminal
         ? found.agents
@@ -508,9 +517,11 @@ final class ModelsService {
           !found2.any((agent) => agent.id == selected.id))
         selected,
     ];
-    // A model the chat was saved with and the server has hidden since is
-    // listed for it, so the window can show and send it; the picker's
-    // layout (below) leaves it out, as mobile's picker does.
+    // A model the server hides from the picker but still offers (the chat's
+    // saved model, or a pick or selection on one hidden since) is listed
+    // for it, so the window can show and send it; the picker's layout
+    // (below) leaves it out, as mobile's picker does. One it no longer
+    // offers at all was never selected above.
     final hidden =
         selected != null &&
             !isTerminalAgentModel(selected) &&
@@ -803,6 +814,9 @@ final class ModelsService {
   /// ([modelForId]): a hidden model a chat was saved with included.
   Future<core.Model?> _model(String? id) async {
     if (id == null) return currentModel(_container);
+    // The settled list first, as before; past it, the core's rule.
+    final listed = (await _models()).where((m) => m.id == id).firstOrNull;
+    if (listed != null) return listed;
     try {
       return await modelForId(_container.read, id);
     } on Object {
@@ -955,30 +969,45 @@ final class ModelsService {
   Future<String> modelFor(String? chatId, {bool temporary = false}) async {
     final account = AccountScope.capture(_container);
     if (chatId == null) await _checkNewChat(account, temporary: temporary);
-    // The chat's own pick, read again after every wait below: one made
-    // meanwhile wins over whatever the wait found.
-    String? picked() =>
-        _picksOf(account)[_slotOf(chatId, temporary: temporary)]?.model?.id;
-    if (picked() case final pick?) return pick;
+    // The chat's own pick while the server still offers its model, read
+    // again after every wait below: one made meanwhile wins over whatever
+    // the wait found.
+    Future<String?> picked() async {
+      final pick = _picksOf(
+        account,
+      )[_slotOf(chatId, temporary: temporary)]?.model;
+      if (pick == null) return null;
+      final offered = await _stillOffered(pick, await _models());
+      account.require('the model in use is read');
+      return offered ? pick.id : null;
+    }
+
+    if (await picked() case final pick?) return pick;
     if (chatId != null) {
       final conversation = await _conversation(chatId, account);
-      if (picked() case final pick?) return pick;
+      if (await picked() case final pick?) return pick;
       final saved = conversation?.model;
       if (saved != null && isTerminalAgentModelId(saved)) return saved;
       final model = await _savedModel(conversation, account);
       account.require('the model in use is read');
-      if (picked() case final pick?) return pick;
+      if (await picked() case final pick?) return pick;
       if (model != null) return model.id;
     }
     final current = await currentModel(_container);
     account.require('the model in use is read');
-    if (picked() case final pick?) return pick;
-    if (current != null && !isTerminalAgentModel(current)) return current.id;
+    if (await picked() case final pick?) return pick;
     final models = await _models();
     account.require('the model in use is read');
+    if (current != null &&
+        !isTerminalAgentModel(current) &&
+        await _stillOffered(current, models)) {
+      account.require('the model in use is read');
+      if (await picked() case final pick?) return pick;
+      return current.id;
+    }
     final regular = await _regularDefault(models);
     account.require('the model in use is read');
-    if (picked() case final pick?) return pick;
+    if (await picked() case final pick?) return pick;
     if (regular == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
@@ -986,6 +1015,21 @@ final class ModelsService {
       );
     }
     return regular.id;
+  }
+
+  /// Whether the server still offers [model]: listed, a coding agent (its
+  /// terminal's to offer), or hidden from the picker but still offered
+  /// ([modelForId]). A pick or selection on one it no longer has falls
+  /// back, as a chat whose saved model is offered nowhere does.
+  Future<bool> _stillOffered(core.Model model, List<core.Model> listed) async {
+    if (isTerminalAgentModel(model) || listed.any((m) => m.id == model.id)) {
+      return true;
+    }
+    try {
+      return await modelForId(_container.read, model.id) != null;
+    } on Object {
+      return false;
+    }
   }
 
   /// The model [conversation] was saved with, as a chat opened with no pick
@@ -1264,7 +1308,8 @@ final class ModelsService {
         account,
       )).agents.where((candidate) => candidate.id == id).firstOrNull;
     }
-    if (selected?.id == id) return selected;
+    // By the core's one rule, never the selection by its id alone: one the
+    // server no longer offers takes no control.
     return _model(id);
   }
 
