@@ -3,7 +3,6 @@ import 'dart:collection';
 
 import 'package:collection/collection.dart';
 
-import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind;
 import 'package:conduit_core/database/local_conversation_loader.dart'
@@ -17,6 +16,7 @@ import 'package:conduit_core/features/chat/providers/context_attachments_provide
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_prompt_resolution.dart';
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
+import 'package:conduit_core/features/chat/services/chat_backend_readiness.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
@@ -69,12 +69,8 @@ import 'package:conduit_core/services/message_rating.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/librechat/models/librechat_tools.dart';
-import 'package:conduit_core/features/librechat/models/librechat_model.dart'
-    show isLibreChatModel;
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart'
     show kLibreChatTransport;
-import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
-    show libreChatSessionHandleProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
@@ -4158,9 +4154,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
   }
 
   /// Refuses a turn its backend cannot take, saying why, before the core
-  /// starts one: signed out of Open WebUI, Hermes not set up or waiting for
-  /// its sign-in. The core would stop quietly or fail further in, and the
-  /// window could only call that a connection problem.
+  /// starts one ([chatBackendNotReady]): signed out of Open WebUI or
+  /// LibreChat, Hermes not set up or waiting for its sign-in.
   Future<void> _requireBackendFor(Model model) async {
     if (isHermesModel(model)) {
       final config = _container.read(hermesConfigProvider.notifier);
@@ -4173,54 +4168,49 @@ final class TurnsService implements ChatTurns, AddressReplies {
         // does; made later it would rebuild the service underneath.
         await config.ensureSessionKey();
       }
-      if (_container.read(hermesApiServiceProvider) == null) {
+    }
+    switch (chatBackendNotReady(_container, model)) {
+      case null:
+        return;
+      case ChatBackendNotReady.hermesNotConfigured:
         throw const RpcError(
           code: ConduitErrorCodes.unauthenticated,
           args: <String, String>{'backend': 'hermes'},
           debugMessage: 'Hermes is not configured',
         );
-      }
-      if (hermesAwaitsSignIn(_container.read(hermesConfigProvider))) {
+      case ChatBackendNotReady.hermesAwaitsSignIn:
         throw const RpcError(
           code: ConduitErrorCodes.unauthenticated,
           args: <String, String>{'backend': 'hermes'},
           debugMessage: 'sign in to Hermes first',
         );
-      }
-      return;
-    }
-    if (isLibreChatModel(model)) {
-      // A LibreChat model sends through the LibreChat account's session,
-      // whose renewals the core runs; none signed in means a sign-in first.
-      if (_container.read(libreChatSessionHandleProvider) == null) {
+      case ChatBackendNotReady.libreChatSignedOut:
         throw const RpcError(
           code: ConduitErrorCodes.unauthenticated,
           args: <String, String>{'backend': 'libreChat'},
           debugMessage: 'sign in to LibreChat first',
         );
-      }
-      return;
+      case ChatBackendNotReady.openWebUiSignedOut:
+        throw _openWebUiSignedOut;
+      // As [_resolveModel] refuses a named one.
+      case ChatBackendNotReady.modelUnavailable:
+        throw RpcError(
+          code: ConduitErrorCodes.notFound,
+          args: <String, String>{'model': model.id},
+          debugMessage: 'that model is not available',
+        );
     }
-    final binding = _container.read(directModelRegistryProvider).resolve(model);
-    if (binding?.source == DirectModelSource.device) return;
-    _requireOpenWebUi();
   }
 
+  static const _openWebUiSignedOut = RpcError(
+    code: ConduitErrorCodes.unauthenticated,
+    debugMessage: 'sign in before sending a turn',
+  );
+
   /// The signed-in server, or the error that says why there is none.
-  ///
-  /// Both checks, in this order: a configured-but-signed-out server still
-  /// produces a client, so a null check alone lets the request go out and
-  /// come back as a transport error.
   ApiService _requireOpenWebUi() {
-    final api = _container.read(apiServiceProvider);
-    final session = _container.read(authStateManagerProvider).value;
-    if (api == null || session == null || !session.isAuthenticated) {
-      throw const RpcError(
-        code: ConduitErrorCodes.unauthenticated,
-        debugMessage: 'sign in before sending a turn',
-      );
-    }
-    return api;
+    if (!openWebUiSignedIn(_container)) throw _openWebUiSignedOut;
+    return _container.read(apiServiceProvider)!;
   }
 
   /// Refuses a second turn in a chat that is already generating: two

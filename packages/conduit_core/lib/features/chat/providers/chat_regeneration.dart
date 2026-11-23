@@ -948,6 +948,52 @@ Model? _listedModel(dynamic ref, String id) {
       (DirectModelId.decode(id) == null ? Model(id: id, name: id) : null);
 }
 
+/// One answer of a multi-model turn (only an Open WebUI chat holds one)
+/// regenerates on its own column's model, or the one picked since that turn
+/// was sent, whatever the picker holds now: that column's target in
+/// [conversation], whose transcript ends with [messages] (the open chat's
+/// when null); null otherwise.
+({String modelId, int slot})? _comparisonTargetIn(
+  dynamic ref,
+  Conversation? conversation, {
+  List<ChatMessage>? messages,
+  String? answerId,
+}) {
+  if (ref.read(reviewerModeProvider) == true ||
+      conversation == null ||
+      !conversationUsesOpenWebUiStorage(conversation)) {
+    return null;
+  }
+  return _comparisonRegenerationTarget(
+    messages ?? ref.read(chatMessagesProvider) as List<ChatMessage>,
+    picked: switch (ref.read(chatModelPickProvider) as ChatModelPick?) {
+      final pick? when pick.chatId == conversation.id => pick,
+      _ => null,
+    },
+    answerId: answerId,
+  );
+}
+
+/// The model regenerating [answer], the answer to [question], in the open
+/// chat runs on, as [regenerateMessage] picks it: a comparison column's
+/// ([_comparisonTargetIn]), else the one selected now.
+Model? regenerationModelFor(
+  dynamic ref, {
+  required ChatMessage question,
+  required ChatMessage answer,
+  String? answerId,
+}) {
+  final target = _comparisonTargetIn(
+    ref,
+    ref.read(activeConversationProvider) as Conversation?,
+    messages: <ChatMessage>[question, answer],
+    answerId: answerId,
+  );
+  return target == null
+      ? ref.read(selectedModelProvider) as Model?
+      : _listedModel(ref, target.modelId);
+}
+
 /// [_comparisonRegenerationTarget], for tests.
 @visibleForTesting
 ({String modelId, int slot})? debugComparisonRegenerationTarget(
@@ -982,25 +1028,13 @@ Future<void> regenerateMessage(
 
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
-  // One answer of a multi-model turn (only an Open WebUI chat holds one)
-  // regenerates on its own column's model, or the one picked since that
-  // turn was sent, whatever the picker holds now. Decided first, so the
-  // transport, the checks below and the model the answer names all follow
-  // it, on every host.
-  final comparisonTarget =
-      reviewerMode ||
-          conversationAtRegenerationStart == null ||
-          !conversationUsesOpenWebUiStorage(conversationAtRegenerationStart)
-      ? null
-      : _comparisonRegenerationTarget(
-          ref.read(chatMessagesProvider) as List<ChatMessage>,
-          picked: switch (ref.read(chatModelPickProvider) as ChatModelPick?) {
-            final pick? when pick.chatId == conversationAtRegenerationStart.id =>
-              pick,
-            _ => null,
-          },
-          answerId: comparisonAnswerId,
-        );
+  // Decided first, so the transport, the checks below and the model the
+  // answer names all follow it, on every host.
+  final comparisonTarget = _comparisonTargetIn(
+    ref,
+    conversationAtRegenerationStart,
+    answerId: comparisonAnswerId,
+  );
   final selectedModelCandidate = comparisonTarget == null
       ? ref.read(selectedModelProvider) as Model?
       : _listedModel(ref, comparisonTarget.modelId);

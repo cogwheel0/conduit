@@ -7,6 +7,7 @@
 library;
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/services/chat_backend_readiness.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 import 'package:conduit_core/features/chat/utils/message_targeting.dart';
@@ -19,6 +20,7 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
@@ -221,6 +223,14 @@ Future<bool> resendEditedUserMessage(
   required String messageId,
   required String newText,
 }) async {
+  // Before the transcript is cut: a backend that cannot take the turn
+  // leaves it as it was.
+  final backendReady = requireChatBackendReady(
+    ref,
+    ref.read(selectedModelProvider) as Model?,
+    conversation: ref.read(activeConversationProvider) as Conversation?,
+  );
+  if (backendReady != null) await backendReady;
   final text = newText.trim();
   final messages = ref.read(chatMessagesProvider) as List<ChatMessage>;
   final index = indexOfMessageId(messages, messageId);

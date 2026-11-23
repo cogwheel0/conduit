@@ -312,6 +312,15 @@ Future<void> durableSend(
     );
   }
 
+  // Before anything is written: a backend that cannot take the turn refuses
+  // it here rather than as an error answer in the chat.
+  final backendReady = requireChatBackendReady(
+    ref,
+    ref.read(selectedModelProvider) as Model?,
+    conversation: ref.read(activeConversationProvider) as Conversation?,
+  );
+  if (backendReady != null) await backendReady;
+
   final voiceReply = voice?.reply;
 
   final activeAtSendStart = ref.read(activeConversationProvider);

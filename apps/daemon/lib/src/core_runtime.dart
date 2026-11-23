@@ -53,7 +53,6 @@ import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
 import 'hermes_dashboard_cookies.dart';
-import 'hermes_service.dart' show hermesAwaitsSignIn;
 import 'apple_models_service.dart' show AppleModelsBridge;
 import 'location_bridge.dart';
 import 'calls_service.dart' show CallPorts;
@@ -208,11 +207,11 @@ final class CoreRuntime {
       return true;
     }
     // So is a chosen Hermes gateway that still has to sign in: the core
-    // counts it set up, but it cannot answer yet (see [hermesAwaitsSignIn]).
+    // counts it set up, but it cannot answer yet ([HermesConfig.awaitsSignIn]).
     return destination == null &&
         container.read(activeServerProvider).value == null &&
         container.read(preferredBackendProvider) == PreferredBackend.hermes &&
-        hermesAwaitsSignIn(container.read(hermesConfigProvider));
+        container.read(hermesConfigProvider).awaitsSignIn;
   }
 
   /// Sends what the outbox holds, for at most [budget], and returns how

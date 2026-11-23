@@ -7339,5 +7339,23 @@
   "knowledgeBaseEntire": "Celá znalostní báze",
   "@knowledgeBaseEntire": {
     "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  },
+  "chatBackendSignInRequired": "Přihlaste se k {backend} a zkuste to znovu.",
+  "@chatBackendSignInRequired": {
+    "description": "Shown when a message, a regenerate or an edit is not sent because the chat's backend is signed out; the draft stays. {backend} is a product name (Open WebUI, LibreChat or Hermes) and is not translated.",
+    "placeholders": {
+      "backend": {
+        "type": "String",
+        "example": "LibreChat"
+      }
+    }
+  },
+  "chatBackendHermesNotSetUp": "Hermes Agent není nastaven. Připojte ho v části Nastavení → Hermes Agent a zkuste to znovu.",
+  "@chatBackendHermesNotSetUp": {
+    "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is not set up or is turned off; the draft stays."
+  },
+  "chatBackendModelUnavailable": "Tento model už není k dispozici. Vyberte jiný model a zkuste to znovu.",
+  "@chatBackendModelUnavailable": {
+    "description": "Shown when a message, a regenerate or an edit is not sent because its Direct or Apple model is no longer offered (its connection was removed or turned off); the draft stays."
   }
 }

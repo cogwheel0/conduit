@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -16,8 +18,12 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart'
     show ApplyInterceptor, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
@@ -53,6 +59,45 @@ class _GateOutboxEnqueue extends QueryInterceptor {
 }
 
 /// Records the databases the send asked the engine to drain.
+/// A signed-in server that answers nothing: the resend queues its turn in
+/// the outbox and asks for a drain, which [_RecordingSyncEngine] records.
+class _Server extends ApiService {
+  _Server()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'server',
+          url: 'https://server.example.test',
+        ),
+        workerManager: WorkerManager(),
+      ) {
+    dio.httpClientAdapter = _Silent();
+    dio.interceptors.clear();
+  }
+
+  @override
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async =>
+      const <String, dynamic>{};
+}
+
+class _Silent implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) async => ResponseBody.fromString(
+    jsonEncode(const <String, dynamic>{}),
+    404,
+    headers: {
+      Headers.contentTypeHeader: ['application/json; charset=utf-8'],
+    },
+  );
+
+  @override
+  void close({bool force = false}) {}
+}
+
 final class _RecordingSyncEngine extends SyncEngine {
   final List<AppDatabase> drained = <AppDatabase>[];
 
@@ -154,7 +199,7 @@ void main() {
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
           isAuthenticatedProvider2.overrideWithValue(true),
-          apiServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(_Server()),
           socketServiceProvider.overrideWithValue(null),
           appDatabaseProvider.overrideWithValue(db),
           syncEngineProvider.overrideWith(() => engine),

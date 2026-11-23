@@ -5211,5 +5211,23 @@
   "knowledgeBaseEntire": "Gesamte Wissensdatenbank",
   "@knowledgeBaseEntire": {
     "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  },
+  "chatBackendSignInRequired": "Melde dich bei {backend} an und versuche es dann erneut.",
+  "@chatBackendSignInRequired": {
+    "description": "Shown when a message, a regenerate or an edit is not sent because the chat's backend is signed out; the draft stays. {backend} is a product name (Open WebUI, LibreChat or Hermes) and is not translated.",
+    "placeholders": {
+      "backend": {
+        "type": "String",
+        "example": "LibreChat"
+      }
+    }
+  },
+  "chatBackendHermesNotSetUp": "Hermes Agent ist nicht eingerichtet. Verbinde ihn unter Einstellungen → Hermes Agent und versuche es dann erneut.",
+  "@chatBackendHermesNotSetUp": {
+    "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is not set up or is turned off; the draft stays."
+  },
+  "chatBackendModelUnavailable": "Dieses Modell ist nicht mehr verfügbar. Wähle ein anderes Modell und versuche es dann erneut.",
+  "@chatBackendModelUnavailable": {
+    "description": "Shown when a message, a regenerate or an edit is not sent because its Direct or Apple model is no longer offered (its connection was removed or turned off); the draft stays."
   }
 }

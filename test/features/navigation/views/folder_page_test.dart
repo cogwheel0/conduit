@@ -763,6 +763,7 @@ void main() {
 
     final container = _createContainer(
       folders: const [Folder(id: 'work', name: 'Work')],
+      api: _ProjectApi(null, const {}),
       isAuthenticated: true,
       database: db,
       selectedModel: const Model(

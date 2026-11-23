@@ -218,6 +218,7 @@ import '../services/chat_transport_dispatch.dart';
 
 import 'package:conduit_core/features/chat/services/chat_backup.dart'
     show ChatImportPreview, prepareChatImport;
+import 'package:conduit_core/features/chat/services/chat_backend_readiness.dart';
 import 'package:conduit_core/features/chat/services/chat_branch_service.dart';
 import 'package:conduit_core/features/chat/services/chat_data_controls.dart';
 import 'package:conduit_core/features/chat/services/chat_comparison_service.dart';

@@ -275,6 +275,14 @@ class HermesConfig {
         (apiKey?.trim().isNotEmpty ?? false);
   }
 
+  /// A desktop gateway that signs in natively and has not signed in yet:
+  /// [isUsable] counts it set up, but it has nothing to authenticate its
+  /// requests by.
+  bool get awaitsSignIn =>
+      mode == HermesBackendMode.desktopGateway &&
+      desktopAuthKind == HermesDesktopAuthKind.nativePkce &&
+      desktopCredentials?.nativeTokens == null;
+
   static bool isValidDesktopProfile(String value) =>
       RegExp(r'^[a-z0-9][a-z0-9_-]{0,63}$').hasMatch(value);
 

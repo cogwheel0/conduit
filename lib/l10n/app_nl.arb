@@ -5210,5 +5210,23 @@
   "knowledgeBaseEntire": "Hele kennisbank",
   "@knowledgeBaseEntire": {
     "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  },
+  "chatBackendSignInRequired": "Log in bij {backend} en probeer het opnieuw.",
+  "@chatBackendSignInRequired": {
+    "description": "Shown when a message, a regenerate or an edit is not sent because the chat's backend is signed out; the draft stays. {backend} is a product name (Open WebUI, LibreChat or Hermes) and is not translated.",
+    "placeholders": {
+      "backend": {
+        "type": "String",
+        "example": "LibreChat"
+      }
+    }
+  },
+  "chatBackendHermesNotSetUp": "Hermes Agent is niet ingesteld. Verbind hem in Instellingen → Hermes Agent en probeer het opnieuw.",
+  "@chatBackendHermesNotSetUp": {
+    "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is not set up or is turned off; the draft stays."
+  },
+  "chatBackendModelUnavailable": "Dit model is niet meer beschikbaar. Kies een ander model en probeer het opnieuw.",
+  "@chatBackendModelUnavailable": {
+    "description": "Shown when a message, a regenerate or an edit is not sent because its Direct or Apple model is no longer offered (its connection was removed or turned off); the draft stays."
   }
 }

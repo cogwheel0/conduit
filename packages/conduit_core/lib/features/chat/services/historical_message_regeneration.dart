@@ -10,6 +10,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../providers/chat_providers.dart';
 
+import 'package:conduit_core/features/chat/services/chat_backend_readiness.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
 
 import '../utils/message_targeting.dart';
@@ -211,6 +212,26 @@ Future<void> regenerateHistoricalMessageById(
   if (isLibreChatConversation(openChat) &&
       isLibreChatReplyRunning(ref, openChat)) {
     throw const LibreChatReplyRunningException();
+  }
+  // Before the answer is archived: a backend that cannot take the turn
+  // leaves the transcript as it was. Asked of the model that answers, which
+  // for a comparison's column is the column's, not the composer's.
+  final shown = resolveAssistantRegenerationTarget(
+    ref.read(chatMessagesProvider) as List<ChatMessage>,
+    assistantMessageId,
+  );
+  if (shown != null) {
+    final backendReady = requireChatBackendReady(
+      ref,
+      regenerationModelFor(
+        ref,
+        question: shown.userMessage,
+        answer: shown.assistantMessage,
+        answerId: columnAnswerId,
+      ),
+      conversation: openChat,
+    );
+    if (backendReady != null) await backendReady;
   }
 
   final originalMessages = List<ChatMessage>.from(

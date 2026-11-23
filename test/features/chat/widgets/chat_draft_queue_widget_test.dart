@@ -277,6 +277,7 @@ Future<_Rig> _pump(
       overrides: [
         appDatabaseProvider.overrideWith((ref) => db),
         apiServiceProvider.overrideWithValue(api),
+        isAuthenticatedProvider2.overrideWithValue(true),
         activeConversationProvider.overrideWith(
           () => _ActiveChat(
             withChatStorageProvenance(

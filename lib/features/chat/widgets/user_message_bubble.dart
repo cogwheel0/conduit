@@ -20,11 +20,13 @@ import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/file_type_utils.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
 
+import 'package:conduit_core/features/chat/services/chat_backend_readiness.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 
+import 'chat_backend_not_ready_notice.dart';
 import 'enhanced_attachment.dart';
 import 'enhanced_image_attachment.dart';
 import 'image_gallery_scope.dart';
@@ -1121,6 +1123,11 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         messageId: messageId,
         newText: newText,
       );
+    } on ChatBackendNotReadyException catch (error) {
+      // Refused before the transcript changed: the editor stays open with
+      // the edit, to send once the backend is signed in or set up.
+      keepEditing = true;
+      if (mounted) showChatBackendNotReady(context, error.reason);
     } on LibreChatReplyRunningException {
       keepEditing = true;
       if (mounted) {
