@@ -241,7 +241,16 @@ Future<void> regenerateHistoricalMessageById(
   final mutationOwner = captureChatMutationOwner(ref, activeAtStart);
   final mutationRegistry = ref.read(_historicalRegenerationRegistryProvider);
   final notifier = ref.read(chatMessagesProvider.notifier);
-  final isImageRegeneration = assistantHasNormalizedImageFiles(targetAssistant);
+  // Another column's answer, regenerated in its own column: its own files
+  // say whether it was an image.
+  final column = targetAssistant.versions
+      .where((version) => version.id == columnAnswerId)
+      .firstOrNull;
+  final isImageRegeneration = assistantHasNormalizedImageFiles(
+    column == null
+        ? targetAssistant
+        : targetAssistant.copyWith(files: column.files),
+  );
   final mutation = mutationRegistry.tryBegin(
     ref: ref,
     mutationOwner: mutationOwner,

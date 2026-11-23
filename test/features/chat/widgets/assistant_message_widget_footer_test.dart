@@ -2843,7 +2843,11 @@ void main() {
       Map<String, dynamic>? chatParams,
       bool pickWritesFail = false,
       VoidCallback? onRegenerate,
+      ChatMessage? message,
+      List<Model>? listed,
+      ValueChanged<String>? onRegenerateColumn,
     }) async {
+      final shown = message ?? failed;
       final container = ProviderContainer(
         overrides: [
           textToSpeechControllerProvider.overrideWith(
@@ -2866,8 +2870,10 @@ void main() {
           ),
           selectedModelProvider.overrideWith(() => _SelectedAs(selected)),
           // A live answer, not a queued one.
-          queuedCompletionInfoForMessageProvider(failed.id)
+          queuedCompletionInfoForMessageProvider(shown.id)
               .overrideWith((ref) => Stream<QueuedCompletionInfo?>.value(null)),
+          if (listed != null)
+            modelsProvider.overrideWith(() => _FixedModels(listed)),
           localReasoningEffortsProvider.overrideWith(
             () => _PickedEfforts({
               for (final MapEntry(:key, :value) in picks.entries)
@@ -2893,18 +2899,21 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
+      // Loaded, as the app's list is by the time an answer shows.
+      if (listed != null) await container.read(modelsProvider.future);
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
           child: _buildHarness(
             AssistantMessageWidget(
-              message: failed,
+              message: shown,
               isStreaming: false,
               showFollowUps: false,
               animateOnMount: false,
-              modelName: failed.model,
+              modelName: shown.model,
               onCopy: () {},
               onRegenerate: onRegenerate ?? () {},
+              onRegenerateColumn: onRegenerateColumn,
               onDelete: () {},
             ),
           ),
@@ -2976,6 +2985,57 @@ void main() {
 
       expect(regenerations, 1);
       expect(localReasoningEffortForModel(container.read, plain), 'automatic');
+    });
+
+    testWidgets("under another column's tab, is decided for that column's "
+        'model, clears its pick and regenerates that column', (tester) async {
+      const a = Model(id: 'model-a', name: 'Model A');
+      const b = Model(id: 'model-b', name: 'Model B');
+      // Column A is the message; column B's answer, rejected, is kept among
+      // its alternatives.
+      final comparison = ChatMessage(
+        id: 'answer-a',
+        role: 'assistant',
+        content: 'A answered.',
+        timestamp: DateTime(2024, 1, 1),
+        model: a.id,
+        metadata: const {'parentId': 'question', 'modelIdx': 0},
+        versions: [
+          ChatMessageVersion(
+            id: 'answer-b',
+            content: '',
+            timestamp: DateTime(2024, 1, 1),
+            model: b.id,
+            modelName: b.name,
+            modelIdx: 1,
+            error: const ChatMessageError(
+              content:
+                  'Unrecognized request argument supplied: reasoning_effort',
+            ),
+          ),
+        ],
+      );
+      var regenerations = 0;
+      final columns = <String>[];
+      final container = await pumpFailed(
+        tester,
+        selected: plain,
+        message: comparison,
+        listed: const [a, b],
+        picks: {a.id: 'high', b.id: 'high'},
+        onRegenerate: () => regenerations += 1,
+        onRegenerateColumn: columns.add,
+      );
+      await tester.tap(find.bySemanticsLabel(RegExp('Model B')).first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(retryWithoutEffort);
+      await tester.pumpAndSettle();
+
+      expect(columns, ['answer-b']);
+      expect(regenerations, 0);
+      expect(localReasoningEffortForModel(container.read, b), 'automatic');
+      expect(localReasoningEffortForModel(container.read, a), 'high');
     });
 
     testWidgets('does not regenerate when the pick could not be cleared', (

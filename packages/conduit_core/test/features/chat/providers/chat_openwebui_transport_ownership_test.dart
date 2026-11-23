@@ -1590,6 +1590,7 @@ ProviderContainer _container({
   bool modelSelectable = false,
   String? terminalId,
   bool webSearchAvailable = false,
+  bool imageGenerationAvailable = false,
   PersonalConnectionsAccess personalConnections =
       const PersonalConnectionsAccess.allowed(),
 }) {
@@ -1610,7 +1611,9 @@ ProviderContainer _container({
       webSearchEnabledProvider.overrideWith(_FalseWebSearch.new),
       imageGenerationEnabledProvider.overrideWith(_FalseImageGeneration.new),
       webSearchAvailableProvider.overrideWithValue(webSearchAvailable),
-      imageGenerationAvailableProvider.overrideWithValue(false),
+      imageGenerationAvailableProvider.overrideWithValue(
+        imageGenerationAvailable,
+      ),
       selectedFilterIdsProvider.overrideWithValue(const <String>[]),
       selectedTerminalIdProvider.overrideWithValue(terminalId),
       syncEngineProvider.overrideWith(() => syncEngine),
@@ -8733,6 +8736,7 @@ void main() {
       Map<String, dynamic>? storedBlob,
       User? account,
       bool webSearchAvailable = false,
+      bool imageGenerationAvailable = false,
       bool modelSelectable = false,
       WorkerPort? worker,
       List<Override> overrides = const [],
@@ -8763,6 +8767,7 @@ void main() {
         syncEngine: engine?.call(db, api) ?? _QuietSyncEngine(db, api),
         socket: socket,
         webSearchAvailable: webSearchAvailable,
+        imageGenerationAvailable: imageGenerationAvailable,
         modelSelectable: modelSelectable,
         extraOverrides: [
           modelsProvider.overrideWith(() => _ListedModels(available)),
@@ -10391,12 +10396,19 @@ void main() {
       );
     });
 
-    test("Regenerate on the second column's tab regenerates that column, "
-        'though the first column is the message shown', () async {
+    /// A finished comparison of `model-1` and `model-2`, shown as the phone
+    /// shows a stored one (the second column's answer kept among the
+    /// first's alternatives, each with [firstFiles] and [secondFiles]), then
+    /// Regenerate on the second column's tab: the request that goes out.
+    Future<_FanOutRequest> regenerateSecondColumnTab({
+      List<Map<String, dynamic>>? firstFiles,
+      List<Map<String, dynamic>>? secondFiles,
+    }) async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
         available: const [duplicate, other],
         modelSelectable: true,
+        imageGenerationAvailable: true,
       );
       final handles = await durableCompareSend(
         container,
@@ -10408,14 +10420,13 @@ void main() {
       await replay(container);
       socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
       socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
-      // As a stored comparison is shown: the second column's answer kept
-      // among the first's alternatives, reached by its tab.
       final shown = container.read(chatMessagesProvider);
       final second = shown.singleWhere((m) => m.id == b);
       container.read(chatMessagesProvider.notifier).setMessages([
         for (final message in shown)
           if (message.id == a)
             message.copyWith(
+              files: firstFiles,
               versions: [
                 ChatMessageVersion(
                   id: b,
@@ -10423,6 +10434,7 @@ void main() {
                   timestamp: second.timestamp,
                   model: second.model,
                   modelIdx: 1,
+                  files: secondFiles,
                 ),
               ],
             )
@@ -10434,9 +10446,29 @@ void main() {
       await regenerateHistoricalMessageById(container, a, columnAnswerId: b);
 
       check(api.requests).length.equals(2);
-      final request = api.requests.last;
+      return api.requests.last;
+    }
+
+    test("Regenerate on the second column's tab regenerates that column, "
+        'though the first column is the message shown', () async {
+      final request = await regenerateSecondColumnTab();
       check(request.model).equals('model-2');
       check(request.messageIds!.single.modelIdx).equals(1);
+    });
+
+    // The composer's image toggle is off in both.
+    const image = <String, dynamic>{'type': 'image', 'url': 'generated.png'};
+
+    test("Regenerate on the second column's tab makes an image again when "
+        "that column's answer was one", () async {
+      final request = await regenerateSecondColumnTab(secondFiles: [image]);
+      check(request.imageGeneration).isTrue();
+    });
+
+    test("Regenerate on the second column's tab makes no image for the first "
+        "column's", () async {
+      final request = await regenerateSecondColumnTab(firstFiles: [image]);
+      check(request.imageGeneration).isFalse();
     });
 
     test('once another model is picked, regenerating a compared answer asks '
@@ -15008,6 +15040,7 @@ class _FanOutRequest {
     required this.messageIds,
     required this.userMessage,
     required this.chatParams,
+    this.imageGeneration = false,
   });
 
   final List<Map<String, dynamic>> messages;
@@ -15016,6 +15049,7 @@ class _FanOutRequest {
   final List<ChatCompletionTarget>? messageIds;
   final Map<String, dynamic>? userMessage;
   final Map<String, dynamic>? chatParams;
+  final bool imageGeneration;
 }
 
 /// An API double for a server that fans one request out to several tasks (or,
@@ -15310,6 +15344,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
         chatParams: chatParams == null
             ? null
             : Map<String, dynamic>.of(chatParams),
+        imageGeneration: enableImageGeneration,
       ),
     );
     onRequest?.call();

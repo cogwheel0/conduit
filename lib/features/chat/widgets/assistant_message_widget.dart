@@ -693,20 +693,28 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         .firstOrNull;
   }
 
-  /// Regenerate for the answer shown: its own column's, when a comparison's
-  /// tab shows another column than the message's.
-  VoidCallback? get _regenerate {
+  /// The answer a comparison's tab shows when it is another column than the
+  /// message's, and so the one Regenerate and its retries act on; null for
+  /// the message's own column. Everything that regenerates reads this.
+  ChatComparisonAnswer? get _otherColumnAnswer {
     final group = _comparisonGroup;
-    final shown = group == null || !group.isComparison
-        ? null
-        : _shownAnswer(group);
-    final column = widget.onRegenerateColumn;
-    if (shown == null ||
-        column == null ||
-        shown.slot == group!.displayedSlot.index) {
-      return widget.onRegenerate;
+    if (group == null ||
+        !group.isComparison ||
+        widget.onRegenerateColumn == null) {
+      return null;
     }
-    return () => column(shown.messageId);
+    final shown = _shownAnswer(group);
+    if (shown == null || shown.slot == group.displayedSlot.index) return null;
+    return shown;
+  }
+
+  /// Regenerate for the answer shown: its own column's
+  /// ([_otherColumnAnswer]), else the message's.
+  VoidCallback? get _regenerate {
+    final other = _otherColumnAnswer;
+    final column = widget.onRegenerateColumn;
+    if (other == null || column == null) return widget.onRegenerate;
+    return () => column(other.messageId);
   }
 
   /// The finished answers of this turn a merge may read: the shown answer
@@ -2700,7 +2708,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (group == null || !group.isComparison) {
       return ref.read(selectedModelProvider);
     }
-    return _modelByIdOrSelected(_answerModelId);
+    return _modelByIdOrSelected(_otherColumnAnswer?.model ?? _answerModelId);
   }
 
   /// The model the queued completion replays under: always the one the
