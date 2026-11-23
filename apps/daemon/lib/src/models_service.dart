@@ -119,6 +119,10 @@ Future<core.Model?> currentModel(ProviderContainer container) async {
   return container.read(selectedModelProvider) ?? resolved;
 }
 
+/// A saved model looked up ([ModelsService._savedModel]): what it found, and
+/// the model list it was looked up against.
+typedef _SavedLookup = ({List<core.Model> listed, core.Model? model});
+
 /// Implements `models.*` over the core's model providers.
 final class ModelsService {
   ModelsService(this._container, {EventBus? events}) : _events = events {
@@ -461,7 +465,16 @@ final class ModelsService {
     // actually use is worse than showing none. The list only reports what
     // the terminal offers: it never decides the selection (the window keeps
     // each chat's own pick), so nothing is added to it for the selection.
-    final saved = await _savedModel(conversation);
+    // The chat's own pick wins: its saved model is looked up only when there
+    // is none (a lookup can ask the server). A pick only ever replaces
+    // another, so one read here still holds once the answer is put
+    // together.
+    bool applies(core.Model? pick) =>
+        pick != null && !(isTerminalAgentModel(pick) && query.temporary);
+    final picked = applies(
+      _picksOf(account)[_slotOf(chatId, temporary: query.temporary)]?.model,
+    );
+    final saved = picked ? null : await _savedModel(conversation, account);
     if (chatId == null) {
       await _checkNewChat(account, temporary: query.temporary);
     }
@@ -486,10 +499,7 @@ final class ModelsService {
       temporary: query.temporary,
     )];
     final pick = record?.model;
-    final agentPick = pick != null && isTerminalAgentModel(pick);
-    final selected = pick != null && !(agentPick && query.temporary)
-        ? pick
-        : saved ?? fallback;
+    final selected = applies(pick) ? pick : saved ?? fallback;
     final selectedId = selected?.id;
     final found2 = _container.read(selectedTerminalIdProvider) == terminal
         ? found.agents
@@ -502,8 +512,17 @@ final class ModelsService {
           !found2.any((agent) => agent.id == selected.id))
         selected,
     ];
+    // A model the chat was saved with and the server has hidden since is
+    // listed for it, so the window can show and send it; the picker's
+    // layout (below) leaves it out, as mobile's picker does.
+    final hidden =
+        selected != null &&
+            !isTerminalAgentModel(selected) &&
+            !models.any((m) => m.id == selected.id)
+        ? selected
+        : null;
     final plain = ModelList(
-      models: models.map(_summarize).toList(growable: false),
+      models: [...models, ?hidden].map(_summarize).toList(growable: false),
       selectedId: selectedId,
       agents: agents.map(_summarize).toList(growable: false),
       agentNames: _agentNames(conversation),
@@ -943,7 +962,7 @@ final class ModelsService {
       final conversation = await _conversation(chatId, account);
       final saved = conversation?.model;
       if (saved != null && isTerminalAgentModelId(saved)) return saved;
-      final model = await _savedModel(conversation);
+      final model = await _savedModel(conversation, account);
       account.require('the model in use is read');
       if (model != null) return model.id;
     }
@@ -966,11 +985,25 @@ final class ModelsService {
   /// The model [conversation] was saved with, as a chat opened with no pick
   /// runs on it ([modelSavedWithChat], as on mobile). Null for none, for a
   /// coding agent (offered as Switch), and for one offered nowhere now.
-  Future<core.Model?> _savedModel(Conversation? conversation) async {
+  Future<core.Model?> _savedModel(
+    Conversation? conversation,
+    AccountScope account,
+  ) async {
     final id = conversation?.model?.trim();
     if (id == null || id.isEmpty || isTerminalAgentModelId(id)) return null;
+    final key = (account.identity, id);
+    final known = _savedLookups[key];
+    final listed = _container.read(modelsProvider).value;
+    if (known != null && listed != null && identical(known.listed, listed)) {
+      return known.model;
+    }
     try {
-      return await modelSavedWithChat(_container.read, id);
+      final model = await modelSavedWithChat(_container.read, id);
+      final against = _container.read(modelsProvider).value;
+      if (against != null) {
+        _savedLookups[key] = (listed: against, model: model);
+      }
+      return model;
     } on Object catch (error) {
       DebugLogger.warning(
         'saved-model-unresolved',
@@ -980,6 +1013,12 @@ final class ModelsService {
       return null;
     }
   }
+
+  /// Saved models looked up per account and id, with the model list each
+  /// was looked up against: one past the list (hidden, or offered nowhere)
+  /// asks the server, so it is asked again only once that list changes.
+  final Map<(Object, String), _SavedLookup> _savedLookups =
+      <(Object, String), _SavedLookup>{};
 
   /// The account's default model among [models]' regular ones, else the
   /// one the core takes with none picked: for a chat with no pick while the

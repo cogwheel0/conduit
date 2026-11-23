@@ -278,14 +278,26 @@ final class _AgentsApi extends ApiService {
 
   final asked = <String>[];
 
+  /// How often the server was asked for its models with the hidden ones,
+  /// and the first time it was.
+  int hiddenAsked = 0;
+  final hiddenAskedOnce = Completer<void>();
+
+  /// Those answers wait for this while it is set.
+  Completer<void>? hiddenHeld;
+
   /// The server's models with the hidden ones: one more than it lists.
   @override
   Future<List<core.Model>> getModels({
     bool includeHidden = false,
     ApiAuthSnapshot? authSnapshot,
-  }) async => [
-    if (includeHidden) const core.Model(id: 'hidden-model', name: 'Hidden'),
-  ];
+  }) async {
+    if (includeHidden && hiddenAsked++ == 0) hiddenAskedOnce.complete();
+    await hiddenHeld?.future;
+    return [
+      if (includeHidden) const core.Model(id: 'hidden-model', name: 'Hidden'),
+    ];
+  }
 
   /// North's answers wait for this while it is set; [northAsked] marks the
   /// question reaching it.
@@ -1430,6 +1442,53 @@ void main() {
         ).equals(model);
         check(await models.modelFor(chatId)).equals(model);
       }
+    });
+
+    test('a hidden saved model is listed for its chat, to show and send, but '
+        'not offered in the picker', () async {
+      final container = _agentContainer(_AgentsApi());
+      final list = await ModelsService(
+        container,
+      ).list(const ModelListQuery(chatId: 'hidden-chat'));
+      check(list.selectedId).equals('hidden-model');
+      check(list.models.map((m) => m.id)).contains('hidden-model');
+      final offered = <String>[
+        ...list.featuredIds,
+        for (final section in list.moreSections) ...section.ids,
+      ];
+      check(offered).not((it) => it.contains('hidden-model'));
+    });
+
+    test("a chat's own pick wins without asking the server for hidden "
+        'models, and a chat asks once while the list stands', () async {
+      final api = _AgentsApi();
+      final container = _agentContainer(api);
+      final models = ModelsService(container);
+      await models.list(const ModelListQuery(chatId: 'hidden-chat'));
+      await models.list(const ModelListQuery(chatId: 'hidden-chat'));
+      check(api.hiddenAsked).equals(1);
+      await models.select('preferred-model', chatId: 'retired-chat');
+      final picked = await models.list(
+        const ModelListQuery(chatId: 'retired-chat'),
+      );
+      check(picked.selectedId).equals('preferred-model');
+      check(await models.modelFor('retired-chat')).equals('preferred-model');
+      check(api.hiddenAsked).equals(1);
+    });
+
+    test('a selection made while the saved model is looked up is the one '
+        'answered', () async {
+      final api = _AgentsApi()..hiddenHeld = Completer<void>();
+      final container = _agentContainer(api);
+      final listing = ModelsService(
+        container,
+      ).list(const ModelListQuery(chatId: 'retired-chat'));
+      await api.hiddenAskedOnce.future;
+      container
+          .read(selectedModelProvider.notifier)
+          .set(const core.Model(id: 'preferred-model', name: 'Preferred'));
+      api.hiddenHeld!.complete();
+      check((await listing).selectedId).equals('preferred-model');
     });
 
     test("a turn naming no model in one chat never goes to another chat's "

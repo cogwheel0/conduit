@@ -3315,6 +3315,27 @@ mod tests {
         }
     }
 
+    /// A model the chat was saved with and the server hid since comes in
+    /// `models` but in no section: the composer resolves it to show and
+    /// send, and the picker lists it only for a search.
+    #[test]
+    fn a_hidden_saved_model_resolves_but_is_no_picker_row() {
+        let mut list = laid_out();
+        list.models.push(summary("hidden", false));
+        list.selected_id = Some("hidden".into());
+        assert_eq!(
+            find_model(&list, "hidden").map(|m| m.id.as_str()),
+            Some("hidden")
+        );
+        let rows = picker_rows(&list, "", true, "Agents");
+        assert!(
+            !rows
+                .iter()
+                .any(|r| matches!(r, PickerRow::Model(m) if m.id == "hidden")),
+            "{rows:?}"
+        );
+    }
+
     #[test]
     fn an_answer_falls_back_to_the_name_it_kept_for_a_model_not_on_offer() {
         let mut list = laid_out();
