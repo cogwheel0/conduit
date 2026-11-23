@@ -13,6 +13,7 @@ import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:crypto/crypto.dart' show sha1;
 import 'package:dio/dio.dart';
@@ -21,7 +22,6 @@ import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'event_bus.dart';
-import 'log.dart';
 import 'terminal_model_scope.dart';
 
 /// The chat scope the terminal page uses when no chat is open, as mobile's
@@ -82,11 +82,9 @@ final class TerminalsService {
   /// which a terminal made per model is used for.
   TerminalsService(
     this._container, {
-    DaemonLog? log,
     EventBus? events,
     Future<String> Function(String? chatId)? modelFor,
-  }) : _log = log,
-       _events = events,
+  }) : _events = events,
        _modelFor = modelFor {
     // A handle, and every preview and watch it opened, belongs to the
     // account it was attached under: a system terminal's base and its token
@@ -100,7 +98,6 @@ final class TerminalsService {
   }
 
   final ProviderContainer _container;
-  final DaemonLog? _log;
   final EventBus? _events;
   final Future<String> Function(String? chatId)? _modelFor;
   late final ProviderSubscription<Object?> _accountWatch;
@@ -145,7 +142,7 @@ final class TerminalsService {
   Future<List<TerminalServerInfo>> _forModel(
     List<TerminalServerInfo> servers,
     String scope,
-  ) => withTerminalModel(servers, _modelFor, scope, log: _log);
+  ) => withTerminalModel(servers, _modelFor, scope);
 
   /// Every server the account's chats may use, for the window's page and
   /// composer. One made per model goes with New Chat's model; while New Chat
@@ -154,7 +151,7 @@ final class TerminalsService {
   Future<List<TerminalServerInfo>> _windowServers() async {
     final servers = await _chatServers();
     if (!servers.any((s) => s.requiresModelContext)) return servers;
-    final modelId = await terminalModelIn(_modelFor, _pageScope, log: _log);
+    final modelId = await terminalModelIn(_modelFor, _pageScope);
     return [for (final server in servers) server.forModel(modelId)];
   }
 
@@ -566,7 +563,10 @@ final class TerminalsService {
         ),
       );
     } on Object catch (error) {
-      _log?.warn('terminal connect failed: $error');
+      DebugLogger.warning(
+        'terminal connect failed: $error',
+        scope: 'daemon/terminals',
+      );
       // A socket that never opened may never finish closing: the window is
       // told at once.
       final failed = upstream;
@@ -651,7 +651,6 @@ final class TerminalsService {
               service.api.serverConfig,
             )
           : null,
-      log: _log,
     );
     if (!identical(session, _session()) ||
         !identical(_handles[request.handle], h)) {
@@ -740,7 +739,6 @@ final class PortPreview {
     this._cookies,
     this._headers,
     HttpClient? client,
-    this._log,
   ) : _client = (client ?? HttpClient())
         ..userAgent = ConduitUserAgent.value
         ..autoUncompress = false;
@@ -758,7 +756,6 @@ final class PortPreview {
   /// terminals behind one; empty otherwise.
   final Map<String, String> _cookies;
   final Map<String, String> _headers;
-  final DaemonLog? _log;
   final HttpClient _client;
 
   /// The upstream's path prefix (`/api/v1/terminals/{id}/proxy/{port}`),
@@ -775,7 +772,6 @@ final class PortPreview {
     Map<String, String> cookies = const <String, String>{},
     Map<String, String> headers = const <String, String>{},
     HttpClient? client,
-    DaemonLog? log,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final preview = PortPreview._(
@@ -786,7 +782,6 @@ final class PortPreview {
       cookies,
       headers,
       client,
-      log,
     );
     server.listen((request) => unawaited(preview._handle(request)));
     return preview;
@@ -891,7 +886,10 @@ final class PortPreview {
       await response.addStream(answer);
       await response.close();
     } on Object catch (error) {
-      _log?.warn('port preview failed: $error');
+      DebugLogger.warning(
+        'port preview failed: $error',
+        scope: 'daemon/terminals',
+      );
       try {
         response.statusCode = HttpStatus.badGateway;
         await response.close();
@@ -933,7 +931,10 @@ final class PortPreview {
     try {
       upstream = await _connectUpstream(target, offered, headers);
     } on Object catch (error) {
-      _log?.warn('port preview socket refused: $error');
+      DebugLogger.warning(
+        'port preview socket refused: $error',
+        scope: 'daemon/terminals',
+      );
       request.response.statusCode = HttpStatus.badGateway;
       await request.response.close();
       return;
@@ -948,7 +949,10 @@ final class PortPreview {
             : null,
       );
     } on Object catch (error) {
-      _log?.warn('port preview socket upgrade failed: $error');
+      DebugLogger.warning(
+        'port preview socket upgrade failed: $error',
+        scope: 'daemon/terminals',
+      );
       await upstream.close();
       return;
     }

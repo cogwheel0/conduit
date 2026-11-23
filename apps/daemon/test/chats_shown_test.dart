@@ -52,7 +52,6 @@ void main() {
         requestStop: (_) => fail('nothing here should stop the daemon'),
       ),
       events: EventBus(),
-      log: log,
       services: () => CoreServices(chats: chats),
     );
     unawaited(session.listen());

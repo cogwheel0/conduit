@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:stream_channel/stream_channel.dart';
@@ -19,7 +20,6 @@ import 'notes_service.dart';
 import 'channels_service.dart';
 import 'prompts_service.dart';
 import 'event_bus.dart';
-import 'log.dart';
 import 'models_service.dart';
 import 'servers_service.dart';
 import 'settings_service.dart';
@@ -196,12 +196,10 @@ class RpcSession {
     required StreamChannel<String> channel,
     required SystemService system,
     required EventBus events,
-    required DaemonLog log,
     required CoreServices Function() services,
     void Function(bool online)? reportNetwork,
   }) : _events = events,
        _reportNetwork = reportNetwork,
-       _log = log,
        _services = services,
        _system = system,
        _peer = json_rpc.Peer(channel) {
@@ -210,7 +208,6 @@ class RpcSession {
 
   final String sessionId;
   final EventBus _events;
-  final DaemonLog _log;
   final SystemService _system;
 
   /// The daemon's services as they are now: null until the core is up. A
@@ -376,9 +373,10 @@ class RpcSession {
         );
       }
       _handshake = request;
-      _log.info(
+      DebugLogger.info(
         'session $sessionId: ${request.clientName} ${request.clientVersion} '
         '(${request.windowKind.name}, ${request.locale})',
+        scope: 'daemon/rpc',
       );
       return _system.handshake(sessionId: sessionId, request: request);
     });
@@ -429,9 +427,10 @@ class RpcSession {
       if (!accepted) {
         // Late or duplicate answer — the request already timed out or
         // another window answered first. Not an error worth surfacing.
-        _log.debug(
+        DebugLogger.log(
           'session $sessionId: ui.respond for unknown request '
           '${response.requestId}',
+          scope: 'daemon/rpc',
         );
       }
       return AcceptedResult(accepted: accepted);

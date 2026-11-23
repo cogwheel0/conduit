@@ -34,7 +34,6 @@ void main() {
         requestStop: (_) => fail('nothing here should stop the daemon'),
       ),
       events: EventBus(),
-      log: log,
       // No core: every handler that reaches a service refuses, which is
       // all this file needs to tell a handler from the fallback.
       services: () => const CoreServices(),

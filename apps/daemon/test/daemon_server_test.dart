@@ -6,6 +6,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:conduit_core/ports/log_sink.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
@@ -364,6 +366,11 @@ void main() {
         final dir = await Directory.systemTemp.createTemp('conduitd_stop');
         addTearDown(() => dir.deleteSync(recursive: true));
         final lines = LinesSink();
+        // The services log through the core's logger, which the daemon
+        // sends to its own log.
+        final log = DaemonLog(sink: lines);
+        DebugLogger.sink = DaemonLogSink(log);
+        addTearDown(() => DebugLogger.sink = const NullLogSink());
         final own = DaemonServer(
           config: BootstrapConfig(
             sessionToken: _token,
@@ -372,7 +379,7 @@ void main() {
           ),
           directories: DaemonDirectories.create(dir.path),
           daemonVersion: '0.0.0-test',
-          log: DaemonLog(sink: lines),
+          log: log,
         );
         final ownPort = await own.start();
         final socket = IOWebSocketChannel.connect(
@@ -399,6 +406,12 @@ void main() {
         expect(
           lines.lines.where((l) => l.contains('stop requested')).length,
           2,
+        );
+        expect(
+          lines.lines.where(
+            (l) => l.contains('[info]') && l.contains('shutdown requested'),
+          ),
+          hasLength(1),
         );
         // Two requests, one stop.
         expect(

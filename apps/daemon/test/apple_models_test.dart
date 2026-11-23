@@ -609,7 +609,6 @@ void main() {
           requestStop: (_) => fail('nothing here stops the daemon'),
         ),
         events: bus,
-        log: log,
         services: () => CoreServices(apple: apple),
       );
       // The session's own fan-out stands in for the window's socket; the

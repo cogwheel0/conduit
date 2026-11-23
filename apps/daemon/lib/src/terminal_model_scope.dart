@@ -1,7 +1,6 @@
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
-
-import 'log.dart';
 
 /// What ends a session or says the account changed: the caller's terminals
 /// are then another account's, so the lookup's failure is the answer.
@@ -17,9 +16,8 @@ const Set<String> _sessionEnded = {
 /// terminal. A session that ended meanwhile is rethrown.
 Future<String?> terminalModelIn(
   Future<String> Function(String? chatId)? modelFor,
-  String scope, {
-  DaemonLog? log,
-}) async {
+  String scope,
+) async {
   try {
     return await modelFor?.call(
       isSavedTerminalChatScopeId(scope) ? scope : null,
@@ -28,7 +26,10 @@ Future<String?> terminalModelIn(
     if (_sessionEnded.contains(error.code)) rethrow;
     return null;
   } on Object catch (error) {
-    log?.warn('terminal model lookup failed: ${error.runtimeType}');
+    DebugLogger.warning(
+      'terminal model lookup failed: ${error.runtimeType}',
+      scope: 'daemon/terminals',
+    );
     return null;
   }
 }
@@ -38,11 +39,10 @@ Future<String?> terminalModelIn(
 Future<List<TerminalServerInfo>> withTerminalModel(
   List<TerminalServerInfo> servers,
   Future<String> Function(String? chatId)? modelFor,
-  String scope, {
-  DaemonLog? log,
-}) async {
+  String scope,
+) async {
   if (!servers.any((server) => server.requiresModelContext)) return servers;
-  final modelId = await terminalModelIn(modelFor, scope, log: log);
+  final modelId = await terminalModelIn(modelFor, scope);
   return [
     for (final server in servers)
       if (server.forModel(modelId) case final usable when !usable.needsModel)
