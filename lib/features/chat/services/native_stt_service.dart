@@ -210,7 +210,11 @@ class NativeSttService {
     } else {
       await stopListening();
     }
-    final controller = StreamController<NativeSttEvent>.broadcast();
+    // Capture can deliver its first buffers or an interruption before the
+    // native start reply. Keep them until the recording owner subscribes.
+    final controller = emitAudio
+        ? StreamController<NativeSttEvent>()
+        : StreamController<NativeSttEvent>.broadcast();
     _eventController = controller;
     _eventSub = _eventChannel.receiveBroadcastStream().listen(
       (event) {
@@ -253,23 +257,65 @@ class NativeSttService {
     }
   }
 
-  Future<String> transcribeRecording(Uint8List pcm, {String? localeId}) async {
+  Future<String> transcribeRecording(Uint8List pcm, {String? localeId}) =>
+      Platform.isIOS
+      ? transcribeChunks(Stream.value(pcm), localeId: localeId)
+      : _transcribe(localeId, pcm: pcm);
+
+  Future<String> transcribeChunks(
+    Stream<Uint8List> chunks, {
+    String? localeId,
+  }) => _transcribe(localeId, chunks: chunks);
+
+  Future<String> _transcribe(
+    String? localeId, {
+    Uint8List? pcm,
+    Stream<Uint8List>? chunks,
+  }) async {
     if (_recordingRequestId != null) {
       throw const NativeSttException(
         'A recording transcription is already in progress',
       );
     }
     final id = _recordingRequestId = const Uuid().v4();
+    final reader = chunks == null
+        ? null
+        : StreamIterator(
+            chunks.expand((chunk) sync* {
+              for (var i = 0; i < chunk.length; i += 32000) {
+                yield Uint8List.sublistView(
+                  chunk,
+                  i,
+                  (i + 32000).clamp(0, chunk.length),
+                );
+              }
+            }),
+          );
+    final channel = MethodChannel(
+      'app.cogwheel.conduit/native_stt/recordings/$id',
+    );
+    if (reader != null) {
+      channel.setMethodCallHandler((call) async {
+        if (call.method != 'next' || id != _recordingRequestId) {
+          throw const NativeSttException('Recording transcription cancelled');
+        }
+        return await reader.moveNext() ? reader.current : null;
+      });
+    }
     try {
       final text = await _methodChannel.invokeMethod<String>(
         'transcribeRecording',
-        {'pcm': pcm, 'localeId': localeId, 'requestId': id},
+        {'pcm': ?pcm, 'localeId': localeId, 'requestId': id},
       );
       if (text == null || text.trim().isEmpty) {
         throw const NativeSttException('No speech was recognized');
       }
       return text.trim();
     } finally {
+      if (reader != null) {
+        channel.setMethodCallHandler(null);
+        await reader.cancel();
+      }
       if (_recordingRequestId == id) _recordingRequestId = null;
     }
   }
@@ -315,7 +361,8 @@ class NativeSttService {
     final controller = _eventController;
     _eventController = null;
     if (controller != null && !controller.isClosed) {
-      await controller.close();
+      final closing = controller.close();
+      if (controller.hasListener) await closing;
     }
   }
 }

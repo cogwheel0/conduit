@@ -46,6 +46,46 @@ void main() {
     },
   );
 
+  test(
+    'saved audio is pulled in order in at most one-second buffers',
+    () async {
+      var count = 0;
+      final sizes = <int>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        final args = call.arguments as Map;
+        expect(args.containsKey('pcm'), isFalse);
+        final source = '${channel.name}/recordings/${args['requestId']}';
+        while (true) {
+          final reply = Completer<ByteData?>();
+          await messenger.handlePlatformMessage(
+            source,
+            const StandardMethodCodec().encodeMethodCall(
+              const MethodCall('next'),
+            ),
+            reply.complete,
+          );
+          final next = const StandardMethodCodec().decodeEnvelope(
+            (await reply.future)!,
+          );
+          if (next == null) break;
+          final bytes = next as Uint8List;
+          sizes.add(bytes.length);
+          for (final byte in bytes) {
+            expect(byte, count++ % 251);
+          }
+        }
+        return 'Cedar';
+      });
+      final audio = Uint8List.fromList(List.generate(32004, (i) => i % 251));
+      expect(
+        await NativeSttService().transcribeChunks(Stream.value(audio)),
+        'Cedar',
+      );
+      expect(sizes, [32000, 4]);
+      expect(count, audio.length);
+    },
+  );
+
   test('empty transcription reports a retryable failure', () async {
     var attempts = 0;
     messenger.setMockMethodCallHandler(

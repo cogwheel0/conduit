@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data' show Endian;
 
 import 'package:conduit/features/chat/services/recording_activity_service.dart';
 import 'package:flutter/services.dart';
@@ -95,9 +96,21 @@ void main() {
     await starting;
     try {
       saved = 4;
-      await tester.pump(const Duration(seconds: 10));
+      final audio = Uint8List(16000);
+      ByteData.sublistView(audio).setInt16(8000, 32767, Endian.little);
+      service.observeAudio(_second, audio);
+      await tester.pump(const Duration(seconds: 5));
+      expect(calls.where((call) => call.method == 'update'), isEmpty);
+      service.observeAudio(_first, audio);
+      await tester.pump(const Duration(seconds: 5));
       final update = calls.singleWhere((call) => call.method == 'update');
-      expect(update.arguments, {'id': _first, 'savedSeconds': 4.0});
+      expect(update.arguments, {
+        'id': _first,
+        'savedSeconds': 4.0,
+        'levels': [0, 15],
+      });
+      await tester.pump(const Duration(seconds: 30));
+      expect(calls.where((call) => call.method == 'update'), hasLength(1));
     } finally {
       await service.end(_first);
     }

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audio_session/audio_session.dart';
+
 import 'package:conduit_core/features/chat/composer/composer_recording_store.dart';
 import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart';
 import 'package:uuid/uuid.dart';
@@ -31,6 +33,10 @@ class ComposerRecordingSession {
   final _stopped = Completer<void>();
   Future<void>? _closing;
   bool _activityStarted = false;
+  bool interrupted = false;
+  StreamSubscription<void>? _interruptions;
+  Timer? _captureWatchdog;
+  int _receivedBytes = 0;
   Future<void> get stopped => _stopped.future;
 
   static Future<ComposerRecordingSession> begin(
@@ -39,16 +45,18 @@ class ComposerRecordingSession {
     required void Function() onSaveFailure,
     RecordingActivityService? activity,
     VoiceBackgroundPort? background,
+    Stream<void>? interruptions,
   }) async {
     final id = const Uuid().v4();
     final store = owner.temporary ? null : owner.store?.recordings;
     final writer = await store?.begin(
       id: id,
+      longForm: Platform.isIOS,
       scope: owner.scope,
       chatId: owner.chatId,
       onFailure: onSaveFailure,
     );
-    return ComposerRecordingSession._(
+    final session = ComposerRecordingSession._(
       id,
       owner,
       writer,
@@ -57,14 +65,43 @@ class ComposerRecordingSession {
       background ??
           (Platform.isAndroid ? ChatVoiceModeBackgroundCoordinator() : null),
     );
+    final events =
+        interruptions ??
+        (Platform.isIOS
+            ? AVAudioSession().interruptionNotificationStream
+                  .where(
+                    (event) =>
+                        event.type == AVAudioSessionInterruptionType.began,
+                  )
+                  .map<void>((_) {})
+            : null);
+    session._interruptions = events?.listen((_) => session._interrupt());
+    return session;
+  }
+
+  void _interrupt() {
+    if (_closing != null || interrupted) return;
+    interrupted = true;
+    unawaited(_stop(this).catchError((Object _) {}));
   }
 
   VoiceInputRecording get sink => VoiceInputRecording(
     add: (pcm) {
       if (_closing != null || pcm.isEmpty) return;
       writer?.add(pcm);
-      if (_activityStarted) return;
+      _receivedBytes += pcm.length;
+      if (_activityStarted) {
+        _activity.observeAudio(id, pcm);
+        return;
+      }
       _activityStarted = true;
+      if (Platform.isIOS) {
+        var lastBytes = 0;
+        _captureWatchdog = Timer.periodic(const Duration(seconds: 10), (_) {
+          if (lastBytes == _receivedBytes) _interrupt();
+          lastBytes = _receivedBytes;
+        });
+      }
       // Permissions and model preparation can take time. Show a recording
       // Activity only once the microphone has actually delivered audio.
       unawaited(
@@ -74,9 +111,11 @@ class ComposerRecordingSession {
           await _stopped.future;
         }, savedSeconds: () => (writer?.savedBytes ?? 0) / 32000),
       );
+      _activity.observeAudio(id, pcm);
     },
     close: close,
     prepare: _prepare,
+    longForm: Platform.isIOS,
     capturesAudio: !owner.temporary || Platform.isIOS,
   );
 
@@ -98,6 +137,8 @@ class ComposerRecordingSession {
       });
 
   Future<void> _close() async {
+    _captureWatchdog?.cancel();
+    await _interruptions?.cancel();
     try {
       await writer?.close();
       if (writer?.savedBytes == 0) await owner.store?.recordings.discard(id);

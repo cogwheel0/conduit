@@ -205,6 +205,30 @@ Writing Open WebUI filters or tools? Conduit never runs their JavaScript, but
 a filter can move the user to a new chat on another model with a documented
 event: see [Open WebUI functions in Conduit](docs/open-webui-functions.md).
 
+### Recording a long message on iPhone or iPad
+
+Select **On Device** in Audio settings and tap the microphone in the message
+field. Once the microphone is recording, you can lock the screen. Pauses do
+not end the recording. Conduit sets no duration limit for on-device composer
+dictation. Allow about 115 MB of local storage per hour. Server dictation
+stops at ten minutes and can finish earlier after silence.
+
+On iOS 26 and later, Conduit prefers Apple’s long-form SpeechTranscriber model
+when the device and language support it. The first use may need a model download.
+On devices or languages using the older SFSpeechRecognizer fallback, Apple
+advises planning for one minute per recognition task. Conduit starts another
+task after a final result, but a recognizer error can end the session early.
+On iOS 17 and later, the recording Live Activity shows elapsed time, recent
+microphone levels, and a stop button. iOS can end the Live Activity after
+eight hours independently of the microphone.
+
+A phone call can interrupt the microphone. Tap the microphone again after the
+call to start a new recording. Reopen the same regular chat or
+unsent draft to find **Saved Recording**. Use its menu to retry transcription
+or export the audio. On-device retry requires iOS 26 or later and a supported
+language. Conduit normally commits audio once a second. A crash can lose the
+latest uncommitted audio. Temporary Chat keeps no recovery copy.
+
 ## Built for self-hosted reality
 
 Most mobile clients assume a plain login form. Real deployments rarely look like

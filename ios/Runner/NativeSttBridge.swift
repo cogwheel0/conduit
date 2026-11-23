@@ -1354,6 +1354,7 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
   private var methodChannel: FlutterMethodChannel?
   private let lifecycle: NativeSttLifecycleState
   private let eventDeliveryGate = NativeSttEventDeliveryGate()
+  private var messenger: FlutterBinaryMessenger?
   private var recordingAudio = false
   private var recordingTranscription: Task<Void, Never>?
   private var recordingTranscriptionId: String?
@@ -1386,6 +1387,7 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
 
   func attach(to host: ConduitBridgeHost) {
     let messenger = host.messenger
+    self.messenger = messenger
     let methodChannel = FlutterMethodChannel(
       name: nativeSttMethodChannelName,
       binaryMessenger: messenger
@@ -1434,13 +1436,14 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
         await MainActor.run { result(availability) }
       }
     case "getLocales":
-      result(localesPayload(deviceLocaleId: deviceLocaleId ?? localeId))
+      Task {
+        let payload = await localesPayload(deviceLocaleId: deviceLocaleId ?? localeId)
+        await MainActor.run { result(payload) }
+      }
     case "transcribeRecording":
-      guard let pcm = arguments?["pcm"] as? FlutterStandardTypedData,
-            let id = arguments?["requestId"] as? String, UUID(uuidString: id) != nil,
-            !pcm.data.isEmpty, pcm.data.count.isMultiple(of: 2),
-            pcm.data.count <= 16000 * 2 * 600 else {
-        result(FlutterError(code: "INVALID_AUDIO", message: "Invalid recording audio", details: nil))
+      guard let messenger, let id = arguments?["requestId"] as? String,
+            UUID(uuidString: id) != nil else {
+        result(FlutterError(code: "INVALID_AUDIO", message: "Invalid recording request", details: nil))
         return
       }
       guard recordingTranscriptionId == nil else {
@@ -1459,7 +1462,25 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
           guard #available(iOS 26.0, *) else {
             throw NSError(domain: "NativeSttBridge", code: 13, userInfo: [NSLocalizedDescriptionKey: "On-device recording transcription requires iOS 26 or later"])
           }
-          let text = try await SpeechAnalyzerSttSession.transcribeRecording(pcm.data, localeId: localeId)
+          let source = FlutterMethodChannel(
+            name: "\(nativeSttMethodChannelName)/recordings/\(id)",
+            binaryMessenger: messenger
+          )
+          let text = try await SpeechAnalyzerSttSession.transcribeRecording(localeId: localeId) {
+            try await withCheckedThrowingContinuation { continuation in
+              source.invokeMethod("next", arguments: nil) { reply in
+                if reply == nil {
+                  continuation.resume(returning: nil)
+                } else if let bytes = reply as? FlutterStandardTypedData, !bytes.data.isEmpty,
+                          bytes.data.count <= 32000, bytes.data.count.isMultiple(of: 2) {
+                  continuation.resume(returning: bytes.data)
+                } else {
+                  continuation.resume(throwing: NSError(domain: "NativeSttBridge", code: 12,
+                    userInfo: [NSLocalizedDescriptionKey: "Unable to read saved audio"]))
+                }
+              }
+            }
+          }
           try Task.checkCancellation()
           result(text)
         } catch {
@@ -1845,7 +1866,7 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
     return Locale(identifier: localeId.replacingOccurrences(of: "-", with: "_"))
   }
 
-  private func localesPayload(deviceLocaleId: String?) -> [String: Any] {
+  private func localesPayload(deviceLocaleId: String?) async -> [String: Any] {
     let systemLocale = locale(from: deviceLocaleId)
     var locales = Array(SFSpeechRecognizer.supportedLocales()).filter { locale in
       SFSpeechRecognizer(locale: locale)?.supportsOnDeviceRecognition == true
@@ -1854,6 +1875,14 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
        SFSpeechRecognizer(locale: systemLocale)?.supportsOnDeviceRecognition == true {
       locales.append(systemLocale)
     }
+    if #available(iOS 26.0, *) {
+      locales.append(contentsOf: await DictationTranscriber.supportedLocales)
+      if SpeechTranscriber.isAvailable {
+        locales.append(contentsOf: await SpeechTranscriber.supportedLocales)
+      }
+    }
+    var seen = Set<String>()
+    locales = locales.filter { seen.insert(localeIdentifier($0)).inserted }
     locales.sort { localeIdentifier($0) < localeIdentifier($1) }
 
     return [
@@ -1888,6 +1917,22 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
     )
   }
 }
+
+@available(iOS 26.0, *)
+private protocol NativeTranscriptResult: SpeechModuleResult {
+  var text: AttributedString { get }
+}
+@available(iOS 26.0, *)
+extension SpeechTranscriber.Result: NativeTranscriptResult {}
+@available(iOS 26.0, *)
+extension DictationTranscriber.Result: NativeTranscriptResult {}
+
+@available(iOS 26.0, *)
+private protocol NativeTranscriber: SpeechModule where Result: NativeTranscriptResult {}
+@available(iOS 26.0, *)
+extension SpeechTranscriber: NativeTranscriber {}
+@available(iOS 26.0, *)
+extension DictationTranscriber: NativeTranscriber {}
 
 @available(iOS 26.0, *)
 private final class SpeechAnalyzerSttSession: NativeSttSession {
@@ -1949,11 +1994,7 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   }
 
   static func isAvailable(localeId: String?) async -> Bool {
-    guard let supportedLocale = await supportedLocale(localeId: localeId) else {
-      return false
-    }
-    let transcriber = makeTranscriber(locale: supportedLocale)
-    return await AssetInventory.status(forModules: [transcriber]) != .unsupported
+    (try? await makeTranscriber(localeId: localeId, preferLongForm: true)) != nil
   }
 
   func start() async throws {
@@ -1970,9 +2011,12 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   }
 
   private func performStart() async throws {
-    let requestedLocale = try await Self.requiredSupportedLocale(localeId: localeId)
+    let transcriber = try await Self.makeTranscriber(localeId: localeId, preferLongForm: emitAudio)
+    try await performStart(with: transcriber)
+  }
+
+  private func performStart<T: NativeTranscriber>(with transcriber: T) async throws {
     try checkActive()
-    let transcriber = Self.makeTranscriber(locale: requestedLocale)
     let modules: [any SpeechModule] = [transcriber]
 
     if let installationRequest = try await AssetInventory.assetInstallationRequest(
@@ -2339,12 +2383,18 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   /// Transcribes saved PCM entirely on-device without opening a microphone,
   /// creating a temporary audio file, or activating an audio session. Input is mono 16 kHz PCM16.
   /// Loads a supported locale's model and requests speech permission; empty results fail.
-  static func transcribeRecording(_ pcm: Foundation.Data, localeId: String?) async throws -> String {
-    let locale = try await requiredSupportedLocale(localeId: localeId)
-    guard await isAvailable(localeId: localeId) else {
-      throw NSError(domain: "NativeSttBridge", code: 13, userInfo: [NSLocalizedDescriptionKey: "On-device transcription is unavailable for this device or language"])
-    }
-    let transcriber = makeTranscriber(locale: locale)
+  static func transcribeRecording(
+    localeId: String?,
+    read: @escaping @MainActor @Sendable () async throws -> Foundation.Data?
+  ) async throws -> String {
+    let transcriber = try await makeTranscriber(localeId: localeId, preferLongForm: true)
+    return try await transcribeRecording(with: transcriber, read: read)
+  }
+
+  private static func transcribeRecording<T: NativeTranscriber>(
+    with transcriber: T,
+    read: @escaping @MainActor @Sendable () async throws -> Foundation.Data?
+  ) async throws -> String {
     let modules: [any SpeechModule] = [transcriber]
     if let assets = try await AssetInventory.assetInstallationRequest(supporting: modules) {
       try await assets.downloadAndInstall()
@@ -2367,28 +2417,21 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
       }
       return text
     }
-    let input = AsyncThrowingStream<AnalyzerInput, Error> { continuation in
-      do {
-        for offset in stride(from: 0, to: pcm.count, by: 32000) {
-          let count = min(32000, pcm.count - offset)
-          guard let buffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(count / 2)),
-                let target = buffer.int16ChannelData?[0] else {
-            throw NSError(domain: "NativeSttBridge", code: 12)
-          }
-          buffer.frameLength = buffer.frameCapacity
-          pcm.withUnsafeBytes { bytes in
-            UnsafeMutableRawPointer(target).copyMemory(from: bytes.baseAddress!.advanced(by: offset), byteCount: count)
-          }
-          if let converter {
-            guard let converted = convert(buffer: buffer, to: outputFormat, using: converter) else {
-              throw NSError(domain: "NativeSttBridge", code: 12)
-            }
-            continuation.yield(AnalyzerInput(buffer: converted))
-          } else { continuation.yield(AnalyzerInput(buffer: buffer)) }
-        }
-        continuation.finish()
-      } catch { continuation.finish(throwing: error) }
-    }
+    let input = AsyncThrowingStream<AnalyzerInput, Error>(unfolding: {
+      try Task.checkCancellation()
+      guard let pcm = try await read() else { return nil }
+      guard let buffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: AVAudioFrameCount(pcm.count / 2)),
+            let target = buffer.int16ChannelData?[0] else {
+        throw NSError(domain: "NativeSttBridge", code: 12)
+      }
+      buffer.frameLength = buffer.frameCapacity
+      pcm.copyBytes(to: UnsafeMutableRawBufferPointer(start: target, count: pcm.count))
+      guard let converter else { return AnalyzerInput(buffer: buffer) }
+      guard let converted = convert(buffer: buffer, to: outputFormat, using: converter) else {
+        throw NSError(domain: "NativeSttBridge", code: 12)
+      }
+      return AnalyzerInput(buffer: converted)
+    })
     do {
       if let end = try await analyzer.analyzeSequence(input) {
         try await analyzer.finalizeAndFinish(through: end)
@@ -2403,29 +2446,23 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
     }
   }
 
-  private static func supportedLocale(localeId: String?) async -> Locale? {
-    let locale = localeId
-      .map { Locale(identifier: $0.replacingOccurrences(of: "-", with: "_")) } ?? Locale.current
-    return await DictationTranscriber.supportedLocale(equivalentTo: locale)
-  }
-
-  private static func requiredSupportedLocale(localeId: String?) async throws -> Locale {
-    if let locale = await supportedLocale(localeId: localeId) {
-      return locale
+  private static func makeTranscriber(localeId: String?, preferLongForm: Bool) async throws -> any NativeTranscriber {
+    let requested = localeId.map { Locale(identifier: $0.replacingOccurrences(of: "-", with: "_")) } ?? .current
+    if preferLongForm, SpeechTranscriber.isAvailable,
+       let locale = await SpeechTranscriber.supportedLocale(equivalentTo: requested) {
+      let module = SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
+      if await AssetInventory.status(forModules: [module]) != .unsupported { return module }
     }
-    throw NSError(
-      domain: "NativeSttBridge",
-      code: 1,
-      userInfo: [NSLocalizedDescriptionKey: "SpeechAnalyzer does not support this locale"]
-    )
-  }
-
-  private static func makeTranscriber(locale: Locale) -> DictationTranscriber {
-    var preset = DictationTranscriber.Preset.progressiveLongDictation
-    preset.reportingOptions.insert(.volatileResults)
-    preset.reportingOptions.insert(.frequentFinalization)
-    preset.transcriptionOptions.insert(.punctuation)
-    return DictationTranscriber(locale: locale, preset: preset)
+    if let locale = await DictationTranscriber.supportedLocale(equivalentTo: requested) {
+      var preset = DictationTranscriber.Preset.progressiveLongDictation
+      preset.reportingOptions.insert(.volatileResults)
+      preset.reportingOptions.insert(.frequentFinalization)
+      preset.transcriptionOptions.insert(.punctuation)
+      let module = DictationTranscriber(locale: locale, preset: preset)
+      if await AssetInventory.status(forModules: [module]) != .unsupported { return module }
+    }
+    throw NSError(domain: "NativeSttBridge", code: 1,
+      userInfo: [NSLocalizedDescriptionKey: "SpeechAnalyzer does not support this device or language"])
   }
 
   private func configureAudioSession() throws {

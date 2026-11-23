@@ -149,7 +149,9 @@ void main() {
         );
         await pumpEventQueue();
       };
-      await service.stopListening();
+      final previousStops = native.stopCalls;
+      await Future.wait([service.stopListening(), service.stopListening()]);
+      expect(native.stopCalls, previousStops + 1);
       native.onStop = null;
       expect(bytes, [1, 2, 3, 4]);
       expect(closed, isTrue);
@@ -161,6 +163,39 @@ void main() {
       await nextSub.cancel();
     },
   );
+
+  test('iOS composer keeps recording past pauses and five minutes', () async {
+    final native = _FakeNativeSttService();
+    final service = _SupportedVoiceInputService(nativeStt: native);
+    addTearDown(service.dispose);
+    await service.initialize(forceLocalStt: true);
+    var closed = false;
+    await runZoned(
+      () async {
+        final stream = await service.startListening(
+          recording: VoiceInputRecording(
+            longForm: true,
+            add: (_) {},
+            close: () async => closed = true,
+          ),
+        );
+        final sub = stream.listen((_) {});
+        native.emit(
+          const NativeSttEvent(type: 'result', text: 'Cedar.', isFinal: true),
+        );
+        await pumpEventQueue();
+        expect(service.isListening, isTrue);
+        expect(closed, isFalse);
+        await service.stopListening();
+        expect(closed, isTrue);
+        await sub.cancel();
+      },
+      zoneSpecification: ZoneSpecification(
+        createTimer: (self, parent, zone, delay, callback) =>
+            parent.createTimer(zone, Duration.zero, callback),
+      ),
+    );
+  });
 
   test('incomplete recovery audio reports its typed error and drains the saved prefix', () async {
     final native = _FakeNativeSttService();

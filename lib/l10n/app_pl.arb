@@ -1870,11 +1870,11 @@
   "@sttEngineServer": {
     "description": "Chip label for server speech recognition."
   },
-  "sttEngineDeviceDescription": "Audio pozostaje na tym urządzeniu. Wprowadzanie głosowe przestanie działać, jeśli urządzenie nie obsługuje lokalnego rozpoznawania mowy.",
+  "sttEngineDeviceDescription": "Audio pozostaje na tym urządzeniu. Wprowadzanie głosowe przestanie działać, jeśli urządzenie nie obsługuje lokalnego rozpoznawania mowy. Na iPhonie i iPadzie nagrywanie wiadomości trwa także podczas przerw w mówieniu, aż je zatrzymasz lub przerwie je system.",
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Wysyłaj nagrania do transkrypcji na serwer czatu: Open WebUI, Hermes lub dostawcę głosu w czatach Direct i Apple.",
+  "sttEngineServerDescription": "Wysyłaj nagrania do transkrypcji na serwer czatu: Open WebUI, Hermes lub dostawcę głosu w czatach Direct i Apple. Każde nagranie do transkrypcji na serwerze może trwać do 10 minut.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },

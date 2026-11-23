@@ -129,6 +129,31 @@ void main() {
     },
   );
 
+  test('an incoming interruption drains the microphone tail into the original draft', () async {
+    final calls = StreamController<void>.broadcast(sync: true);
+    addTearDown(calls.close);
+    var stops = 0;
+    final session = await ComposerRecordingSession.begin(
+      owner(),
+      activity: activity,
+      interruptions: calls.stream,
+      onSaveFailure: () => fail('Unexpected save failure'),
+      stop: (session) async {
+        stops++;
+        session.sink.add(Uint8List.fromList([3, 4]));
+        await session.close();
+      },
+    );
+    session.sink.add(Uint8List.fromList([1, 2]));
+    calls.add(null);
+    calls.add(null);
+    await session.stopped;
+    expect(session.interrupted, isTrue);
+    expect(stops, 1);
+    expect(await store.recordings.readPcm(session.id), [1, 2, 3, 4]);
+    expect(activity.ended, [session.id]);
+  });
+
   test('an immediate stop as audio begins cannot strand capture', () async {
     activity.stopImmediately = true;
     final session = await ComposerRecordingSession.begin(
