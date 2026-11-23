@@ -3,10 +3,13 @@
 # .rpm from one build.
 #
 #   desktop/packaging/linux/package.sh [--version V] [--out DIR] [--notices FILE]
+#                                      [--update-public-key K [--update-feed-url U]]
 #                                      [--skip-rust] [--skip-daemon]
 #
 # 1. The app: cargo build --release, without the test harness (no
-#    `harness` feature), CONDUIT_VERSION set.
+#    `harness` feature), CONDUIT_VERSION set; with --update-public-key, its
+#    update notice too (CONDUIT_UPDATE_PUBLIC_ED_KEY and
+#    CONDUIT_UPDATE_FEED_URL), as the Mac's bundle.sh writes SUPublicEDKey.
 # 2. conduitd: `dart build cli` in apps/daemon (conduitd and its
 #    libsqlite3.so), with the Dart code generated first when it isn't.
 # 3. <out>/stage/usr/lib/conduit: conduit-desktop with conduitd/ beside it
@@ -14,7 +17,9 @@
 #    conduitd reads and the third-party notices; checked (winlinux.py
 #    layout: complete, Linux's notices, no test harness), and the desktop
 #    entry with desktop-file-validate when it's installed.
-# 4. The dependencies, worked out from the binaries: the .deb's with
+# 4. The dependencies, worked out from the binaries, plus the root
+#    certificates the update notice's HTTPS needs (winlinux.py
+#    extra-requires): the .deb's with
 #    dpkg-shlibdeps, as Debian names them on the build machine (so build on
 #    the oldest release the packages are for: CI uses Ubuntu 22.04, glibc
 #    2.35, and newer Debian and Ubuntu releases provide the same names);
@@ -34,6 +39,14 @@
 # packaging/notices/notices.sh --target x86_64-unknown-linux-gnu (CI makes
 # them in a job of their own); without it this script runs notices.sh,
 # which needs cargo-about. Either way they are checked to be Linux's.
+#
+# --update-public-key: the EdDSA public key (base64 of 32 bytes) the
+# app's update notice checks its feed with: LINUX_PUBLIC_ED_KEY for a
+# release (docs/RELEASING-DESKTOP.md). Without it the app has no update
+# notice, as a Mac bundle without SPARKLE_PUBLIC_ED_KEY has no updater.
+# --update-feed-url: the feed it reads (default: winlinux_feed.py url
+# linux, beside the Mac's appcast; CI's rehearsal names a fixture served on
+# the machine).
 #
 # --version: X.Y.Z (default 0.0.0), checked as the Mac's (macos/lib.sh).
 # --out: default desktop/target/linux/Conduit-<version>; an earlier one is
@@ -60,9 +73,13 @@ out=""
 notices=""
 skip_rust=0
 skip_daemon=0
+update_key=""
+update_feed=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) version="$2"; shift ;;
+    --update-public-key) update_key="$2"; shift ;;
+    --update-feed-url) update_feed="$2"; shift ;;
     --out) out="$2"; shift ;;
     --notices) notices="$2"; shift ;;
     --skip-rust) skip_rust=1 ;;
@@ -87,6 +104,18 @@ if [ -n "$notices" ]; then
     "$(realpath -m -- "$out")"/*)
       die "--notices $notices is inside --out $out, which the build moves aside first: put the notices elsewhere" ;;
   esac
+fi
+# The update notice's key and feed, checked before anything builds.
+if [ -n "$update_key" ]; then
+  is_ed25519_public_key "$update_key" ||
+    die "--update-public-key is not an EdDSA public key (base64 of 32 bytes, as generate_keys -p prints it)"
+  update_feed="${update_feed:-$(python3 -I "$here/../winlinux_feed.py" url linux)}"
+  case "$update_feed" in
+    https://* | http://*) ;;
+    *) die "--update-feed-url $update_feed is not an http(s) URL" ;;
+  esac
+elif [ -n "$update_feed" ]; then
+  die "--update-feed-url needs --update-public-key: the notice reads only a feed signed with it"
 fi
 
 # What the packages say about themselves. The description and the
@@ -164,8 +193,19 @@ if [ "$skip_rust" = 1 ]; then
   [ -f "$binary" ] || die "--skip-rust: no $binary"
   log "reusing $binary"
 else
+  if [ -n "$update_key" ]; then
+    log "the update notice trusts $update_key and reads $update_feed"
+  else
+    log "no --update-public-key: no update notice in this build"
+  fi
   log "cargo build --release (version $version)"
-  (cd "$DESKTOP_DIR" && CONDUIT_VERSION="$version" cargo build --release --locked -p conduit-desktop)
+  # Unset without --update-public-key: a key is never taken from the
+  # caller's environment.
+  (cd "$DESKTOP_DIR" && unset CONDUIT_UPDATE_PUBLIC_ED_KEY CONDUIT_UPDATE_FEED_URL &&
+    if [ -n "$update_key" ]; then
+      export CONDUIT_UPDATE_PUBLIC_ED_KEY="$update_key" CONDUIT_UPDATE_FEED_URL="$update_feed"
+    fi &&
+    CONDUIT_VERSION="$version" cargo build --release --locked -p conduit-desktop)
 fi
 
 # --- 2. conduitd -------------------------------------------------------------
@@ -224,6 +264,9 @@ log "dependencies (dpkg-shlibdeps; readelf)"
 deb_deps="$(deb_depends "$app_dir")"
 rpm_deps="$(python3 -I "$winlinux" rpm-requires "$app_dir")"
 [ -n "$deb_deps" ] && [ -n "$rpm_deps" ] || die "found no dependencies in $app_dir"
+extra="$(python3 -I "$winlinux" extra-requires)"
+deb_deps+=$'\n'"$extra"
+rpm_deps+=$'\n'"$extra"
 printf 'deb Depends:\n%s\nrpm Requires:\n%s\n' "$deb_deps" "$rpm_deps" | sed 's/^/  /' >&2
 
 # --- 5. the packages ---------------------------------------------------------
@@ -300,12 +343,15 @@ for packager in deb rpm; do
   log "nfpm: $packager"
   "$nfpm" package --config "$config" --packager "$packager" --target "$out/"
 done
-# Every file the packages install is root's and readable by everyone.
+# Every file the packages install is root's and readable by everyone, and
+# each requires what the binaries' libraries don't name.
 python3 -I "$winlinux" package-modes "$out"/*.deb
+python3 -I "$winlinux" package-requires "$out"/*.deb
 if command -v rpm >/dev/null; then
   python3 -I "$winlinux" package-modes "$out"/*.rpm
+  python3 -I "$winlinux" package-requires "$out"/*.rpm
 else
-  warn "no rpm: the .rpm's modes are not checked"
+  warn "no rpm: the .rpm's modes and requirements are not checked"
 fi
 log "packages in $out:"
 for f in "$out"/*.deb "$out"/*.rpm; do

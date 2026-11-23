@@ -18,7 +18,8 @@ desktop/packaging/notices/notices.sh --target x86_64-unknown-linux-gnu --out FIL
 
 `--target` makes the Windows installer's and the Linux packages' notices:
 the crates cargo builds into the app for that target, and the components
-those packages bundle (no Sparkle, no whisper library). Any target's can be
+those packages bundle (no Sparkle, no whisper library; on Windows,
+WinSparkle and what it links in). Any target's can be
 made on a Mac or Linux; CI makes both on Linux (`Third-party notices
 (Windows, Linux)`) and the package jobs ship them: in the Windows install
 folder, and beside the Linux app in `/usr/lib/conduit/` as well as in
@@ -34,11 +35,14 @@ licence file, and every directly bundled component's licence is found.
 - `about.toml`, `about.hbs`: cargo-about's configuration and template for
   the Rust crates.
 - `notices.py`: puts the file together, with the components bundled
-  directly (vendored gpui-pre, Sparkle, whisper.cpp, SQLite, the Dart
-  runtime, mermaid, Chart.js, Lucide, the KaTeX fonts) and the Dart
-  packages.
+  directly (vendored gpui-pre, Sparkle, WinSparkle, whisper.cpp, SQLite,
+  the Dart runtime, mermaid, Chart.js, Lucide, the KaTeX fonts) and the
+  Dart packages.
 - `texts/`: licence texts that no package manager provides (whisper.cpp,
-  SQLite's blessing, Chart.js).
+  SQLite's blessing, Chart.js; `winsparkle-*`: WinSparkle's and those of
+  wxWidgets, Expat, OpenSSL's libcrypto and ed25519, which its DLL links
+  in, from the release `packaging/windows/tools.env` pins. Refresh them
+  when that pin changes).
 
 It needs cargo-about 0.9 (`cargo install cargo-about --locked --features
 cli --version 0.9.3`), `flutter pub get` at the repository root, and

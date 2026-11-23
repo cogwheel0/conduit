@@ -4852,6 +4852,23 @@
   "@desktopUpdatesUnavailable": {
     "description": "Shown in Settings > About in development builds, which cannot update themselves."
   },
+  "desktopUpdateAvailable": "Conduit {version} is available.",
+  "@desktopUpdateAvailable": {
+    "description": "Settings › About › Software Update on Linux: a newer version than this one was released; the row's button downloads it from its release page. {version} is its version number, e.g. 1.3.0.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopUpdateUpToDate": "Conduit is up to date.",
+  "@desktopUpdateUpToDate": {
+    "description": "Settings › About › Software Update on Linux, after Check Now found no newer version."
+  },
+  "desktopUpdateCheckFailed": "Couldn't check for updates. Try again later.",
+  "@desktopUpdateCheckFailed": {
+    "description": "Settings › About › Software Update on Linux, after Check Now could not read the update feed (offline, or the feed was refused)."
+  },
   "desktopSuggestionsHeading": "Suggestions",
   "@desktopSuggestionsHeading": {
     "description": "Heading over the follow-up questions under the newest answer, as the phone titles them."

@@ -46,13 +46,15 @@ def section(title: str, body: list[str]) -> str:
     return "\n".join([f"### {title}", "", *body, ""])
 
 
+def env_file(path: Path) -> dict[str, str]:
+    return dict(
+        line.split("=", 1) for line in read(path).splitlines() if line and not line.startswith("#") and "=" in line
+    )
+
+
 def bundled(repo: Path, args) -> list[str]:
     desktop = repo / "desktop"
-    env = dict(
-        line.split("=", 1)
-        for line in read(desktop / "packaging/macos/release.env").splitlines()
-        if line and not line.startswith("#") and "=" in line
-    )
+    env = env_file(desktop / "packaging/macos/release.env")
     cmake = read(repo / "apps/daemon/native/whisper/CMakeLists.txt")
     whisper_tag = re.search(r"GIT_TAG\s+(\S+)", cmake).group(1)
     chart_header = read(repo / "assets/chartjs.min.js")[:300]
@@ -98,6 +100,23 @@ def bundled(repo: Path, args) -> list[str]:
                 ],
             )
         )
+    # WinSparkle ships in the Windows install folder only, with the code it
+    # links in: texts/winsparkle-* are the notices of the release
+    # packaging/windows/tools.env pins (its source tree's third-party
+    # folder), refreshed with the pin.
+    if args.platform == "windows":
+        winsparkle = env_file(desktop / "packaging/windows/tools.env")["WINSPARKLE_VERSION"]
+        inside = f"Part of WinSparkle.dll (WinSparkle {winsparkle} links it in)"
+        for title, about, text in (
+            (f"WinSparkle {winsparkle}", "The updater, WinSparkle.dll beside the app (MIT).", "winsparkle-COPYING"),
+            ("wxWidgets", f"{inside}: WinSparkle's windows (wxWindows Library Licence 3.1).",
+             "winsparkle-wxWidgets-licence.txt"),
+            ("Expat", f"{inside}: the feed's XML parser (MIT).", "winsparkle-expat-COPYING"),
+            ("OpenSSL libcrypto", f"{inside} (the OpenSSL and SSLeay licences).", "winsparkle-openssl-LICENSE"),
+            ("ed25519", f"{inside}: the update's EdDSA signature check (zlib licence).",
+             "winsparkle-ed25519-license.txt"),
+        ):
+            out.append(section(title, [about, "", fence(read(texts / text))]))
     sqlite = {"macos": "lib/libsqlite3.dylib", "windows": "lib\\sqlite3.dll", "linux": "lib/libsqlite3.so"}
     out.append(
         section(

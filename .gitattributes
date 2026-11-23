@@ -6,3 +6,4 @@ assets/computer/viewer.js -text
 desktop/crates/app/assets/** -text
 desktop/crates/components/assets/** -text
 desktop/packaging/macos/widget/Fixtures/** -text
+desktop/crates/app/src/updates/fixtures/** -text

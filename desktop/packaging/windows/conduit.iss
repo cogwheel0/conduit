@@ -11,7 +11,8 @@
 ; Uninstalling removes what this installed: the app's folder, its Start menu
 ; entry and its registrations. The user's data
 ; (%LOCALAPPDATA%\Conduit\User Data, its logs, the key in Credential
-; Manager) is the app's, never the installer's, and stays.
+; Manager, the updater's settings in HKCU\Software\Conduit\Updates) is
+; the app's, never the installer's, and stays.
 
 #if Ver < EncodeVer(6, 3, 0)
   #error Inno Setup 6.3 or later is needed (x64compatible)
@@ -55,8 +56,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 ; A running Conduit and its conduitd hold files this replaces: Windows'
 ; Restart Manager closes both first (conduitd also ends with the app,
-; through its job object), forced if they don't close, and the app isn't
-; started again (an interactive install offers to launch it at the end).
+; through its job object), forced if they don't close. The Restart Manager
+; doesn't start the app again: an interactive install offers to at the end,
+; and an update WinSparkle runs does it ([Run]).
 CloseApplications=force
 CloseApplicationsFilter=*.exe,*.dll
 RestartApplications=no
@@ -139,3 +141,13 @@ Root: HKCU; Subkey: "Software\Classes\Applications\conduit-desktop.exe\Supported
 
 [Run]
 Filename: "{app}\conduit-desktop.exe"; Description: "{cm:LaunchProgram,Conduit}"; Flags: nowait postinstall skipifsilent
+; An update WinSparkle runs (/SILENT ... /RELAUNCH=1, the feed's
+; sparkle:installerArguments: packaging/winlinux_feed.py) opens the app
+; again once it's in, as Sparkle does on the Mac.
+Filename: "{app}\conduit-desktop.exe"; Flags: nowait; Check: RelaunchAfterUpdate
+
+[Code]
+function RelaunchAfterUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
+end;

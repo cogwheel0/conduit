@@ -15,7 +15,8 @@ library only, so it runs on every build and test machine.
                                    paths::packaged_daemon_for expects, its
                                    SQLite and the model logo catalog; no test
                                    harness in the app; THIRD_PARTY_NOTICES.md
-                                   for that OS; on Windows, no PE that
+                                   for that OS; on Windows, WinSparkle.dll
+                                   beside the app (the updater), and no PE that
                                    needs a C/C++ runtime DLL Windows lacks
                                    unless it sits beside the executable of
                                    the process that loads that PE
@@ -26,6 +27,12 @@ library only, so it runs on every build and test machine.
   winlinux.py package-modes PKG... fails unless every file a built .deb or
                                    .rpm installs is root's and readable by
                                    everyone (dpkg-deb -c, rpm -qlvp)
+  winlinux.py extra-requires       what the packages require beyond the
+                                   libraries their binaries link, one a line
+  winlinux.py package-requires PKG...
+                                   fails unless every built .deb and .rpm
+                                   requires those (dpkg-deb -f, rpm -qp
+                                   --requires)
   winlinux.py rpm-requires DIR     the rpm requirements of the ELF files under
                                    DIR (sonames and glibc symbol versions, as
                                    rpmbuild finds them), from readelf
@@ -245,6 +252,9 @@ def layout_problems(root, os_name):
         problems.append("no conduitd/model_logos/catalog.json (the model logo catalog)")
     if windows and not (root / "conduit.ico").is_file():
         problems.append("no conduit.ico (the Start menu and link icon)")
+    # The app loads it from its own folder (crates/app/src/updates/winsparkle.rs).
+    if windows and not (root / "WinSparkle.dll").is_file():
+        problems.append("no WinSparkle.dll beside the app (the updater)")
     problems += notices_problems(root / "THIRD_PARTY_NOTICES.md", os_name)
     if app.is_file() and _has_marker(app):
         problems.append(f"{app.name} was built with the test harness (the `harness` feature): never shipped")
@@ -323,6 +333,30 @@ def package_mode_problems(listing, fmt):
 def _package_listing(package):
     command = ["dpkg-deb", "-c"] if package.endswith(".deb") else ["rpm", "-qlvp"]
     return subprocess.run([*command, package], check=True, capture_output=True, text=True).stdout
+
+
+# --- what the packages require -----------------------------------------------
+
+# Beyond the libraries the binaries link: the system's root certificates,
+# which the update notice reads its HTTPS feed with
+# (crates/app/src/updates/notice.rs). Named so on Debian, Ubuntu, Fedora and
+# openSUSE.
+EXTRA_REQUIRES = ("ca-certificates",)
+
+
+def missing_requires(requires, fmt):
+    """The EXTRA_REQUIRES a package's requirements lack: `dpkg-deb -f PKG
+    Depends` for "deb", `rpm -qp --requires PKG` for "rpm"."""
+    if fmt == "deb":
+        names = {alt.split()[0] for dep in requires.split(",") for alt in dep.split("|") if alt.strip()}
+    else:
+        names = {line.split()[0] for line in requires.splitlines() if line.strip()}
+    return [name for name in EXTRA_REQUIRES if name not in names]
+
+
+def _package_requires(package):
+    command = ["dpkg-deb", "-f", package, "Depends"] if package.endswith(".deb") else ["rpm", "-qp", "--requires", package]
+    return subprocess.run(command, check=True, capture_output=True, text=True).stdout
 
 
 # --- rpm requirements -------------------------------------------------------
@@ -433,6 +467,9 @@ def main(argv):
     p.add_argument("dir")
     p = sub.add_parser("package-modes")
     p.add_argument("packages", nargs="+")
+    sub.add_parser("extra-requires")
+    p = sub.add_parser("package-requires")
+    p.add_argument("packages", nargs="+")
     p = sub.add_parser("rpm-requires")
     p.add_argument("dir")
     p = sub.add_parser("gone")
@@ -475,6 +512,19 @@ def main(argv):
             if problems:
                 return 1
             print(f"every file of {len(args.packages)} package(s) is root's and readable by everyone")
+        elif args.command == "extra-requires":
+            print("\n".join(EXTRA_REQUIRES))
+        elif args.command == "package-requires":
+            problems = [
+                f"{Path(pkg).name} doesn't require {name}"
+                for pkg in args.packages
+                for name in missing_requires(_package_requires(pkg), "deb" if pkg.endswith(".deb") else "rpm")
+            ]
+            for problem in problems:
+                print(f"error: {problem}", file=sys.stderr)
+            if problems:
+                return 1
+            print(f"{len(args.packages)} package(s) require {', '.join(EXTRA_REQUIRES)}")
         elif args.command == "rpm-requires":
             outputs = [_readelf(p) for p in _elf_files(args.dir)]
             shipped = shipped_sonames(outputs) | {p.name for p in Path(args.dir).rglob("*.so*")}

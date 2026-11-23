@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Conduit</title>
+    <link>https://github.com/cogwheel0/conduit/releases</link>
+    <item>
+      <title>1.3.0</title>
+      <link>https://example.org/conduit/releases/tag/desktop-v1.3.0</link>
+      <pubDate>Mon, 23 Nov 2026 12:00:00 GMT</pubDate>
+      <sparkle:version>1030099</sparkle:version>
+      <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+    </item>
+    <item>
+      <title>1.2.0</title>
+      <link>https://example.org/conduit/releases/tag/desktop-v1.2.0</link>
+      <pubDate>Tue, 10 Nov 2026 12:00:00 GMT</pubDate>
+      <sparkle:version>1020099</sparkle:version>
+      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+    </item>
+  </channel>
+</rss>
+<!-- sparkle-signatures:
+edSignature: i5sfM6e9ooZjugvf0hlEi4Bfxcg2Expl/AUr0iYm5x7D0jaVL+PwrvLRdaCzpKlSH2heo3u/66BDK3yJ4kFKAg==
+length: 845
+-->

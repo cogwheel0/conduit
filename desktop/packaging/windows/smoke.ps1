@@ -3,6 +3,7 @@ Smoke-tests a Conduit installer the way a user meets it (CI's install
 smoke; also a test VM):
 
   desktop\packaging\windows\smoke.ps1 -Installer <Conduit-<version>-windows-x64-setup.exe> [-Work <folder>]
+                                      [-UpdateFeed <folder> [-UpdateFeedPort 8471]]
 
 1. Installs it silently for this user, and checks the install folder
    (winlinux.py layout) and what it registered under HKCU: conduit://, Open
@@ -11,10 +12,17 @@ smoke; also a test VM):
 2. The installed app refuses the test harness's flags (exit 64), and runs
    its --smoke pass on a profile of its own in -Work: exit code 0 and
    "SMOKE passed". No conduitd from the install folder runs afterwards.
-3. Installs again over the app while it runs: the installer closes the
-   app and its conduitd (Restart Manager) and replaces the files. It
-   waits for the app's conduitd through a process start trace, which
-   needs an administrator (CI's runner user is one).
+   With -UpdateFeed, that folder is served on 127.0.0.1 port
+   -UpdateFeedPort while the pass runs, and WinSparkle's check must find
+   nothing newer: an installer built with that feed's URL and key
+   (build.ps1 -UpdateFeedUrl, -UpdatePublicKey) and a folder holding
+   appcast-windows.xml for no newer version (CI's rehearsal).
+3. Installs again over the app while it runs, as WinSparkle runs an
+   update (winlinux_feed.py installer-arguments: /SILENT ... /RELAUNCH=1):
+   the installer closes the app and its conduitd (Restart Manager),
+   replaces the files and starts the app again. It waits for the app's
+   conduitd and for the new app through process start traces, which need
+   an administrator (CI's runner user is one), then stops the new app.
 4. Uninstalls silently: the install folder, the Start menu entry and every
    registration are gone, and the user's data folder is still there.
 
@@ -25,13 +33,16 @@ uses a profile in -Work (default: a new folder in %TEMP%).
 #Requires -Version 7.4
 param(
   [Parameter(Mandatory)][string]$Installer,
-  [string]$Work
+  [string]$Work,
+  [string]$UpdateFeed,
+  [int]$UpdateFeedPort = 8471
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 $packaging = Split-Path -Parent $PSScriptRoot
 $winlinux = Join-Path $packaging 'winlinux.py'
+$feedTool = Join-Path $packaging 'winlinux_feed.py'
 $Installer = (Resolve-Path -LiteralPath $Installer).ProviderPath
 if (-not $Work) { $Work = Join-Path ([IO.Path]::GetTempPath()) "conduit-smoke-$PID" }
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
@@ -126,8 +137,31 @@ Log 'refuses --e2e, --capture, --probe, --fixture, --chat-fixture (exit 64)'
 $env:CONDUIT_USER_DATA = Join-Path $Work 'smoke\user-data'
 $env:CONDUIT_LOGS = Join-Path $Work 'smoke\logs'
 $report = Join-Path $Work 'smoke\report.txt'
-Log "the app's --smoke pass (profile in $Work\smoke)"
-$run = Start-Process -FilePath $exe -ArgumentList '--smoke', "`"$report`"" -Wait -PassThru
+if ($UpdateFeed) {
+  $UpdateFeed = (Resolve-Path -LiteralPath $UpdateFeed).ProviderPath
+  Expect (Test-Path -LiteralPath (Join-Path $UpdateFeed 'appcast-windows.xml')) "no appcast-windows.xml in $UpdateFeed"
+}
+$server = $null
+# The feed server, when there is one, is stopped however this step ends.
+try {
+  if ($UpdateFeed) {
+    $server = Start-Process -FilePath python -PassThru -NoNewWindow -ArgumentList @(
+      '-m', 'http.server', $UpdateFeedPort, '--bind', '127.0.0.1', '--directory', "`"$UpdateFeed`""
+    ) -RedirectStandardOutput (Join-Path $Work 'feed-server.out') -RedirectStandardError (Join-Path $Work 'feed-server.log')
+    # The pass checks once it has connected; the server answers well before.
+    $feedUrl = "http://127.0.0.1:$UpdateFeedPort/appcast-windows.xml"
+    $served = $false
+    foreach ($try in 1..50) {
+      try { Invoke-WebRequest -Uri $feedUrl -UseBasicParsing | Out-Null; $served = $true; break } catch { Start-Sleep -Milliseconds 200 }
+    }
+    Expect $served "the update feed in $UpdateFeed isn't served at $feedUrl"
+    Log "serving $UpdateFeed at $feedUrl for WinSparkle's check"
+  }
+  Log "the app's --smoke pass (profile in $Work\smoke)"
+  $run = Start-Process -FilePath $exe -ArgumentList '--smoke', "`"$report`"" -Wait -PassThru
+} finally {
+  if ($server) { Stop-Process -Id $server.Id -ErrorAction SilentlyContinue }
+}
 $lines = @(Get-Content -LiteralPath $report -ErrorAction SilentlyContinue)
 $lines | ForEach-Object { Write-Host $_ }
 if ($run.ExitCode -ne 0 -or $lines[-1] -ne 'SMOKE passed' -or ($lines -match '^SMOKE FAILED')) {
@@ -142,6 +176,11 @@ Expect ([bool](Select-String -LiteralPath (Join-Path $env:CONDUIT_LOGS 'conduit-
   "the installed app didn't run in the production flavour (it found no packaged conduitd)"
 Expect ((Get-ProcessAt $daemon).Count -eq 0) "a conduitd from $app still runs after the app quit"
 Log 'smoke passed; no conduitd left'
+if ($UpdateFeed) {
+  Expect ($lines -contains 'SMOKE update check: up to date') `
+    "WinSparkle didn't read the served feed and find nothing newer (see the report)"
+  Log 'WinSparkle loaded and read the feed: nothing newer'
+}
 
 # 3. Install again over the running app.
 $env:CONDUIT_USER_DATA = Join-Path $Work 'running\user-data'
@@ -158,12 +197,71 @@ try {
   Unregister-Event -SourceIdentifier ConduitdStarted
 }
 Expect ((Get-ProcessAt $daemon).Count -eq 1) 'the running app has no conduitd from the install folder'
-Log "installing again over the running app (pid $($running.Id)) and its conduitd"
-Invoke-Setup $Installer (Join-Path $Work 'reinstall.log')
-Expect ((Get-ProcessAt $exe).Count -eq 0) 'the app still runs after the installer replaced it'
-Expect ((Get-ProcessAt $daemon).Count -eq 0) 'conduitd still runs after the installer replaced it'
+$updateArgs = @((& python $feedTool installer-arguments) -split ' ')
+Log "installing again over the running app (pid $($running.Id)) and its conduitd, as WinSparkle runs an update ($($updateArgs -join ' '))"
+$oldDaemons = @(Get-ProcessAt $daemon)
+# A process object reads its exit only through a handle opened while it ran.
+foreach ($p in @($running) + $oldDaemons) { $null = $p.Handle }
+# The app the update starts again is the setup's: setup.exe starts its .tmp,
+# which starts the app. Every start of either kind is traced, and the one
+# whose parent is the setup or its .tmp is the app to check and to stop
+# (only a process this smoke started, never one found by its path).
+Register-CimIndicationEvent -SourceIdentifier UpdateStarts `
+  -Query "SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName = 'conduit-desktop.exe' OR ProcessName LIKE '%.tmp'"
+$relaunched = $null
+try {
+  $log = Join-Path $Work 'reinstall.log'
+  # Not -Wait: that waits for the setup's descendants, and the app it
+  # starts again is one of them.
+  $setup = Start-Process -FilePath $Installer -PassThru -ArgumentList ($updateArgs + "/LOG=`"$log`"")
+  $null = $setup.Handle
+  $setup.WaitForExit()
+  if ($setup.ExitCode -ne 0) {
+    Get-Content -LiteralPath $log -Tail 60 -ErrorAction SilentlyContinue
+    throw "smoke: the update install exited with $($setup.ExitCode)"
+  }
+  Expect ($running.HasExited) 'the app the update replaced still runs'
+  Expect (@($oldDaemons | Where-Object { -not $_.HasExited }).Count -eq 0) 'its conduitd still runs after the update replaced it'
+  $family = @{ [int]$setup.Id = $true }
+  # Trace events may arrive out of order, so a start whose parent isn't
+  # known yet waits here and is matched once that parent joins.
+  $unmatched = [System.Collections.Generic.List[object]]::new()
+  $deadline = [DateTime]::UtcNow.AddMinutes(2)
+  while (-not $relaunched -and [DateTime]::UtcNow -lt $deadline) {
+    $null = Wait-Event -SourceIdentifier UpdateStarts -Timeout 5
+    foreach ($queued in @(Get-Event -SourceIdentifier UpdateStarts -ErrorAction SilentlyContinue)) {
+      $unmatched.Add($queued.SourceEventArgs.NewEvent)
+      Remove-Event -EventIdentifier $queued.EventIdentifier
+    }
+    do {
+      $joined = $false
+      # ToArray, not @(): PowerShell 7.4's @() can throw on a List[object].
+      foreach ($started in $unmatched.ToArray()) {
+        if ($family.ContainsKey([int]$started.ParentProcessID)) {
+          $family[[int]$started.ProcessID] = $true
+          if ($started.ProcessName -eq 'conduit-desktop.exe') { $relaunched = [int]$started.ProcessID }
+          $null = $unmatched.Remove($started)
+          $joined = $true
+        }
+      }
+    } while ($joined -and -not $relaunched)
+  }
+} finally {
+  Unregister-Event -SourceIdentifier UpdateStarts
+}
+Expect ([bool]$relaunched) "the update (pid $($setup.Id)) started no app in 2 minutes"
+$again = Get-Process -Id $relaunched -ErrorAction SilentlyContinue
+Expect ([bool]$again) "the app the update started (pid $relaunched) has already ended"
+$null = $again.Handle
+Expect ($again.Path -eq $exe) "the update started $($again.Path) (pid $relaunched), not $exe"
 Assert-Installed
-Log 'the installer closed the app and conduitd and replaced the files'
+Log "the installer closed the app and its conduitd, replaced the files and started the app again (pid $relaunched, from setup pid $($setup.Id))"
+Stop-Process -Id $relaunched
+$again.WaitForExit()
+# Its job object ends its conduitd with it.
+$left = @(Get-ProcessAt $daemon)
+$left | ForEach-Object { $null = $_.Handle; $_.WaitForExit(30000) | Out-Null }
+Expect (@($left | Where-Object { -not $_.HasExited }).Count -eq 0) 'the started app left a conduitd running'
 
 # 4. Uninstall.
 $keep = Join-Path $env:LOCALAPPDATA 'Conduit\User Data\smoke-keep.txt'

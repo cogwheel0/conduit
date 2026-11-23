@@ -1,7 +1,7 @@
 #!/bin/bash
 # Smoke-tests the Linux packages the way a user meets them.
 #
-#   desktop/packaging/linux/smoke.sh PACKAGE.deb [WORK]
+#   desktop/packaging/linux/smoke.sh [--update-feed DIR [--update-feed-port N]] PACKAGE.deb [WORK]
 #       (Debian or Ubuntu, with sudo; CI's install smoke, or a test VM)
 #   desktop/packaging/linux/smoke.sh --container PACKAGE.deb|PACKAGE.rpm
 #       (as root in a clean distribution container)
@@ -19,6 +19,11 @@
 #    the user's: an unencrypted "login" keyring that is the default, so
 #    nothing prompts; secret-tool (libsecret-tools), when installed, checks
 #    it stores and finds a secret before the app starts.
+#    With --update-feed, DIR is served on 127.0.0.1 port N (default 8471)
+#    while the pass runs, and its update check must find nothing newer: a
+#    package built with that feed's URL and key (package.sh
+#    --update-feed-url, --update-public-key) and DIR holding
+#    appcast-linux.xml, signed, for no newer version (CI's rehearsal).
 # 3. Removes the package: none of its files is left, conduit:// is no longer
 #    registered, and the user's data folder is still there.
 #
@@ -108,6 +113,16 @@ $left"
   log "none of the package's files is left"
 }
 
+update_feed=""
+update_port=8471
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --update-feed) update_feed="$(cd "$2" && pwd)"; shift 2 ;;
+    --update-feed-port) update_port="$2"; shift 2 ;;
+    *) break ;;
+  esac
+done
+
 if [ "${1:-}" = --container ]; then
   package="${2:?usage: smoke.sh --container PACKAGE.deb|PACKAGE.rpm}"
   case "$package" in
@@ -120,6 +135,12 @@ if [ "${1:-}" = --container ]; then
   esac
   log "installed $(basename "$package") ($(. /etc/os-release && printf '%s' "$PRETTY_NAME"))"
   libraries_resolve
+  # The root certificates came with it: the update notice reads over HTTPS.
+  case "$package" in
+    *.deb) dpkg -s ca-certificates >/dev/null 2>&1 ;;
+    *.rpm) rpm -q ca-certificates >/dev/null 2>&1 ;;
+  esac || die "ca-certificates didn't come with $(basename "$package")"
+  log "ca-certificates came with it"
   has_notices docs-may-drop
   refuses_harness_flags "$(mktemp -d)"
   case "$package" in
@@ -167,6 +188,23 @@ report="$work/smoke/report.txt"
 # named the default, and its control socket goes in a runtime folder of its
 # own: a running keyring of the user's is never reached.
 keyring_data="$work/keyring-data"
+server=""
+if [ -n "$update_feed" ]; then
+  [ -f "$update_feed/appcast-linux.xml" ] || die "no appcast-linux.xml in $update_feed"
+  python3 -I -m http.server "$update_port" --bind 127.0.0.1 --directory "$update_feed" \
+    >"$work/feed-server.log" 2>&1 &
+  server=$!
+  # Stopped however the smoke ends from here on.
+  trap 'kill "$server" 2>/dev/null || true' EXIT
+  # The pass checks once it has connected; the server answers well before.
+  for _ in $(seq 50); do
+    curl -fsS -o /dev/null "http://127.0.0.1:$update_port/appcast-linux.xml" 2>/dev/null && break
+    sleep 0.2
+  done
+  curl -fsS -o /dev/null "http://127.0.0.1:$update_port/appcast-linux.xml" ||
+    die "the update feed in $update_feed isn't served on port $update_port"
+  log "serving $update_feed on 127.0.0.1:$update_port for the update check"
+fi
 mkdir -p "$keyring_data/keyrings" "$work/runtime"
 chmod 700 "$keyring_data/keyrings" "$work/runtime"
 printf '[keyring]\ndisplay-name=login\nctime=0\nmtime=0\nlock-on-idle=false\nlock-after=false\n' \
@@ -184,6 +222,7 @@ env -u CONDUITD_PATH XDG_RUNTIME_DIR="$work/runtime" \
     fi
     exec /usr/bin/conduit-desktop --smoke "$1"' sh "$report" "$keyring_data" >"$work/smoke/run.log" 2>&1 ||
   status=$?
+if [ -n "$server" ]; then kill "$server" 2>/dev/null || true; fi
 case "$status" in
   70 | 71)
     tail -n 30 "$work/smoke/run.log" >&2
@@ -204,6 +243,11 @@ fi
 # binary: only a packaged release build runs in the production flavour.
 grep -q 'Conduit Desktop .* (Production), userData ' "$work/smoke/logs/conduit-desktop.log" ||
   die "the installed app didn't run in the production flavour (it found no packaged conduitd)"
+if [ -n "$update_feed" ]; then
+  grep -qx 'SMOKE update check: up to date' "$report" ||
+    die "the update notice didn't read the served feed and find nothing newer (see the report)"
+  log "the update notice read the signed feed: nothing newer"
+fi
 # By executable, exactly (never a pattern over command lines).
 for proc in /proc/[0-9]*; do
   if [ "$(readlink "$proc/exe" 2>/dev/null)" = "$daemon" ]; then
