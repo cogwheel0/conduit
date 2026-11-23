@@ -1006,7 +1006,6 @@ final class ModelsService {
     AccountScope account, {
     bool temporary = false,
   }) async {
-    final slot = _slotOf(chatId, temporary: temporary);
     // Kept alive while it is read, so the chat's saved model is read again
     // after the waits without fetching the chat again.
     final chat = chatId == null
@@ -1016,7 +1015,8 @@ final class ModelsService {
             (_, _) {},
           );
     _ModelInputs inputs() => (
-      pick: _picksOf(account)[slot],
+      // Looked up afresh: a pick moves with its chat's id (`route.remap`).
+      pick: _picksOf(account)[_slotOf(chatId, temporary: temporary)],
       selected: _container.read(selectedModelProvider),
       listed: _container.read(modelsProvider).value,
       chat: chat?.read().value,

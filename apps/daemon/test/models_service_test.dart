@@ -1636,6 +1636,9 @@ void main() {
         ('chat', 'account', 'retired-chat', null),
         // The chat's pick, on a model the server takes away meanwhile.
         ('chat', 'unlist pick', 'plain-chat', 'first-model'),
+        // The chat's pick, the chat getting its server id meanwhile.
+        ('chat', 'move', 'plain-chat', 'preferred-model'),
+        ('list', 'move', 'plain-chat', 'preferred-model'),
         ('hidden', 'pick', 'hidden-chat', 'preferred-model'),
         ('hidden', 'selection', 'retired-chat', 'preferred-model'),
         ('hidden', 'list', 'retired-chat', 'retired-model'),
@@ -1651,8 +1654,17 @@ void main() {
         _Growing.extra = const <core.Model>[];
         final api = _AgentsApi();
         final container = _agentContainer(api, models: _Growing.new);
-        final models = ModelsService(container);
+        final bus = EventBus();
+        // Only for a move: the bus also starts the terminal agent guard,
+        // which needs storage this container has none of.
+        final models = ModelsService(
+          container,
+          events: change == 'move' ? bus : null,
+        );
         await container.read(modelsProvider.future);
+        if (change == 'move') {
+          await models.select('preferred-model', chatId: chatId);
+        }
         if (chatId == null) {
           container.read(selectedTerminalIdProvider.notifier).set('north');
           await models.select(_northAgent);
@@ -1707,6 +1719,11 @@ void main() {
             _Growing.extra = const <core.Model>[];
             container.invalidate(modelsProvider);
             await container.read(modelsProvider.future);
+          case 'move':
+            bus.emit(
+              ConduitEventSpecs.routeRemap,
+              RouteRemap(fromId: chatId!, toId: '$chatId-9'),
+            );
           case 'terminal':
             container.read(selectedTerminalIdProvider.notifier).set('south');
           case 'terminals off':
