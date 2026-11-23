@@ -304,6 +304,17 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
     let table = keymap.table();
     let mut bindings = vec![];
     for shortcut in &table {
+        let saved = keymap
+            .overrides
+            .get(shortcut.action.name())
+            .and_then(|e| crate::keymap::decode(e))
+            .map(|s| crate::keymap::for_os(s, KeyOs::CURRENT));
+        if saved.is_some_and(|s| s != shortcut.stroke) {
+            log::warn!(
+                "{}: its saved shortcut is another command's here; not used",
+                shortcut.action.name()
+            );
+        }
         if !shortcut.action.is_live() {
             continue;
         }

@@ -112,6 +112,21 @@ pub fn guard_bindings(chords: &[crate::keymap::KeyStroke], os: KeyOs, cx: &App) 
         .collect()
 }
 
+/// `cx.intercept_keystrokes` for keys meant for what a window shows: `f`
+/// doesn't see them while the window shows a drawn prompt, which then has
+/// them (an interceptor runs before every binding, the prompt's too). On
+/// the Mac prompts are AppKit sheets, never drawn.
+pub fn intercept_behind(
+    cx: &mut App,
+    mut f: impl FnMut(&gpui_kit::KeystrokeEvent, &mut Window, &mut App) + 'static,
+) -> gpui_kit::Subscription {
+    cx.intercept_keystrokes(move |event, window, cx| {
+        if !window.has_active_prompt() {
+            f(event, window, cx);
+        }
+    })
+}
+
 /// Draws every `window.prompt` with [`AppPrompt`] from now on.
 pub fn install(cx: &mut App) {
     cx.set_prompt_builder(build);

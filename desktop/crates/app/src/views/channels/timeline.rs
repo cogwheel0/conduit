@@ -118,7 +118,7 @@ impl ChannelTimeline {
             cx.observe(&store, |this, _, cx| this.sync(cx)),
             // Esc in the edit field cancels the edit, ahead of the window's
             // own Esc (Stop Generating), which would take it first.
-            cx.intercept_keystrokes({
+            crate::shell::app_prompt::intercept_behind(cx, {
                 let weak = this_view;
                 move |event, window, cx| {
                     let k = &event.keystroke;

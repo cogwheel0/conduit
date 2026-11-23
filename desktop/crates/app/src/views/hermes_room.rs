@@ -399,7 +399,7 @@ impl HermesRoomPane {
                     .update(cx, |s, cx| s.set_submit_on_enter(on_enter, cx));
             }),
             // The mention list's keys, ahead of the field's own.
-            cx.intercept_keystrokes(move |event, window, cx| {
+            crate::shell::app_prompt::intercept_behind(cx, move |event, window, cx| {
                 let key = event.keystroke.key.as_str();
                 let m = event.keystroke.modifiers;
                 let Some(this) = weak.upgrade() else {

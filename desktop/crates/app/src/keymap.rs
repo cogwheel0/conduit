@@ -422,7 +422,11 @@ pub fn apply_overrides_on(overrides: &BTreeMap<String, String>, os: KeyOs) -> Ve
                 .get(s.action.name())
                 .and_then(|e| decode(e))
                 .map(|stroke| for_os(stroke, os))
-            {
+                // A Mac profile's chord can be a fixed command's here (its
+                // ⌃R is Regenerate's Ctrl+R): the command keeps its default.
+                .filter(|stroke| {
+                    os.is_mac() || fixed_conflict_on(stroke, Some(s.action), os).is_none()
+                }) {
                 Some(stroke) => Shortcut {
                     action: s.action,
                     // A chord keeps working while typing; a bare key must not.
@@ -2107,7 +2111,8 @@ mod tests {
 
     /// A Mac profile's ⌃J and ⌘J are one chord off the Mac: the first
     /// command keeps it, the other goes back to its default (or to none
-    /// when that is taken). The Mac keeps both.
+    /// when that is taken). One that lands on a fixed command's chord goes
+    /// back too. The Mac keeps them all.
     #[test]
     fn a_mac_profiles_chords_that_meet_off_the_mac_do_not_collide() {
         let overrides = BTreeMap::from([
@@ -2149,6 +2154,32 @@ mod tests {
                 .unwrap()
                 .while_typing
         );
+        // A Mac profile's ⌃R (⌘R is Regenerate there) is Ctrl+R here,
+        // Regenerate's fixed chord: New Chat keeps its default.
+        let k = Keymap::new(BTreeMap::from([(
+            "newChat".to_string(),
+            "ctrl+r".to_string(),
+        )]));
+        assert_eq!(
+            stroke(&k.table_on(KeyOs::Mac), A::NewChat),
+            KeyStroke::new("r").ctrl()
+        );
+        for os in [KeyOs::Windows, KeyOs::Linux] {
+            let t = k.table_on(os);
+            assert_eq!(
+                stroke(&t, A::NewChat),
+                stroke(&default_shortcuts_on(os), A::NewChat),
+                "{os:?}"
+            );
+            for s in &t {
+                assert_eq!(
+                    fixed_conflict_on(&s.stroke, Some(s.action), os),
+                    None,
+                    "{os:?}: {:?} takes a fixed chord",
+                    s.action
+                );
+            }
+        }
     }
 
     /// Deleting the selected item: ⌘⌫ on the Mac, Delete alone elsewhere.

@@ -557,7 +557,7 @@ pub fn run() {
         // The setup window and the main window follow the session.
         windows::install(cx);
         // Settings › Keyboard records chords before bindings see them.
-        cx.intercept_keystrokes(|event, _, cx| {
+        shell::app_prompt::intercept_behind(cx, |event, _, cx| {
             let Some(settings) = cx.try_global::<AppState>().map(|s| s.settings.clone()) else {
                 return;
             };

@@ -1264,7 +1264,7 @@ pub fn intercept_keys<V: 'static>(
     console: gpui_kit::WeakEntity<Console>,
     cx: &mut Context<V>,
 ) -> gpui_kit::Subscription {
-    cx.intercept_keystrokes(move |event, window, cx| {
+    crate::shell::app_prompt::intercept_behind(cx, move |event, window, cx| {
         let Some(console) = console.upgrade() else {
             return;
         };

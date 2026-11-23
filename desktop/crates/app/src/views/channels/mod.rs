@@ -222,7 +222,7 @@ impl ChannelPane {
             cx.observe_window_activation(window, |this, window, cx| this.report_front(window, cx)),
             // The picker's keys, ahead of the window's own bindings (Esc is
             // Stop Generating there), as the composer takes its menu's.
-            cx.intercept_keystrokes({
+            crate::shell::app_prompt::intercept_behind(cx, {
                 let weak = pane.clone();
                 move |event, window, cx| {
                     let Some(this) = weak.upgrade() else {
