@@ -288,10 +288,24 @@ pub mod macos {
     }
 }
 
-/// The macOS accent colour, or the default blue.
+/// The accent Windows or the Linux desktop reported ([`set_os_accent`]).
+static OS_ACCENT: std::sync::Mutex<Option<Hsla>> = std::sync::Mutex::new(None);
+
+/// Off the Mac, the app reads the OS's accent and keeps it here.
+pub fn set_os_accent(color: Option<Hsla>) {
+    if let Ok(mut accent) = OS_ACCENT.lock() {
+        *accent = color;
+    }
+}
+
+/// The macOS accent colour, the one Windows or the Linux desktop reported,
+/// or the default blue.
 pub fn system_accent_color() -> Hsla {
     #[cfg(target_os = "macos")]
     if let Some(c) = macos::system_accent_color() {
+        return c;
+    }
+    if let Some(c) = OS_ACCENT.lock().ok().and_then(|a| *a) {
         return c;
     }
     gpui_kit::rgb(crate::theme::DEFAULT_SYSTEM_ACCENT).into()

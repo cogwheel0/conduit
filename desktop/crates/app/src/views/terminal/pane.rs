@@ -141,20 +141,7 @@ impl TerminalPane {
         stores.connection.update(cx, |c, _| {
             c.subscribe("terminal", &[events::TERMINAL_CHANGED], vec![])
         });
-        // Keys that are not text reach the shell ahead of the app's
-        // shortcuts (Esc, Tab, ⌃C, arrows); ⌘ keys stay the app's.
-        let keys = console.downgrade();
-        let intercept = cx.intercept_keystrokes(move |event, window, cx| {
-            let Some(console) = keys.upgrade() else {
-                return;
-            };
-            let taken = console.update(cx, |c, cx| {
-                c.is_focused(window) && c.key(&event.keystroke, cx)
-            });
-            if taken {
-                cx.stop_propagation();
-            }
-        });
+        let intercept = super::console::intercept_keys(console.downgrade(), cx);
         let mut subscriptions = vec![
             intercept,
             cx.subscribe(&console, |this, _, e: &ConsoleEvent, cx| match e {
@@ -780,7 +767,7 @@ impl TerminalPane {
                         .child(
                             div()
                                 .text_size(px(m.control))
-                                .font_family(conduit_components::theme::MONO_FONT)
+                                .font_family(conduit_components::theme::mono_font())
                                 .text_color(r.text)
                                 .child(SharedString::from(address)),
                         )

@@ -1255,7 +1255,7 @@ impl Render for RoomInfoSheet {
             .gap(px(16.))
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &e.keystroke;
-                if k.key == "enter" && k.modifiers.platform {
+                if k.key == "enter" && crate::keymap::held(&k.modifiers).primary {
                     this.save(window, cx);
                     cx.stop_propagation();
                 }

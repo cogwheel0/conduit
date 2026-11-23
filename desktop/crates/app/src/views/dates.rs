@@ -2,8 +2,10 @@
 //!
 //! On macOS these go through `NSDateFormatter`, so a time of day follows the
 //! user's 12- or 24-hour choice and every form follows the app's language,
-//! as Mail's list does. Elsewhere (the CI `cargo check` platforms) a plain
-//! numeric fallback stands in.
+//! as Mail's list does. On Windows and Linux they go through ICU4X, in the
+//! system's region when it speaks the app's language ([`format_tag`]), so
+//! the order, month names and 12- or 24-hour clock are the region's (a
+//! Windows user's own time format over the region's is not read).
 //!
 //! [`stamp`] is the one way a chat is dated, wherever it is listed: the
 //! sidebar's rows (under any heading), its search results and the ⌘K
@@ -100,12 +102,157 @@ pub enum Form {
 /// app locale such as `en` or `zh_Hant`).
 pub fn format(ms: i64, form: Form, locale: &str) -> String {
     #[cfg(target_os = "macos")]
+    let formatted = mac::format(ms, form, locale);
+    #[cfg(not(target_os = "macos"))]
+    let formatted = icu::format(
+        ms,
+        form,
+        &format_tag(
+            locale,
+            crate::l10n::locale::system_format_locale().as_deref(),
+        ),
+    );
+    formatted.unwrap_or_else(|| fallback(ms, form, locale))
+}
+
+/// The day a week starts on where `locale` (an app locale) is written, in
+/// the system's region as [`format_tag`] picks it (Sunday in the US and
+/// India, Saturday in Egypt). The Mac's pickers are NSDatePicker's, so it
+/// has no grid to start: Monday.
+pub fn first_weekday(locale: &str) -> chrono::Weekday {
+    #[cfg(not(target_os = "macos"))]
     {
-        if let Some(s) = mac::format(ms, form, locale) {
-            return s;
+        icu::first_weekday(&format_tag(
+            locale,
+            crate::l10n::locale::system_format_locale().as_deref(),
+        ))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = locale;
+        chrono::Weekday::Mon
+    }
+}
+
+/// The locale dates are written in: the system's own (`de-AT`, `en-GB`)
+/// when it speaks the app's language, so its region's order and clock
+/// apply, else the app's language (`zh_Hant` as `zh-Hant`).
+pub fn format_tag(app: &str, system: Option<&str>) -> String {
+    let app_tag = app.replace('_', "-");
+    let Some(system) = system.filter(|s| !s.is_empty()) else {
+        return app_tag;
+    };
+    let language = |tag: &str| {
+        tag.split(['_', '-'])
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+    };
+    if language(app) != language(system) {
+        return app_tag;
+    }
+    // zh (Hans) and zh_Hant share a language but not a script.
+    if app.starts_with("zh") {
+        let traditional = |tag: &str| {
+            let t = tag.to_ascii_lowercase();
+            t.contains("hant")
+                || (!t.contains("hans") && ["tw", "hk", "mo"].iter().any(|r| t.contains(r)))
+        };
+        if traditional(app) != traditional(system) {
+            return app_tag;
         }
     }
-    fallback(ms, form, locale)
+    system.replace('_', "-")
+}
+
+/// Dates through ICU4X, as Windows and Linux write them. Not on the Mac,
+/// whose bundle would carry ICU's date data for nothing.
+#[cfg(not(target_os = "macos"))]
+mod icu {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    use chrono::{Datelike as _, Local, TimeZone as _, Timelike as _};
+    use icu_datetime::DateTimeFormatter;
+    use icu_datetime::fieldsets::enums::{
+        CalendarPeriodFieldSet, CompositeDateTimeFieldSet, DateAndTimeFieldSet, DateFieldSet,
+        TimeFieldSet,
+    };
+    use icu_datetime::fieldsets::{E, M, MD, MDE, T, YM, YMD, YMDE};
+    use icu_datetime::input::{Date, DateTime, Time};
+    use icu_locale_core::Locale;
+
+    use super::Form;
+
+    type Formatter = DateTimeFormatter<CompositeDateTimeFieldSet>;
+
+    thread_local! {
+        /// As on the Mac, each (locale, form) keeps one: rows are drawn
+        /// every frame while a list scrolls.
+        static FORMATTERS: RefCell<HashMap<(String, Form), Option<Formatter>>> =
+            RefCell::new(HashMap::new());
+    }
+
+    fn field_set(form: Form) -> CompositeDateTimeFieldSet {
+        use CompositeDateTimeFieldSet as C;
+        match form {
+            Form::Time => C::Time(TimeFieldSet::T(T::hm())),
+            Form::ShortDate => C::Date(DateFieldSet::YMD(YMD::short())),
+            Form::DayMonth => C::Date(DateFieldSet::MD(MD::medium())),
+            Form::LongDate => C::Date(DateFieldSet::YMD(YMD::long())),
+            Form::Month => C::CalendarPeriod(CalendarPeriodFieldSet::M(M::long())),
+            Form::MonthYear => C::CalendarPeriod(CalendarPeriodFieldSet::YM(YM::long())),
+            Form::WeekdayDayMonth => C::Date(DateFieldSet::MDE(MDE::medium())),
+            Form::WeekdayDayMonthYear => C::Date(DateFieldSet::YMDE(YMDE::medium())),
+            Form::DayMonthYear => C::Date(DateFieldSet::YMD(YMD::medium())),
+            Form::Weekday => C::Date(DateFieldSet::E(E::medium())),
+            Form::DateTime => C::DateTime(DateAndTimeFieldSet::YMDT(YMD::medium().with_time_hm())),
+        }
+    }
+
+    fn make(form: Form, tag: &str) -> Option<Formatter> {
+        let locale = Locale::try_from_str(tag)
+            .or_else(|_| Locale::try_from_str(tag.split('-').next().unwrap_or("en")))
+            .ok()?;
+        DateTimeFormatter::try_new((&locale).into(), field_set(form))
+            .map_err(|e| log::warn!("no {form:?} dates for {tag}: {e:?}"))
+            .ok()
+    }
+
+    /// The first day of the week for the BCP-47 `tag` (Monday when its
+    /// data can't be read).
+    pub fn first_weekday(tag: &str) -> chrono::Weekday {
+        use icu_calendar::types::Weekday as W;
+        let first = Locale::try_from_str(tag)
+            .ok()
+            .and_then(|l| icu_calendar::week::WeekInformation::try_new((&l).into()).ok())
+            .map(|w| w.first_weekday);
+        match first {
+            Some(W::Sunday) => chrono::Weekday::Sun,
+            Some(W::Tuesday) => chrono::Weekday::Tue,
+            Some(W::Wednesday) => chrono::Weekday::Wed,
+            Some(W::Thursday) => chrono::Weekday::Thu,
+            Some(W::Friday) => chrono::Weekday::Fri,
+            Some(W::Saturday) => chrono::Weekday::Sat,
+            Some(W::Monday) | None => chrono::Weekday::Mon,
+        }
+    }
+
+    /// `ms` in `form` for the BCP-47 `tag`, in the local time zone.
+    pub fn format(ms: i64, form: Form, tag: &str) -> Option<String> {
+        let t = Local.timestamp_millis_opt(ms).earliest()?;
+        let input = DateTime {
+            date: Date::try_new_iso(t.year(), t.month() as u8, t.day() as u8).ok()?,
+            time: Time::try_new(t.hour() as u8, t.minute() as u8, t.second() as u8, 0).ok()?,
+        };
+        FORMATTERS.with(|cell| {
+            let mut map = cell.borrow_mut();
+            let f = map
+                .entry((tag.to_string(), form))
+                .or_insert_with(|| make(form, tag));
+            f.as_ref().map(|f| f.format(&input).to_string())
+        })
+    }
 }
 
 /// A month section's title: the month alone in the current year, with its
@@ -224,6 +371,77 @@ mod mac {
                 .or_insert_with(|| make(form, locale));
             Some(f.stringFromDate(&date).to_string())
         })
+    }
+}
+
+/// Windows' and Linux's dates. ICU4X is not built for the Mac, so its forms
+/// are checked by the Windows and Linux CI jobs; the region rule everywhere.
+#[cfg(test)]
+mod icu_tests {
+    use super::*;
+
+    #[cfg(not(target_os = "macos"))]
+    fn at(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> i64 {
+        Local
+            .with_ymd_and_hms(y, mo, d, h, mi, 0)
+            .unwrap()
+            .timestamp_millis()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn forms_read_as_the_locale_writes_them() {
+        let t = at(2026, 7, 18, 9, 5);
+        let f = |form, tag| icu::format(t, form, tag).unwrap();
+        assert_eq!(f(Form::LongDate, "de"), "18. Juli 2026");
+        assert_eq!(f(Form::ShortDate, "de"), "18.07.26");
+        assert_eq!(f(Form::Time, "de"), "09:05");
+        assert_eq!(f(Form::Month, "de"), "Juli");
+        assert_eq!(f(Form::MonthYear, "de"), "Juli 2026");
+        assert_eq!(f(Form::LongDate, "en"), "July 18, 2026");
+        assert_eq!(f(Form::Time, "en-US"), "9:05\u{202f}AM");
+        assert_eq!(f(Form::Time, "en-GB"), "09:05");
+        assert_eq!(f(Form::ShortDate, "en-GB"), "18/07/2026");
+        assert_eq!(f(Form::Weekday, "en"), "Sat");
+        assert_eq!(f(Form::WeekdayDayMonth, "en"), "Sat, Jul 18");
+        assert_eq!(f(Form::Time, "ja"), "9:05");
+        assert_eq!(f(Form::LongDate, "zh-Hant"), "2026年7月18日");
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn day_and_month_follow_the_language() {
+        let t = at(2026, 7, 4, 9, 5);
+        let f = |tag| icu::format(t, Form::DayMonth, tag).unwrap();
+        assert_eq!(f("de"), "4. Juli");
+        assert_eq!(f("fr"), "4 juil.");
+        assert_eq!(f("ja"), "7月4日");
+        assert_eq!(f("en"), "Jul 4");
+    }
+
+    /// A week starts where the region's calendar starts it.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_week_starts_as_the_region_has_it() {
+        use chrono::Weekday as W;
+        assert_eq!(icu::first_weekday("en-US"), W::Sun);
+        assert_eq!(icu::first_weekday("en-IN"), W::Sun);
+        assert_eq!(icu::first_weekday("de-DE"), W::Mon);
+        assert_eq!(icu::first_weekday("en-GB"), W::Mon);
+        assert_eq!(icu::first_weekday("ar-EG"), W::Sat);
+    }
+
+    /// The system's region when it speaks the app's language, else the
+    /// app's language alone.
+    #[test]
+    fn dates_take_the_systems_region_in_the_apps_language() {
+        assert_eq!(format_tag("de", Some("de-AT")), "de-AT");
+        assert_eq!(format_tag("en", Some("en_GB")), "en-GB");
+        assert_eq!(format_tag("de", Some("en-GB")), "de");
+        assert_eq!(format_tag("de", None), "de");
+        assert_eq!(format_tag("zh_Hant", Some("zh-TW")), "zh-TW");
+        assert_eq!(format_tag("zh", Some("zh-TW")), "zh");
+        assert_eq!(format_tag("zh_Hant", Some("zh-CN")), "zh-Hant");
     }
 }
 

@@ -74,6 +74,16 @@ pub struct DesignPrefs {
 pub const VARIANT_KEYS: &[&str] = &["sidebar", "accent", "user", "density", "toolbar"];
 
 impl DesignPrefs {
+    /// These prefs as `mac` or another OS draws them: off the Mac nothing
+    /// shows through a material sidebar, so it is the palette's solid one
+    /// (whose list ends are painted).
+    pub fn for_os(mut self, mac: bool) -> Self {
+        if !mac {
+            self.sidebar = SidebarStyle::Surface;
+        }
+        self
+    }
+
     /// Applies one `key=value` pair.
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
         let bad = || format!("unknown value {value:?} for {key}");

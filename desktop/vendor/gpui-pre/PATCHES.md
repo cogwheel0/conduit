@@ -48,6 +48,15 @@ copied. It is excluded from the workspace, so fmt, clippy and tests skip it.
    so Shift-Tab into the row above scrolls by that row, not a whole page.
    `conduit-components`' `focus_reveal` tests cover both.
 
+4. `src/elements/div.rs`, `InteractiveElement::aria_live` and
+   `Interactivity::write_a11y_info`: an element can be a live region
+   (AccessKit's `Node::set_live`); `src/gpui.rs` re-exports `Live`.
+
+   GPUI had no way to mark a node live, and AccessKit's Windows (UIA
+   LiveRegionChanged) and Unix (AT-SPI announcement) adapters speak only
+   live nodes. The desktop app's announcements off the Mac
+   (`conduit-components`' `announce`) are a live node per announcement.
+
 To update: copy the new release's `src/`, `build.rs`, `resources/`,
 README and licence over this one, re-apply the changes above, and keep the
 manifest edits. Drop a patch once upstream carries it.

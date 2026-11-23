@@ -23,7 +23,7 @@ use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
 use conduit_components::theme::{
-    ConduitTheme, MONO_FONT, composite, contrast_ratio, legible_lightness,
+    ConduitTheme, composite, contrast_ratio, legible_lightness, mono_font,
 };
 use conduit_daemon::http::HttpClient;
 use conduit_daemon::terminal::{self as socket, TerminalEnd, TerminalInput, TerminalLink};
@@ -888,7 +888,7 @@ impl IntoElement for Grid {
 }
 
 fn cell_font(bold: bool, italic: bool) -> Font {
-    let mut f = font(MONO_FONT);
+    let mut f = font(mono_font());
     if bold {
         f.weight = FontWeight::BOLD;
     }
@@ -1247,6 +1247,43 @@ pub fn leave_keys() -> (String, String) {
     )
 }
 
+/// The app's chords a console lets through to the app's bindings while it
+/// has the keyboard ([`crate::keymap::console_app_chords`], set by
+/// `menus::bind_keys`); none on the Mac.
+pub struct AppKeys {
+    pub os: crate::keymap::KeyOs,
+    pub chords: Vec<crate::keymap::KeyStroke>,
+}
+
+impl gpui_kit::Global for AppKeys {}
+
+/// Sends keys that are not text to the shell ahead of the app's shortcuts
+/// (Esc, Tab, ⌃C, arrows) while `console` has the keyboard. ⌘ keys stay the
+/// app's, and off the Mac so do the app's own chords ([`AppKeys`]).
+pub fn intercept_keys<V: 'static>(
+    console: gpui_kit::WeakEntity<Console>,
+    cx: &mut Context<V>,
+) -> gpui_kit::Subscription {
+    crate::shell::app_prompt::intercept_behind(cx, move |event, window, cx| {
+        let Some(console) = console.upgrade() else {
+            return;
+        };
+        let apps = cx.try_global::<AppKeys>().is_some_and(|keys| {
+            crate::keymap::from_gpui_on(&event.keystroke, keys.os)
+                .is_some_and(|stroke| keys.chords.contains(&stroke))
+        });
+        if apps {
+            return;
+        }
+        let taken = console.update(cx, |c, cx| {
+            c.is_focused(window) && c.key(&event.keystroke, cx)
+        });
+        if taken {
+            cx.stop_propagation();
+        }
+    })
+}
+
 /// The console as an element: the grid, with the pointer and keys wired to
 /// `console`.
 pub fn view(
@@ -1327,6 +1364,107 @@ pub fn view(
 /// How long a console waits before taking a burst of output as finished,
 /// for the E2E's "the output arrived" checks.
 pub const SETTLE: Duration = Duration::from_millis(150);
+
+#[cfg(test)]
+mod key_tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use conduit_components::ActiveConduitTheme as _;
+    use gpui_kit::{KeyBinding, TestAppContext};
+
+    use super::*;
+    use crate::actions::{GoBack, MoveFocusToNextArea, NewTemporaryChat, RegenerateLastAnswer};
+    use crate::keymap::{KeyOs, Keymap};
+
+    struct Host {
+        console: Entity<Console>,
+        _keys: gpui_kit::Subscription,
+    }
+
+    impl Render for Host {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let t = cx.conduit().clone();
+            div().size_full().child(view(&self.console, &t, window, cx))
+        }
+    }
+
+    /// Off the Mac a terminal with the keyboard lets the app's chords
+    /// through to the app (Ctrl+Shift, F6, Alt+←, and its own Ctrl+Shift+C
+    /// Copy) and still gives the shell Ctrl and a letter. The Mac's console
+    /// keeps every key it can send, as before.
+    #[gpui_kit::test]
+    fn off_the_mac_a_terminal_lets_the_apps_chords_through(cx: &mut TestAppContext) {
+        cx.update(crate::views::test_globals);
+        let ran: Rc<RefCell<Vec<&'static str>>> = Rc::default();
+        cx.update(|cx| {
+            // These chords as `menus::bind_keys` binds them off the Mac.
+            cx.bind_keys([
+                KeyBinding::new("ctrl-shift-n", NewTemporaryChat, None),
+                KeyBinding::new("ctrl-r", RegenerateLastAnswer, None),
+                KeyBinding::new("f6", MoveFocusToNextArea, None),
+                KeyBinding::new("alt-left", GoBack, None),
+            ]);
+            crate::menus::bind_console_keys(KeyOs::Linux, &Keymap::default(), None, cx);
+            let log = |name: &'static str, ran: &Rc<RefCell<Vec<&'static str>>>| {
+                let ran = ran.clone();
+                move || ran.borrow_mut().push(name)
+            };
+            let new_temporary = log("new temporary chat", &ran);
+            cx.on_action(move |_: &NewTemporaryChat, _| new_temporary());
+            let regenerate = log("regenerate", &ran);
+            cx.on_action(move |_: &RegenerateLastAnswer, _| regenerate());
+            let next_area = log("next area", &ran);
+            cx.on_action(move |_: &MoveFocusToNextArea, _| next_area());
+            let back = log("back", &ran);
+            cx.on_action(move |_: &GoBack, _| back());
+        });
+        let (host, vcx) = cx.add_window_view(|_, cx| {
+            let console = cx.new(Console::new);
+            let keys = intercept_keys(console.downgrade(), cx);
+            Host {
+                console,
+                _keys: keys,
+            }
+        });
+        let console = vcx.update(|_, cx| host.read(cx).console.clone());
+        vcx.update(|window, cx| {
+            let focus = console.read(cx).focus.clone();
+            window.focus(&focus, cx);
+        });
+        vcx.run_until_parked();
+
+        vcx.simulate_keystrokes("ctrl-shift-n f6 alt-left");
+        vcx.run_until_parked();
+        assert_eq!(*ran.borrow(), ["new temporary chat", "next area", "back"]);
+        vcx.simulate_keystrokes("ctrl-r");
+        vcx.run_until_parked();
+        assert_eq!(ran.borrow().len(), 3, "Ctrl+R is the shell's");
+
+        // The terminal's own Copy, not ^C to the shell.
+        vcx.update(|_, cx| {
+            console.update(cx, |c, _| {
+                c.emulator().feed(b"synthetic output");
+                c.emulator().select_all();
+            })
+        });
+        vcx.simulate_keystrokes("ctrl-shift-c");
+        vcx.run_until_parked();
+        let copied = vcx.update(|_, cx| cx.read_from_clipboard().and_then(|c| c.text()));
+        assert!(
+            copied.is_some_and(|t| t.contains("synthetic output")),
+            "Ctrl+Shift+C copies the selection"
+        );
+
+        // The Mac's console sends every key it can, as it always has.
+        vcx.update(|_, cx| {
+            crate::menus::bind_console_keys(KeyOs::Mac, &Keymap::default(), None, cx)
+        });
+        vcx.simulate_keystrokes("ctrl-shift-n");
+        vcx.run_until_parked();
+        assert_eq!(ran.borrow().len(), 3, "the Mac's console keeps ⌃⇧N");
+    }
+}
 
 #[cfg(test)]
 mod contrast_tests {

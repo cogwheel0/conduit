@@ -192,7 +192,7 @@ impl RenderOnce for MenuReplica {
                     inset: false,
                 },
             ])
-            .font_family(crate::theme::UI_FONT)
+            .font_family(crate::theme::ui_font())
             .children(self.entries.into_iter().enumerate().map(move |(i, e)| {
                 match e {
                     MenuEntry::Separator => div()

@@ -42,7 +42,7 @@ use std::time::{Duration, Instant};
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
-use conduit_components::theme::{ConduitTheme, MONO_FONT, with_alpha};
+use conduit_components::theme::{ConduitTheme, mono_font, with_alpha};
 use conduit_components::views::focus::{ControlExt as _, Ring};
 use conduit_components::views::markdown::{CodeBlock, code_lines, language_name};
 use gpui_kit::base::text::{
@@ -1219,7 +1219,7 @@ pub fn diagram_block(
             })
             .px(px(14.))
             .py(px(11.))
-            .font_family(MONO_FONT)
+            .font_family(mono_font())
             .text_size(px(m.code))
             .line_height(relative(1.55))
             .text_color(r.text)

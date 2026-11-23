@@ -321,7 +321,7 @@ impl Render for DiagramFixture {
             .flex_col()
             .bg(t.roles.content)
             .text_color(t.roles.text)
-            .font_family(conduit_components::theme::UI_FONT)
+            .font_family(conduit_components::theme::ui_font())
             .relative()
             .child(crate::views::chat::inline_web::frame_start())
             .child(div().h(px(cw::TOOLBAR_HEIGHT)).flex_none())

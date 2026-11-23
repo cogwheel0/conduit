@@ -663,7 +663,7 @@ impl FilesView {
         let k = &e.keystroke;
         let m = k.modifiers;
         let selected = self.selected.clone();
-        match (k.key.as_str(), m.platform) {
+        match (k.key.as_str(), crate::keymap::held(&m).primary) {
             ("down", false) => self.move_selection(1, cx),
             ("up", false) => self.move_selection(-1, cx),
             ("down", true) | ("o", true) => {
@@ -808,7 +808,7 @@ impl Render for FilesView {
                     .items_center()
                     .rounded(px(5.))
                     .flex_none()
-                    .font_family(conduit_components::theme::MONO_FONT)
+                    .font_family(conduit_components::theme::mono_font())
                     .text_size(px(m.small))
                     .text_color(if current { r.text } else { r.text_subtle })
                     .when(current, |d| d.font_weight(FontWeight::SEMIBOLD))

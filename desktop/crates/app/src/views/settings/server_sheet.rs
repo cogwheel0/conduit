@@ -765,7 +765,7 @@ impl ServerSheet {
                             .child(
                                 div()
                                     .truncate()
-                                    .font_family(conduit_components::theme::MONO_FONT)
+                                    .font_family(conduit_components::theme::mono_font())
                                     .text_size(px(t.metrics.small))
                                     .text_color(r.text_subtle)
                                     .child(privacy::host(&a.url, cx)),
