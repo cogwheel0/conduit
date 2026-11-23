@@ -84,9 +84,11 @@ pub struct NewChatTicket {
 pub struct NewChatContent {
     /// The message box's text.
     pub text: Option<String>,
-    /// The new chat starts empty, its draft replaced (the phone's Send to
-    /// Conduit, Send Link, Send Image and widget Clipboard reset it); else
-    /// the text goes in and an unsent draft is kept, as New Chat keeps it.
+    /// Its request started the new chat over as it came in
+    /// ([`ChatPane::take_new_chat_ticket`]), and the text replaces the
+    /// draft's (the phone's Send to Conduit, Send Link, Send Image and
+    /// widget Clipboard reset it); else the text goes in and an unsent draft
+    /// is kept, as New Chat keeps it.
     pub fresh: bool,
     /// Files, uploaded as the composer's Attach Files uploads them.
     pub paths: Vec<std::path::PathBuf>,
@@ -2226,7 +2228,7 @@ impl ChatPane {
         if fresh {
             let text = text.as_deref().unwrap_or_default();
             self.composer
-                .update(cx, |c, cx| c.start_fresh(text, window, cx));
+                .update(cx, |c, cx| c.set_text(text, window, cx));
         } else if let Some(text) = &text {
             // Given as a prefill is: after the new chat's draft, once read.
             let ticket = self.composer_store.read(cx).ticket();
@@ -2261,11 +2263,23 @@ impl ChatPane {
         }
     }
 
-    /// Follows the selection now, not when the update that changed it ends
-    /// (its observer runs then): a request that opens a new chat takes that
-    /// draft's ticket before the next request in its batch moves on.
-    pub fn follow_navigation(&mut self, cx: &mut Context<Self>) {
+    /// The ticket for what a request brings to the new chat it just opened.
+    /// The pane follows that selection now, not when the update that changed
+    /// it ends (its observer runs then), so the ticket is taken before the
+    /// next request in a batch runs. A `fresh` request starts the composition
+    /// over first: a request after it in the batch holds the newer
+    /// composition, and of two fresh ones the newest owns the draft.
+    pub fn take_new_chat_ticket(
+        &mut self,
+        fresh: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> NewChatTicket {
         self.sync_selection(cx);
+        if fresh {
+            self.composer.update(cx, |c, cx| c.start_over(window, cx));
+        }
+        self.new_chat_ticket(cx)
     }
 
     /// The ticket a Continuity Camera photo asked for now would carry: this
@@ -4102,16 +4116,20 @@ mod tests {
         }
 
         /// Open With's files, looked at off the UI thread, go only to the
-        /// draft their request opened, by the composition ticket it took
-        /// when the pane showed that draft.
+        /// draft their request opened, by the ticket it took as it opened
+        /// that draft (started over first when `fresh`).
         fn open_with_request(
             stores: &Stores,
             pane: &Entity<ChatPane>,
+            fresh: bool,
             vcx: &mut VisualTestContext,
         ) -> crate::views::chat_pane::NewChatTicket {
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            let ticket = pane.update_in(vcx, |p, window, cx| {
+                p.take_new_chat_ticket(fresh, window, cx)
+            });
             vcx.run_until_parked();
-            pane.read_with(vcx, |p, cx| p.new_chat_ticket(cx))
+            ticket
         }
 
         fn late_files(name: &str) -> crate::views::chat_pane::NewChatContent {
@@ -4138,7 +4156,7 @@ mod tests {
         #[gpui_kit::test]
         fn late_files_never_reach_another_accounts_composer(cx: &mut TestAppContext) {
             let (_daemon, stores, pane, vcx) = bench(cx);
-            let ticket = open_with_request(&stores, &pane, vcx);
+            let ticket = open_with_request(&stores, &pane, false, vcx);
             stores.accounts.update(vcx, |a, cx| {
                 a.adopt(list(vec![account("b", "Blair", true, true)]), cx)
             });
@@ -4158,8 +4176,8 @@ mod tests {
         fn late_files_go_only_to_their_own_draft(cx: &mut TestAppContext) {
             use crate::views::chat_pane::NewChatContent;
             let (_daemon, stores, pane, vcx) = bench(cx);
-            let first = open_with_request(&stores, &pane, vcx);
-            let second = open_with_request(&stores, &pane, vcx);
+            let first = open_with_request(&stores, &pane, false, vcx);
+            let second = open_with_request(&stores, &pane, true, vcx);
             let shared = NewChatContent {
                 text: Some("Shared note".into()),
                 fresh: true,
@@ -4179,7 +4197,7 @@ mod tests {
                 pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
                 "Shared note"
             );
-            let own = open_with_request(&stores, &pane, vcx);
+            let own = open_with_request(&stores, &pane, false, vcx);
             assert!(pane.update_in(vcx, |p, window, cx| {
                 p.compose_new_chat(&own, late_files("Packing list.txt"), window, cx)
             }));
@@ -4195,7 +4213,7 @@ mod tests {
             let (_daemon, stores, pane, vcx) = bench(cx);
             stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
             vcx.run_until_parked();
-            let ticket = open_with_request(&stores, &pane, vcx);
+            let ticket = open_with_request(&stores, &pane, false, vcx);
             stores
                 .navigation
                 .update(vcx, |n, cx| n.go_back(|_| true, cx));
@@ -4341,7 +4359,8 @@ mod tests {
             let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
             pane.update_in(vcx, |p, window, cx| {
                 p.composer.update(cx, |c, cx| {
-                    c.start_fresh("Shared from Shortcuts", window, cx)
+                    c.start_over(window, cx);
+                    c.set_text("Shared from Shortcuts", window, cx);
                 })
             });
             assert!(!attach(asked, vcx), "a replaced composition took the photo");
@@ -6040,8 +6059,10 @@ mod tests {
             });
             vcx.run_until_parked();
             pane.update_in(vcx, |p, window, cx| {
-                p.composer
-                    .update(cx, |c, cx| c.start_fresh("Copied packing list", window, cx))
+                p.composer.update(cx, |c, cx| {
+                    c.start_over(window, cx);
+                    c.set_text("Copied packing list", window, cx);
+                })
             });
             // The fresh composition is not held back by the first send.
             pane.update_in(vcx, |p, window, cx| {

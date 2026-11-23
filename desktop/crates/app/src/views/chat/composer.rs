@@ -1778,13 +1778,13 @@ impl ChatComposer {
         self.render_prompt(prompt, at, values, window, cx);
     }
 
-    /// A fresh composition starts with `text` alone, even in the new chat
-    /// already shown (the same draft, so no draft switch): the last
-    /// composition's prompt form, panel and menu go, a prompt still being
-    /// rendered for it, a send still out and its dictation land nowhere, and
-    /// what applied to the last message is cleared. (Writing the text replaces a draft read still on its way:
-    /// [`ComposerStore::draft_changed`].)
-    pub fn start_fresh(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+    /// A fresh composition, even in the new chat already shown (the same
+    /// draft, so no draft switch): the last composition's prompt form, panel
+    /// and menu go, a prompt still being rendered for it, a send still out
+    /// and its dictation land nowhere, and what applied to the last message
+    /// is cleared. Its text follows with [`Self::set_text`], which replaces a
+    /// draft read still on its way ([`ComposerStore::draft_changed`]).
+    pub fn start_over(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // The draft starts over: a send still out from the last composition
         // gives nothing back to this one.
         self.composer.update(cx, |c, cx| c.start_over(cx));
@@ -1796,7 +1796,6 @@ impl ChatComposer {
         // later words and its cancel write nothing.
         self.dictation_base = None;
         self.cancel_dictation(window, cx);
-        self.set_text(text, window, cx);
         cx.notify();
     }
 
@@ -5211,7 +5210,10 @@ mod tests {
             c.render_prompt(prompt, 0, BTreeMap::new(), window, cx);
         });
         // A picture arrives from Shortcuts: no text of its own.
-        view.update_in(cx, |c, window, cx| c.start_fresh("", window, cx));
+        view.update_in(cx, |c, window, cx| {
+            c.start_over(window, cx);
+            c.set_text("", window, cx);
+        });
         render.release();
         read.release();
         cx.run_until_parked();
@@ -5373,7 +5375,10 @@ mod tests {
             c.composer
                 .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
         });
-        view.update_in(cx, |c, window, cx| c.start_fresh("Shared text", window, cx));
+        view.update_in(cx, |c, window, cx| {
+            c.start_over(window, cx);
+            c.set_text("Shared text", window, cx);
+        });
         read.release();
         for _ in 0..2 {
             cx.executor()
@@ -5408,7 +5413,8 @@ mod tests {
         // A send still on its way, from before.
         let used = view.read_with(cx, |c, cx| c.composer.read(cx).one_shot());
         view.update_in(cx, |c, window, cx| {
-            c.start_fresh("Copied packing list", window, cx)
+            c.start_over(window, cx);
+            c.set_text("Copied packing list", window, cx);
         });
         let emit = |e: DictationEvent, cx: &mut VisualTestContext| {
             dictation.update(cx, |_, cx| cx.emit(e));
@@ -5451,7 +5457,8 @@ mod tests {
         });
         cx.run_until_parked();
         view.update_in(cx, |c, window, cx| {
-            c.start_fresh("Copied packing list", window, cx)
+            c.start_over(window, cx);
+            c.set_text("Copied packing list", window, cx);
         });
         held.release();
         cx.run_until_parked();
@@ -5477,7 +5484,8 @@ mod tests {
         view.update_in(cx, |c, window, cx| c.pick_files(window, cx));
         assert!(cx.did_prompt_for_paths());
         view.update_in(cx, |c, window, cx| {
-            c.start_fresh("Copied packing list", window, cx)
+            c.start_over(window, cx);
+            c.set_text("Copied packing list", window, cx);
         });
         let picked = notes.clone();
         cx.simulate_path_prompt_response(move |_| Some(vec![picked]));

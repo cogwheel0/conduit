@@ -506,13 +506,10 @@ fn open_new_chat(
         });
         view.new_chat(false, window, cx);
         let pane = view.chat_pane.clone();
-        // The new chat shown now, not as this batch ends, and its ticket
-        // taken: a request after this one in the batch (a chat link) moves
-        // on, and this one's content then lands nowhere.
-        let ticket = pane.update(cx, |p, cx| {
-            p.follow_navigation(cx);
-            p.new_chat_ticket(cx)
-        });
+        // Before the next request in the batch: one that moves on (a chat
+        // link) leaves this one's content nowhere, and one that starts over
+        // (the clipboard) takes the draft from it.
+        let ticket = pane.update(cx, |p, cx| p.take_new_chat_ticket(fresh, window, cx));
         // Looking at the files can wait on a network share (`\\server\share`):
         // off the UI thread.
         let planned = (!files.is_empty()).then(|| {

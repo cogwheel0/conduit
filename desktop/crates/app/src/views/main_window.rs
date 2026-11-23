@@ -1202,6 +1202,31 @@ mod chat_menu_tests {
         });
     }
 
+    /// `conduit://clipboard`, then `conduit://new?q=Later`, in one batch: the
+    /// clipboard's request starts the new chat over as it comes in, so its
+    /// late start-over never takes the later request's text away.
+    #[gpui_kit::test]
+    fn a_new_chat_link_after_the_clipboard_in_one_batch_keeps_its_text(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, settings, view, vcx) = bench_with_settings(&daemon, cx);
+        crate::install_main_for_test(stores, settings, view.clone(), vcx);
+        vcx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+            "Copied packing list".into(),
+        ));
+        vcx.cx.update(|cx| {
+            crate::desktop::handle_urls(
+                vec!["conduit://clipboard".into(), "conduit://new?q=Later".into()],
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        let text = view.read_with(vcx, |v, cx| v.chat_pane.read(cx).composer.read(cx).text(cx));
+        assert!(
+            text.ends_with("Later"),
+            "the later link's text was lost: {text:?}"
+        );
+    }
+
     /// Open With's files are looked at off the UI thread; the user moves to
     /// Notes meanwhile: the files go nowhere, though the composer still
     /// holds the new chat's draft.
