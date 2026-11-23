@@ -15,7 +15,10 @@
 //!   dead daemon shows up as an exit rather than as calls that hang.
 //!
 //! Closing stdin is also what happens when the app dies, so the daemon never
-//! outlives it.
+//! outlives it. On Windows and Linux even a daemon too stuck to notice ends
+//! with the app's process, however that ends (`mod lifetime`); an installer or
+//! updater can then replace the files it ran from. Windows also starts it
+//! with no console window of its own.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -304,9 +307,17 @@ async fn launch(config: &SupervisorConfig, log: &SharedLog) -> std::io::Result<R
     for (k, v) in &config.env {
         cmd.env(k, v);
     }
-    let mut child = cmd.spawn()?;
+    lifetime::prepare(&mut cmd);
+    let mut child = lifetime::spawn(cmd).await?;
     let pid = child.id().unwrap_or_default();
     log_line(log, &format!("[supervisor] started conduitd pid {pid}"));
+    // Before the bootstrap line: until it has that, conduitd starts nothing.
+    if let Err(e) = lifetime::adopt(&child) {
+        log_line(
+            log,
+            &format!("[supervisor] conduitd may outlive a crashed app: {e}"),
+        );
+    }
 
     let mut stdin = child.stdin.take();
     if let Some(stdin) = stdin.as_mut() {
@@ -398,6 +409,147 @@ pub fn parse_ready(line: &str) -> Option<u16> {
         u16::try_from(port).ok().filter(|p| *p != 0)
     } else {
         None
+    }
+}
+
+/// Ties `conduitd` to the app's process, for when the app ends without
+/// closing its stdin first (a crash, Task Manager, `kill -9`) and the daemon
+/// is too stuck to notice the pipe close. On the Mac, stdin EOF is all.
+mod lifetime {
+    use std::io;
+
+    use tokio::process::{Child, Command};
+
+    /// What `cmd` needs before it starts.
+    pub fn prepare(cmd: &mut Command) {
+        // A console program started by a GUI one gets a console window of
+        // its own, unless asked not to.
+        #[cfg(windows)]
+        cmd.creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW.0);
+        #[cfg(target_os = "linux")]
+        {
+            let app = std::process::id();
+            // SAFETY: runs in the forked child before exec, and makes only
+            // async-signal-safe calls (prctl, getppid; no allocation).
+            unsafe {
+                cmd.pre_exec(move || {
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) == -1 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    // The app ended between the fork and the prctl.
+                    if libc::getppid() as u32 != app {
+                        return Err(io::Error::from_raw_os_error(libc::ESRCH));
+                    }
+                    Ok(())
+                });
+            }
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
+        let _ = cmd;
+    }
+
+    /// Starts `cmd`. On Linux the parent-death signal follows the *thread*
+    /// that forked the child, and a runtime's threads can end before the
+    /// app does, so the daemon is started from a thread that never ends.
+    #[cfg(target_os = "linux")]
+    pub async fn spawn(cmd: Command) -> io::Result<Child> {
+        use std::sync::{OnceLock, mpsc};
+        type Request = (
+            Command,
+            tokio::runtime::Handle,
+            tokio::sync::oneshot::Sender<io::Result<Child>>,
+        );
+        static PARENT: OnceLock<Result<mpsc::Sender<Request>, String>> = OnceLock::new();
+        let parent = PARENT
+            .get_or_init(|| {
+                let (requests, received) = mpsc::channel::<Request>();
+                std::thread::Builder::new()
+                    .name("conduitd-parent".into())
+                    .spawn(move || {
+                        for (mut cmd, runtime, reply) in received {
+                            let _runtime = runtime.enter();
+                            let _ = reply.send(cmd.spawn());
+                        }
+                    })
+                    .map(|_| requests)
+                    .map_err(|e| e.to_string())
+            })
+            .as_ref()
+            .map_err(|e| io::Error::other(format!("no thread to start conduitd from: {e}")))?;
+        let ended = || io::Error::other("the thread that starts conduitd has ended");
+        let (reply, child) = tokio::sync::oneshot::channel();
+        parent
+            .send((cmd, tokio::runtime::Handle::current(), reply))
+            .map_err(|_| ended())?;
+        child.await.map_err(|_| ended())?
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub async fn spawn(mut cmd: Command) -> io::Result<Child> {
+        cmd.spawn()
+    }
+
+    /// Puts the started `child` in the app's job (Windows): when the app's
+    /// process ends, however it ends, Windows ends every process in it.
+    #[cfg(windows)]
+    pub fn adopt(child: &Child) -> Result<(), String> {
+        use std::sync::OnceLock;
+
+        use windows::Win32::Foundation::{CloseHandle, HANDLE};
+        use windows::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+        use windows::core::PCWSTR;
+
+        /// The job's handle is never closed: Windows closes it when the
+        /// app's process ends, and closing its last handle ends the job.
+        struct Job(HANDLE);
+        // SAFETY: a kernel handle, usable from any thread.
+        unsafe impl Send for Job {}
+        // SAFETY: as above; it is only passed to the kernel.
+        unsafe impl Sync for Job {}
+
+        static JOB: OnceLock<Result<Job, String>> = OnceLock::new();
+        let job = JOB
+            .get_or_init(|| {
+                // SAFETY: an unnamed job with default security, so its
+                // handle isn't inherited: conduitd never holds it open.
+                let job = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
+                    .map_err(|e| format!("no job object: {e}"))?;
+                let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+                limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                // SAFETY: the information class's struct, with its size.
+                let set = unsafe {
+                    SetInformationJobObject(
+                        job,
+                        JobObjectExtendedLimitInformation,
+                        std::ptr::from_ref(&limits).cast(),
+                        size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                    )
+                };
+                if let Err(e) = set {
+                    // SAFETY: the handle made above, closed once.
+                    let _ = unsafe { CloseHandle(job) };
+                    return Err(format!("the job object takes no limits: {e}"));
+                }
+                Ok(Job(job))
+            })
+            .as_ref()
+            .map_err(Clone::clone)?;
+        let process = child
+            .raw_handle()
+            .ok_or_else(|| "it had already exited".to_string())?;
+        // SAFETY: the job above and the child's process handle, which the
+        // child keeps open.
+        unsafe { AssignProcessToJobObject(job.0, HANDLE(process)) }
+            .map_err(|e| format!("not in the app's job: {e}"))
+    }
+
+    #[cfg(not(windows))]
+    pub fn adopt(_: &Child) -> Result<(), String> {
+        Ok(())
     }
 }
 
