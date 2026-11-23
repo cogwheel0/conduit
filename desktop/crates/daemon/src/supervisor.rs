@@ -141,8 +141,9 @@ impl RestartPolicy {
 /// How a stop ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StopOutcome {
-    /// Exited after stdin closed.
-    Graceful,
+    /// Exited after stdin closed, however it exited: a crash on the way out
+    /// ends this way too.
+    Graceful(ExitInfo),
     /// Needed SIGTERM.
     Terminated,
     /// Needed SIGKILL (on Windows, `TerminateProcess`).
@@ -605,10 +606,10 @@ async fn stop_running(
     log: &SharedLog,
 ) -> StopOutcome {
     drop(running.stdin.take());
-    if timeout(config.stop_grace, &mut running.exit).await.is_ok() {
+    if let Ok(exit) = timeout(config.stop_grace, &mut running.exit).await {
         drain(running).await;
         log_line(log, "[supervisor] conduitd stopped after stdin closed");
-        return StopOutcome::Graceful;
+        return StopOutcome::Graceful(exit.unwrap_or(ExitInfo::Unknown));
     }
     #[cfg(unix)]
     {

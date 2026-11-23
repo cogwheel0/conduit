@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use conduit_daemon::supervisor::{
-    RestartPolicy, StopOutcome, Supervisor, SupervisorConfig, SupervisorEvent,
+    ExitInfo, RestartPolicy, StopOutcome, Supervisor, SupervisorConfig, SupervisorEvent,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -69,7 +69,7 @@ async fn closing_stdin_stops_a_well_behaved_daemon() {
     let (config, dir) = setup("graceful", "ready");
     let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
     until_ready(&mut rx).await;
-    assert_eq!(sup.stop().await, StopOutcome::Graceful);
+    assert_eq!(sup.stop().await, StopOutcome::Graceful(ExitInfo::Code(0)));
     let log = std::fs::read_to_string(dir.path().join("logs/conduitd.log")).unwrap();
     assert!(log.contains("stdin closed"), "{log}");
 }

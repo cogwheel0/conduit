@@ -143,8 +143,8 @@ profile of its own, as every scripted run, it waits for the connection
 (the handshake), asks the daemon for a diagnostics export, opens Settings ›
 About and quits through the app's Quit. It writes its `SMOKE` lines to the
 file, never to stdout (a Windows release build has no console window), and
-exits 0 with `SMOKE passed` last only if every check passed and the quit
-stopped `conduitd` through stdin EOF; otherwise 1, with a `SMOKE FAILED`
+exits 0 with `SMOKE passed` last only if every check passed and, after the
+quit, `conduitd` exited 0 on stdin EOF; otherwise 1, with a `SMOKE FAILED`
 line for each reason. On Linux it needs a display (Xvfb will do) and a
 Secret Service. Whatever ends the app, `conduitd` ends with it there: it
 runs in a job that closes with the app's process on Windows, and gets the

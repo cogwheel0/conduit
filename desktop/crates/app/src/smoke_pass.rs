@@ -3,7 +3,7 @@
 //! ([`crate::smoke`]). It checks what `--shots` checks, without the
 //! captures: the app starts its `conduitd` and connects (the handshake), the
 //! daemon answers a diagnostics export, Settings opens, and the app quits
-//! through its own Quit, which must stop the daemon gracefully (stdin EOF).
+//! through its own Quit, after which the daemon must exit 0 on stdin EOF.
 //!
 //! `SMOKE` lines go to the file as they come, never to stdout (a Windows
 //! release build has no console), and the exit code is the verdict: 0 with
@@ -19,7 +19,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use conduit_daemon::supervisor::StopOutcome;
+use conduit_daemon::supervisor::{ExitInfo, StopOutcome};
 use conduit_protocol::{NoParams, methods::SystemExportDiagnostics};
 use gpui_kit::{App, AsyncApp};
 
@@ -77,7 +77,12 @@ impl SmokeReport {
             self.fail("the app quit before the pass ended");
         }
         match self.stopped {
-            Some(StopOutcome::Graceful) => self.say("daemon stopped after stdin closed"),
+            Some(StopOutcome::Graceful(ExitInfo::Code(0))) => {
+                self.say("daemon stopped after stdin closed")
+            }
+            Some(StopOutcome::Graceful(exit)) => {
+                self.fail(format_args!("daemon exited with {exit} after stdin closed"))
+            }
             Some(outcome) => self.fail(format_args!(
                 "the daemon did not stop gracefully: {outcome:?}"
             )),
@@ -234,7 +239,7 @@ mod tests {
         let (mut ok, dir) = report();
         ok.say("status Connected after 2s");
         ok.quitting();
-        ok.daemon_stopped(Some(StopOutcome::Graceful));
+        ok.daemon_stopped(Some(StopOutcome::Graceful(ExitInfo::Code(0))));
         assert_eq!(ok.finish(), 0);
         assert_eq!(
             written(&dir),
@@ -243,6 +248,15 @@ mod tests {
         );
 
         for (outcome, why) in [
+            // A crash on the way out, inside the stdin grace.
+            (
+                Some(StopOutcome::Graceful(ExitInfo::Code(3))),
+                "SMOKE FAILED daemon exited with exit code 3 after stdin closed\n",
+            ),
+            (
+                Some(StopOutcome::Graceful(ExitInfo::Signal(11))),
+                "SMOKE FAILED daemon exited with signal 11 after stdin closed\n",
+            ),
             (
                 Some(StopOutcome::Killed),
                 "SMOKE FAILED the daemon did not stop gracefully: Killed\n",
@@ -267,7 +281,7 @@ mod tests {
     #[test]
     fn an_unfinished_or_failed_pass_fails() {
         let (mut early, dir) = report();
-        early.daemon_stopped(Some(StopOutcome::Graceful));
+        early.daemon_stopped(Some(StopOutcome::Graceful(ExitInfo::Code(0))));
         assert_eq!(early.finish(), 1);
         assert!(
             written(&dir).contains("SMOKE FAILED the app quit before the pass ended\n"),
@@ -278,7 +292,7 @@ mod tests {
         let (mut failed, dir) = report();
         failed.fail("never connected");
         failed.quitting();
-        failed.daemon_stopped(Some(StopOutcome::Graceful));
+        failed.daemon_stopped(Some(StopOutcome::Graceful(ExitInfo::Code(0))));
         assert_eq!(failed.finish(), 1);
         assert!(!written(&dir).contains("SMOKE passed"), "{}", written(&dir));
     }
