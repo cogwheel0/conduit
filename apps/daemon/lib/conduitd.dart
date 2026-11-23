@@ -9,6 +9,7 @@ export 'src/access_service.dart';
 export 'src/accounts_service.dart';
 export 'src/auth_service.dart';
 export 'src/bootstrap.dart';
+export 'src/byte_routes.dart';
 export 'src/capabilities_service.dart';
 export 'src/channels_service.dart';
 export 'src/chat_prompts_service.dart';

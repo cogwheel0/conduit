@@ -2,14 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:conduit_core/providers/app_providers.dart'
     show activeServerProvider;
 import 'package:conduit_core/providers/backend_mode_providers.dart'
     show preferredBackendProvider;
-import 'package:conduit_core/services/api_service.dart'
-    show FileContentTooLargeException;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' as shelf;
@@ -20,15 +17,14 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'accounts_service.dart';
 import 'auth_service.dart';
 import 'bootstrap.dart';
+import 'byte_routes.dart';
 import 'local_whisper.dart';
 import 'direct_service.dart';
-import 'notes_service.dart';
 import 'core_runtime.dart';
 import 'redact.dart';
 import 'daemon_paths.dart';
 import 'diagnostics.dart';
 import 'event_bus.dart';
-import 'files_service.dart';
 import 'media_service.dart';
 import 'settled.dart';
 import 'log.dart';
@@ -36,12 +32,7 @@ import 'protocol_services.dart';
 import 'rpc_session.dart';
 import 'ui_requests_service.dart';
 import 'system_service.dart';
-import 'terminals_service.dart';
 import 'hermes_service.dart';
-import 'calls_service.dart';
-import 'voice_service.dart';
-import 'dictation_service.dart';
-import 'recordings_service.dart';
 
 /// The loopback server the desktop app talks to.
 ///
@@ -107,17 +98,15 @@ class DaemonServer {
   AuthService? get _auth => _built?.auth;
   DirectService? get _direct => _built?.direct;
   HermesService? get _hermes => _built?.hermes;
-  FilesService? get _files => _built?.files;
-  NotesService? get _notes => _built?.notes;
-  TerminalsService? get _terminals => _built?.terminals;
-  VoiceService? get _voice => _built?.voice;
-  DictationService? get _dictation => _built?.dictation;
-  RecordingsService? get _recordings => _built?.recordings;
-  CallsService? get _calls => _built?.calls;
 
   /// `GET /media/{image|pdf}`: no core needed, so it answers from the start
   /// (the account's server, once there is one, is reached as it is).
   late final MediaService _media = MediaService(ownServer: _activeServerUrl);
+
+  late final ProtocolByteRoutes _byteRoutes = ProtocolByteRoutes(
+    services: () => _built,
+    media: _media,
+  );
 
   /// The active account's server address, for `/media`; null before the
   /// core or without a server (Direct, Hermes).
@@ -285,7 +274,7 @@ class DaemonServer {
         if (!isAllowedOrigin(request.headers['origin'])) {
           return shelf.Response.forbidden('invalid origin');
         }
-        return shelf.Response.ok(null, headers: _corsHeaders);
+        return shelf.Response.ok(null, headers: byteRouteCorsHeaders);
       }
 
       // Plain HTTP endpoints carry the token in an `Authorization` header,
@@ -304,37 +293,21 @@ class DaemonServer {
     };
   };
 
-  /// What the renderer is allowed to send, and nothing wider.
-  ///
-  /// The origin is named rather than `*`: `app://conduit` is the only page
-  /// that may reach this daemon at all, and a wildcard would additionally
-  /// let any website's script read the responses if one ever found the
-  /// port.
-  static const Map<String, String> _corsHeaders = <String, String>{
-    'access-control-allow-origin': kConduitAppOrigin,
-    'access-control-allow-methods': 'POST, GET, OPTIONS',
-    'access-control-allow-headers':
-        'authorization, content-type, '
-        'x-conduit-filename, x-conduit-terminal, x-conduit-directory',
-    'access-control-max-age': '600',
-  };
-
   Future<shelf.Response> _route(shelf.Request request) async {
     final path = '/${request.url.path}';
     if (path == ConduitHttpRoutes.rpc) return _rpcHandler(request);
-    if (path == ConduitHttpRoutes.upload) return _upload(request);
-    if (path == ConduitHttpRoutes.terminalUpload) {
-      return _terminalUpload(request);
+    if (_byteRoutes.tunnel(path) case final tunnel?) {
+      return _tunnel(request, tunnel);
     }
-    if (path.startsWith('/terminal/')) return _terminalTunnel(request, path);
-    if (path.startsWith('/calls/')) return _callAudio(request, path);
-    if (path.startsWith('/files/')) return _file(request);
-    if (path.startsWith('${ConduitHttpRoutes.media}/')) {
-      return _mediaFetch(request, path);
-    }
-    if (path == ConduitHttpRoutes.transcribe) return _transcribe(request);
-    if (path.startsWith('/recordings/')) return _recording(request, path);
-    if (path.startsWith('/tts/')) return _speech(request, path);
+    final answer = _byteRoutes.handle(
+      ByteRequest(
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        read: request.read,
+      ),
+    );
+    if (answer != null) return _respond(await answer);
     if (path == '/health') {
       // Authenticated liveness probe for a supervisor; it does not
       // reveal anything a holder of the token cannot already ask for on /rpc.
@@ -351,482 +324,31 @@ class DaemonServer {
     return shelf.Response.notFound('no such endpoint');
   }
 
-  /// `WS /terminal/{handle}` -- a shell, through the daemon. The auth
-  /// gate has checked the origin and the session token already; an unknown
-  /// handle is refused before the upgrade.
-  Future<shelf.Response> _terminalTunnel(
-    shelf.Request request,
-    String path,
-  ) async {
-    final terminals = _terminals;
-    final handle = path.substring('/terminal/'.length);
-    if (terminals == null || !terminals.knows(handle)) {
-      return shelf.Response.notFound('no such terminal');
-    }
-    return webSocketHandler(
-      (WebSocketChannel socket, String? _) =>
-          unawaited(terminals.tunnel(handle, socket)),
-      protocols: const <String>{negotiatedSubprotocol},
-      pingInterval: const Duration(seconds: 25),
-    )(request);
+  /// A tunnel route through a WebSocket. The auth gate has checked the
+  /// origin and the session token already; an unknown handle is refused
+  /// before the upgrade.
+  Future<shelf.Response> _tunnel(shelf.Request request, ByteTunnel tunnel) {
+    final refusal = tunnel.refusal;
+    if (refusal != null) return Future.value(_respond(refusal));
+    final join = tunnel.join!;
+    return Future.value(
+      webSocketHandler(
+        (WebSocketChannel socket, String? _) => unawaited(join(socket)),
+        protocols: const <String>{negotiatedSubprotocol},
+        pingInterval: const Duration(seconds: 25),
+      )(request),
+    );
   }
 
-  /// `WS /calls/{handle}` -- a realtime call's audio, with the window. The
-  /// auth gate has checked the origin and the session token already; a
-  /// handle that is not the call's now is refused before the upgrade.
-  Future<shelf.Response> _callAudio(shelf.Request request, String path) async {
-    final calls = _calls;
-    final handle = path.substring('/calls/'.length);
-    if (calls == null || !calls.knowsAudio(handle)) {
-      return shelf.Response.notFound('no such call');
+  shelf.Response _respond(ByteResponse answer) {
+    if (answer.failure case final failure?) {
+      _log.error(failure.what, failure.error, failure.stack);
     }
-    return webSocketHandler(
-      (WebSocketChannel socket, String? _) =>
-          unawaited(calls.tunnel(handle, socket)),
-      protocols: const <String>{negotiatedSubprotocol},
-      pingInterval: const Duration(seconds: 25),
-    )(request);
-  }
-
-  /// `POST /terminal-upload` -- a file into a terminal's machine.
-  /// The same body as `/upload`; the handle and directory come in headers.
-  Future<shelf.Response> _terminalUpload(shelf.Request request) async {
-    final terminals = _terminals;
-    if (terminals == null) {
-      return _problem(
-        503,
-        ConduitErrorCodes.daemonUnavailable,
-        'core starting',
-      );
-    }
-    if (request.method != 'POST') {
-      return shelf.Response(405, body: 'POST only');
-    }
-    final String name;
-    final String directory;
-    try {
-      name = Uri.decodeComponent(request.headers['x-conduit-filename'] ?? '');
-      directory = Uri.decodeComponent(
-        request.headers['x-conduit-directory'] ?? '',
-      );
-    } on FormatException {
-      return _problem(400, ConduitErrorCodes.invalidParams, 'bad headers');
-    }
-    final handle = request.headers['x-conduit-terminal'] ?? '';
-    if (name.trim().isEmpty || directory.isEmpty || handle.isEmpty) {
-      return _problem(
-        400,
-        ConduitErrorCodes.invalidParams,
-        'needs x-conduit-filename, -terminal and -directory',
-      );
-    }
-    try {
-      final bytes = await _collect(request.read());
-      await terminals.upload(
-        handle: handle,
-        directory: directory,
-        name: name,
-        bytes: bytes,
-      );
-      // An UploadedFile, as /upload answers; the id is where it went.
-      return shelf.Response.ok(
-        jsonEncode(
-          UploadedFile(
-            id: '$directory$name',
-            name: name,
-            size: bytes.length,
-          ).toJson(),
-        ),
-        headers: <String, String>{
-          'content-type': 'application/json',
-          ..._corsHeaders,
-        },
-      );
-    } on RpcError catch (error) {
-      final status = switch (error.code) {
-        ConduitErrorCodes.notFound => 404,
-        ConduitErrorCodes.unauthenticated => 401,
-        _ => 502,
-      };
-      return _problem(status, error.code, error.debugMessage);
-    } on Object catch (error, stack) {
-      _log.error('terminal upload failed', error, stack);
-      return _problem(502, ConduitErrorCodes.serverError, 'upload failed');
-    }
-  }
-
-  /// `POST /upload` -- an attachment on its way to the server.
-  ///
-  /// The body is the file's bytes and nothing else. No multipart parsing
-  /// here: both ends of this request are ours, the daemon re-wraps the
-  /// bytes for Open WebUI anyway, and a parser is a surface that would earn
-  /// its keep only if some other client were posting to us.
-  ///
-  /// The name travels in a header because a body that is *only* bytes is
-  /// what lets the whole thing stream. It is percent-encoded: a header is
-  /// Latin-1 by definition, and an attachment called `résumé.pdf` would
-  /// otherwise be rejected by the HTTP layer before this code ran.
-  Future<shelf.Response> _upload(shelf.Request request) async {
-    final files = _files;
-    if (files == null) {
-      return _problem(
-        503,
-        ConduitErrorCodes.daemonUnavailable,
-        'core starting',
-      );
-    }
-    if (request.method != 'POST') {
-      return shelf.Response(405, body: 'POST only');
-    }
-
-    final rawName = request.headers['x-conduit-filename'];
-    if (rawName == null || rawName.trim().isEmpty) {
-      return _problem(
-        400,
-        ConduitErrorCodes.invalidParams,
-        'missing x-conduit-filename',
-      );
-    }
-    final String name;
-    try {
-      name = Uri.decodeComponent(rawName);
-    } on FormatException {
-      return _problem(
-        400,
-        ConduitErrorCodes.invalidParams,
-        'x-conduit-filename is not percent-encoded',
-      );
-    }
-
-    // Which try this is, for the core's retry rules (1 for the first).
-    final attempt =
-        int.tryParse(request.headers['x-conduit-attempt'] ?? '') ?? 1;
-    // The account the request began under: a body still arriving when
-    // another signs in never goes to the next account's server.
-    final session = files.session();
-    try {
-      final bytes = await _collect(request.read());
-      final uploaded = await files.upload(
-        name: name,
-        bytes: bytes,
-        session: session,
-        contentType: request.headers['content-type'],
-        // A channel's attachment: filed under the channel so its members
-        // may read it.
-        channelId: request.headers['x-conduit-channel'],
-      );
-      return shelf.Response.ok(
-        jsonEncode(uploaded.toJson()),
-        headers: <String, String>{
-          'content-type': 'application/json',
-          ..._corsHeaders,
-        },
-      );
-    } on RpcError catch (error) {
-      final status = switch (error.code) {
-        ConduitErrorCodes.unauthenticated => 401,
-        ConduitErrorCodes.invalidParams => 400,
-        _ => 502,
-      };
-      return _problem(status, error.code, error.debugMessage);
-    } on Object catch (error, stack) {
-      _log.error('upload failed', error, stack);
-      return _problem(
-        502,
-        ConduitErrorCodes.serverError,
-        'upload failed',
-        args: uploadRetryArgs(error, attempt),
-      );
-    }
-  }
-
-  /// `GET /files/{serverId}/{fileId}` -- an attachment's bytes, for an image
-  /// in a message; `GET /files/{serverId}/models/{modelId}` -- a model's
-  /// profile image.
-  ///
-  /// The desktop app sends the daemon's token with it, as with every request
-  /// to this port, so the daemon refuses anyone else.
-  Future<shelf.Response> _file(shelf.Request request) async {
-    final files = _files;
-    if (files == null) {
-      return _problem(
-        503,
-        ConduitErrorCodes.daemonUnavailable,
-        'core starting',
-      );
-    }
-    if (request.method != 'GET') {
-      return shelf.Response(405, body: 'GET only');
-    }
-    final segments = request.url.pathSegments;
-    final modelImage = segments.length == 4 && segments[2] == 'models';
-    if (segments.length != 3 && !modelImage) {
-      return _problem(404, ConduitErrorCodes.notFound, 'no such file');
-    }
-    try {
-      // `/files/{server}/models/{model}`: a model's profile image.
-      final file = modelImage
-          ? await files.modelImage(segments[1], segments[3])
-          : await files.download(segments[1], segments[2]);
-      return shelf.Response.ok(
-        file.bytes,
-        headers: <String, String>{
-          'content-type': file.contentType,
-          // Taken as given: a file claiming to be bytes must never be read
-          // as HTML because its first line looks like some.
-          'x-content-type-options': 'nosniff',
-          'content-disposition': 'inline',
-          // Private: it is the user's file. An hour: the same image is drawn
-          // every time the conversation is opened.
-          'cache-control': 'private, max-age=3600',
-          ..._corsHeaders,
-        },
-      );
-    } on RpcError catch (error) {
-      final status = switch (error.code) {
-        ConduitErrorCodes.invalidParams => 400,
-        ConduitErrorCodes.unauthenticated => 401,
-        ConduitErrorCodes.notFound => 404,
-        _ => 502,
-      };
-      return _problem(status, error.code, error.debugMessage);
-    } on FileContentTooLargeException {
-      return _problem(413, ConduitErrorCodes.invalidParams, 'file too large');
-    } on Object catch (error, stack) {
-      _log.error('file download failed', error, stack);
-      return _problem(502, ConduitErrorCodes.serverError, 'download failed');
-    }
-  }
-
-  /// `GET /media/{image|pdf}?url=` -- a picture or a PDF on another site,
-  /// for the window (see [MediaService] for what is and is not sent).
-  /// Answered with its bytes and type, or a problem whose code says why
-  /// not (`media.tooLarge`, `media.wrongType`, `media.timedOut`, ...).
-  Future<shelf.Response> _mediaFetch(shelf.Request request, String path) async {
-    if (request.method != 'GET') {
-      return shelf.Response(405, body: 'GET only');
-    }
-    final kind = switch (path.substring(ConduitHttpRoutes.media.length + 1)) {
-      'image' => MediaKind.image,
-      'pdf' => MediaKind.pdf,
-      _ => null,
-    };
-    final url = request.url.queryParameters['url'];
-    if (kind == null || url == null) {
-      return _problem(404, ConduitErrorCodes.notFound, 'no such media');
-    }
-    try {
-      final media = await _media.fetch(url, kind);
-      return shelf.Response.ok(
-        media.bytes,
-        headers: <String, String>{
-          'content-type': media.contentType,
-          'x-content-type-options': 'nosniff',
-          'content-disposition': 'inline',
-          // The window keeps what it drew; nothing here outlives the reply.
-          'cache-control': 'no-store',
-          ..._corsHeaders,
-        },
-      );
-    } on MediaFetchException catch (error) {
-      // The failure only: the address is the chat's, not the log's.
-      _log.info('media ${kind.name}: ${error.failure.name}');
-      return _problem(
-        error.failure.status,
-        error.failure.code,
-        error.failure.name,
-      );
-    }
-  }
-
-  /// `POST /transcribe` -- a recording, as text. The body is the
-  /// recording and nothing else; its type is the content type. The query
-  /// may name the engine (`engine=server|local`) and the chat's model
-  /// (`model=`), whose backend transcribes on the server.
-  Future<shelf.Response> _transcribe(shelf.Request request) async {
-    final dictation = _dictation;
-    if (dictation == null) {
-      return _problem(
-        503,
-        ConduitErrorCodes.daemonUnavailable,
-        'core starting',
-      );
-    }
-    if (request.method != 'POST') {
-      return shelf.Response(405, body: 'POST only');
-    }
-    final query = request.url.queryParameters;
-    // The account the request began under: audio still arriving when
-    // another signs in never goes to the next account's backend.
-    final session = dictation.session();
-    try {
-      final transcript = await dictation.transcribe(
-        await _collect(request.read()),
-        contentType: request.headers['content-type'],
-        engine: _nonEmpty(query['engine']),
-        modelId: _nonEmpty(query['model']),
-        session: session,
-      );
-      return shelf.Response.ok(
-        jsonEncode(transcript.toJson()),
-        headers: <String, String>{
-          'content-type': 'application/json',
-          ..._corsHeaders,
-        },
-      );
-    } on RpcError catch (error) {
-      return _problem(_statusFor(error), error.code, error.debugMessage);
-    } on Object catch (error, stack) {
-      _log.error('transcription failed', error, stack);
-      return _problem(502, ConduitErrorCodes.serverError, 'transcribe failed');
-    }
-  }
-
-  static String? _nonEmpty(String? value) {
-    final trimmed = value?.trim();
-    return trimmed == null || trimmed.isEmpty ? null : trimmed;
-  }
-
-  /// `GET /recordings/{id}?chatId=&folderId=` -- a saved recording of a
-  /// draft as 16 kHz mono WAV; `GET /recordings/{id}?noteId=` -- a note's
-  /// recording still waiting to upload, as recorded. It needs the token,
-  /// as `/files/` does.
-  Future<shelf.Response> _recording(shelf.Request request, String path) async {
-    final recordings = _recordings;
-    if (recordings == null) {
-      return _problem(
-        503,
-        ConduitErrorCodes.daemonUnavailable,
-        'core starting',
-      );
-    }
-    if (request.method != 'GET') {
-      return shelf.Response(405, body: 'GET only');
-    }
-    final query = request.url.queryParameters;
-    final id = Uri.decodeComponent(path.substring('/recordings/'.length));
-    // `?noteId=`: one of a note's recordings still waiting to upload.
-    if (_nonEmpty(query['noteId']) case final noteId?) {
-      final notes = _notes;
-      if (notes == null) {
-        return _problem(
-          503,
-          ConduitErrorCodes.daemonUnavailable,
-          'core starting',
-        );
-      }
-      try {
-        final audio = await notes.waitingRecording(noteId, id);
-        return shelf.Response.ok(
-          audio.bytes,
-          headers: <String, String>{
-            'content-type': audio.contentType,
-            'x-content-type-options': 'nosniff',
-            'cache-control': 'no-store',
-            ..._corsHeaders,
-          },
-        );
-      } on RpcError catch (error) {
-        return _problem(_statusFor(error), error.code, error.debugMessage);
-      } on Object catch (error, stack) {
-        _log.error('note recording read failed', error, stack);
-        return _problem(500, ConduitErrorCodes.serverError, 'read failed');
-      }
-    }
-    try {
-      final wav = await recordings.wav(
-        RecordingRef(
-          id: id,
-          chatId: _nonEmpty(query['chatId']),
-          folderId: _nonEmpty(query['folderId']),
-        ),
-      );
-      return shelf.Response.ok(
-        wav,
-        headers: <String, String>{
-          'content-type': 'audio/wav',
-          'x-content-type-options': 'nosniff',
-          'cache-control': 'no-store',
-          ..._corsHeaders,
-        },
-      );
-    } on RpcError catch (error) {
-      return _problem(_statusFor(error), error.code, error.debugMessage);
-    } on Object catch (error, stack) {
-      _log.error('recording read failed', error, stack);
-      return _problem(500, ConduitErrorCodes.serverError, 'recording failed');
-    }
-  }
-
-  /// `GET /tts/{jobId}` -- a `voice.speak` job's audio. It needs the token,
-  /// as `/files/` does.
-  Future<shelf.Response> _speech(shelf.Request request, String path) async {
-    final voice = _voice;
-    if (voice == null) {
-      return _problem(
-        503,
-        ConduitErrorCodes.daemonUnavailable,
-        'core starting',
-      );
-    }
-    if (request.method != 'GET') {
-      return shelf.Response(405, body: 'GET only');
-    }
-    try {
-      final audio = await voice.audio(path.substring('/tts/'.length));
-      return shelf.Response.ok(
-        audio.bytes,
-        headers: <String, String>{
-          'content-type': audio.contentType,
-          'x-content-type-options': 'nosniff',
-          'cache-control': 'private, max-age=3600',
-          ..._corsHeaders,
-        },
-      );
-    } on RpcError catch (error) {
-      return _problem(_statusFor(error), error.code, error.debugMessage);
-    } on Object catch (error, stack) {
-      _log.error('speech failed', error, stack);
-      return _problem(502, ConduitErrorCodes.serverError, 'speech failed');
-    }
-  }
-
-  static int _statusFor(RpcError error) => switch (error.code) {
-    ConduitErrorCodes.unauthenticated ||
-    ConduitErrorCodes.sessionExpired => 401,
-    ConduitErrorCodes.unauthorized => 403,
-    ConduitErrorCodes.notFound => 404,
-    ConduitErrorCodes.invalidParams => 400,
-    _ => 502,
-  };
-
-  /// The same error shape RPC uses, so the renderer has one thing to read.
-  shelf.Response _problem(
-    int status,
-    String code,
-    String? message, {
-    Map<String, String>? args,
-  }) => shelf.Response(
-    status,
-    body: jsonEncode(<String, Object?>{
-      'code': code,
-      'args': ?args,
-      'debugMessage': ?message,
-    }),
-    headers: <String, String>{
-      'content-type': 'application/json',
-      // On the error path too, or the renderer sees an opaque CORS
-      // failure instead of the reason the upload was refused.
-      ..._corsHeaders,
-    },
-  );
-
-  static Future<Uint8List> _collect(Stream<List<int>> body) async {
-    final builder = BytesBuilder(copy: false);
-    await for (final chunk in body) {
-      builder.add(chunk);
-    }
-    return builder.takeBytes();
+    return shelf.Response(
+      answer.status,
+      body: answer.body,
+      headers: answer.headers,
+    );
   }
 
   late final shelf.Handler _rpcHandler = webSocketHandler(
