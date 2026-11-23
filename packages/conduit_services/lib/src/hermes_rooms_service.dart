@@ -227,7 +227,7 @@ final class HermesRoomsService implements HermesBotChats {
   ({core.HermesBot bot, String? avatar})? _botFor(String sessionId) {
     if (_botSessions[sessionId] case final opened?) return opened;
     final roster = _container.read(hermesBotsProvider).value;
-    final bot = roster?.where((b) => b.chatSessionId == sessionId).firstOrNull;
+    final bot = roster?.where((b) => b.ownsSession(sessionId)).firstOrNull;
     return bot == null ? null : (bot: bot, avatar: null);
   }
 

@@ -2373,6 +2373,80 @@ void main() {
     },
   );
 
+  test(
+    'a compressed canonical bot chat correlates with its logical owner and preserves its profile on transient reopen failures',
+    () async {
+      final gateway = _Authority();
+      var failNextResume = false;
+      gateway.handler = (method, params) {
+        if (method == 'profiles.list') {
+          return {
+            'bot_mode_protocol': true,
+            'profiles': [
+              {
+                'name': 'researcher',
+                'ui_meta': {
+                  'hermes-bots': {'title': 'Research'},
+                },
+                'canonical_session': {
+                  'id': 'local-root',
+                  'resolved_id': 'tip-2',
+                  'preview': 'Compressed summary',
+                  'last_active': 1767226000,
+                },
+              },
+            ],
+          };
+        }
+        if (method == 'session.resume') {
+          if (failNextResume) {
+            throw const _Refusal(4001, 'runtime_draining', {
+              'reason': 'runtime_draining',
+              'detail': 'the profile is still starting',
+            });
+          }
+          // Canonical resume maps either physical tip or logical root back to
+          // the logical owner.
+          return gateway.snapshot('local-root');
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+
+      final listed = (await service.listBots()).single;
+      check(listed.chatSessionId).equals('local-root');
+      check(listed.ownsSession('local-root')).isTrue();
+      check(listed.ownsSession('tip-2')).isTrue();
+
+      // Even a tip-keyed row from HermesBot.fromJson correlates after resume
+      // returns the logical owner.
+      final tipKeyed = HermesBot.fromJson({
+        'name': 'researcher',
+        'ui_meta': {
+          'hermes-bots': {'title': 'Research'},
+        },
+        'canonical_session': {
+          'id': 'local-root',
+          'resolved_id': 'tip-2',
+        },
+      })!;
+      final stored = await service.openBotChat(tipKeyed);
+      check(stored).equals('local-root');
+      check(tipKeyed.ownsSession(stored)).isTrue();
+
+      // A transient reopen failure on an already-bound Bot Chat must keep its
+      // profile mapping so later session calls stay scoped to the bot profile.
+      failNextResume = true;
+      await check(
+        service.openBotChat(listed),
+      ).throws<HermesDesktopRpcException>();
+
+      await service.interrupt('local-root');
+      final interrupt = gateway.calls('session.interrupt').single;
+      check(interrupt['profile']).equals('researcher');
+    },
+  );
+
   test('an undo refused because the chat moved on is not sent again',
       () async {
     final gateway = _Authority();

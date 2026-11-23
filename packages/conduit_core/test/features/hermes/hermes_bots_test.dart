@@ -243,10 +243,34 @@ void main() {
 
       check(bot).isNotNull();
       check(bot!.chatSessionId).equals('bot-tip-9');
+      check(bot.ownsSession('bot-tip-9')).isTrue();
+      check(bot.ownsSession('bot-root-1')).isTrue();
+      check(bot.ownsSession('legacy-pin')).isTrue();
+      check(bot.ownsSession('other-chat')).isFalse();
       check(bot.preview).equals('Canonical summary');
       check(bot.lastActive).equals(
         DateTime.fromMillisecondsSinceEpoch(1767226000 * 1000),
       );
+
+      final canonicalRootFirst = HermesBot.fromJson(
+        {
+          'name': 'researcher',
+          'ui_meta': {
+            'hermes-bots': {'title': 'Research', 'chat': 'legacy-pin'},
+          },
+          'canonical_session': {
+            'id': 'bot-root-1',
+            'resolved_id': 'bot-tip-9',
+            'preview': 'Canonical summary',
+            'last_active': 1767226000,
+          },
+        },
+        preferCanonicalRoot: true,
+      );
+      check(canonicalRootFirst!.chatSessionId).equals('bot-root-1');
+      check(canonicalRootFirst.ownsSession('bot-root-1')).isTrue();
+      check(canonicalRootFirst.ownsSession('bot-tip-9')).isTrue();
+      check(canonicalRootFirst.ownsSession('legacy-pin')).isTrue();
     },
   );
 

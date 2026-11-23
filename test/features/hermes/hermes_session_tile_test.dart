@@ -1375,7 +1375,7 @@ void main() {
         overrides: [hermesApiServiceProvider.overrideWithValue(service)],
       );
       addTearDown(container.dispose);
-      container.read(hermesActiveSessionProvider.notifier).set('bot-tip-1');
+      container.read(hermesActiveSessionProvider.notifier).set('bot-root-1');
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -1389,6 +1389,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      check(
+        find.byKey(const ValueKey<String>('conversation-tile-active-tint'))
+            .evaluate(),
+      ).length.equals(1);
+
+      container.read(hermesActiveSessionProvider.notifier).set('bot-tip-1');
+      await tester.pumpAndSettle();
       check(
         find.byKey(const ValueKey<String>('conversation-tile-active-tint'))
             .evaluate(),

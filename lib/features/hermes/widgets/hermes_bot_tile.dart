@@ -39,8 +39,7 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
         ? ref.watch(hermesBotAvatarProvider(bot.name)).asData?.value
         : null;
     final activeSessionId = ref.watch(hermesActiveSessionProvider);
-    final selected =
-        bot.chatSessionId != null && activeSessionId == bot.chatSessionId;
+    final selected = bot.ownsSession(activeSessionId);
     return ChatStyleSidebarTile(
       selected: selected,
       enabled: !_opening,

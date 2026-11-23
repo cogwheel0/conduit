@@ -691,7 +691,9 @@ void main() {
     final listed = await canonicalRooms.bots();
     expect(listed.bots.single.sessionId, 'bc-tip-4');
     expect(canonicalRooms.botOf('bc-tip-4')?.title, 'Fern');
+    expect(canonicalRooms.botOf('bc-root')?.title, 'Fern');
     expect(canonicalRooms.botMetadataOf('bc-tip-4')['hermesBotTitle'], 'Fern');
+    expect(canonicalRooms.botMetadataOf('bc-root')['hermesBotTitle'], 'Fern');
   });
 
   test('openBot surfaces gateway RPC refusal detail and omits detail on disconnect', () async {
