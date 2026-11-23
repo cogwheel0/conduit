@@ -318,7 +318,12 @@ final class _AgentsApi extends ApiService {
     if (includeHidden && hiddenAsked++ == 0) hiddenAskedOnce.complete();
     await hiddenHeld?.future;
     return [
-      if (includeHidden) const core.Model(id: 'hidden-model', name: 'Hidden'),
+      if (includeHidden)
+        const core.Model(
+          id: 'hidden-model',
+          name: 'Hidden',
+          metadata: {'hidden': true},
+        ),
     ];
   }
 
@@ -1726,6 +1731,19 @@ void main() {
       }
     });
 
+    test("picking a chat's hidden model leaves the account's selection to "
+        'the other chats', () async {
+      final container = _agentContainer(_AgentsApi());
+      final models = ModelsService(container);
+      container
+          .read(selectedModelProvider.notifier)
+          .set(const core.Model(id: 'preferred-model', name: 'Preferred'));
+      await models.select('hidden-model', chatId: 'hidden-chat');
+      check(container.read(selectedModelProvider)?.id).equals('preferred-model');
+      check(await models.modelFor('hidden-chat')).equals('hidden-model');
+      check(await models.modelFor(null)).equals('preferred-model');
+    });
+
     test('a selection made while the saved model is looked up is the one '
         'answered', () async {
       final api = _AgentsApi()..hiddenHeld = Completer<void>();
@@ -2059,6 +2077,50 @@ void main() {
     check(answered).isTrue();
     check(await turn).equals(_cached.id);
     catalog.complete(const <core.Model>[]);
+  });
+
+  test('a saved-model lookup the account leaves while it waits asks the old '
+      'server nothing', () async {
+    var primary = const PrimaryAccountRef(PrimaryAccountKind.libreChat, 'lc-one');
+    final api = _AgentsApi();
+    final catalog = Completer<List<core.Model>>();
+    final container = ProviderContainer(
+      overrides: [
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        primaryAccountProvider.overrideWith((ref) => primary),
+        openWebUiAccountAvailableProvider.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(api),
+        libreChatModelCatalogProvider.overrideWith((ref) => catalog.future),
+        modelsProvider.overrideWith(() => _BesideLibreChat(const [_cached])),
+        defaultModelProvider.overrideWith(
+          (ref) async => throw StateError('settings unavailable'),
+        ),
+        loadConversationProvider.overrideWith(
+          (ref, id) async => Conversation(
+            id: id,
+            title: 'Old harbour',
+            createdAt: DateTime.utc(2026, 3, 1),
+            updatedAt: DateTime.utc(2026, 3, 1),
+            model: 'retired-model',
+          ),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(modelsProvider, (_, _) {});
+    await container.read(modelsProvider.future);
+
+    final turn = ModelsService(container).modelFor('lc-chat');
+    // The lookup of the chat's saved model now waits for the catalog.
+    await pumpEventQueue();
+    primary = const PrimaryAccountRef(PrimaryAccountKind.libreChat, 'lc-two');
+    container.invalidate(primaryAccountProvider);
+    catalog.complete(const <core.Model>[]);
+    await expectLater(turn, refused(ConduitErrorCodes.sessionExpired));
+    check(api.hiddenAsked).equals(0);
   });
 
   test(

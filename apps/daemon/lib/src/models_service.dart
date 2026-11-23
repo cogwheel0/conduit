@@ -904,9 +904,11 @@ final class ModelsService {
     }
     stillTheNewest('the model is selected');
     // A temporary chat's pick lives in its own slot only: as the account's
-    // selection, New Chat would fall back on it.
+    // selection, New Chat would fall back on it. So does a model the server
+    // hides from the picker (a chat's own, listed for it): as on mobile, it
+    // is never what New Chat or another chat starts on.
     _picked(
-      temporary && chatId == null
+      (temporary && chatId == null) || model.isHidden
           ? () {}
           : () {
               _container.read(selectedModelProvider.notifier).set(model);
@@ -1045,14 +1047,15 @@ final class ModelsService {
           continue;
         }
         final pick = read.pick?.model;
-        final pickOffered = pick != null && await _stillOffered(pick, models);
+        final pickOffered =
+            pick != null && await _stillOffered(pick, models, account);
         final holds =
             pickOffered && !(isTerminalAgentModel(pick) && temporary);
         final savedId = read.chat?.model?.trim();
         final savedAgent = savedId != null && isTerminalAgentModelId(savedId)
             ? savedId
             : null;
-        final saved = holds ? null : await _savedModel(savedId);
+        final saved = holds ? null : await _savedModel(savedId, account);
         // The account's selection, else its default: with none selected the
         // list shows none, while a turn still runs on the default.
         core.Model? shownFallback;
@@ -1061,7 +1064,7 @@ final class ModelsService {
           final selection = read.selected ?? await currentModel(_container);
           if (selection != null &&
               !isTerminalAgentModel(selection) &&
-              await _stillOffered(selection, models)) {
+              await _stillOffered(selection, models, account)) {
             shownFallback = runFallback = selection;
           } else {
             runFallback = await _regularDefault(models);
@@ -1116,12 +1119,22 @@ final class ModelsService {
   /// terminal's to offer), or hidden from the picker but still offered
   /// ([modelForId]). A pick or selection on one it no longer has falls
   /// back, as a chat whose saved model is offered nowhere does.
-  Future<bool> _stillOffered(core.Model model, List<core.Model> listed) async {
+  Future<bool> _stillOffered(
+    core.Model model,
+    List<core.Model> listed,
+    AccountScope account,
+  ) async {
     if (isTerminalAgentModel(model) || listed.any((m) => m.id == model.id)) {
       return true;
     }
     try {
-      return await modelForId(_container.read, model.id) != null;
+      // Stops, asking and remembering nothing, once [account] has left.
+      return await modelForId(
+            _container.read,
+            model.id,
+            isCurrent: () => account.isCurrent,
+          ) !=
+          null;
     } on Object {
       return false;
     }
@@ -1130,10 +1143,15 @@ final class ModelsService {
   /// The model a chat saved as [id] runs on when opened with no pick
   /// ([modelSavedWithChat], as on mobile). Null for none, for a coding
   /// agent (offered as Switch), and for one offered nowhere now.
-  Future<core.Model?> _savedModel(String? id) async {
+  Future<core.Model?> _savedModel(String? id, AccountScope account) async {
     if (id == null || id.isEmpty || isTerminalAgentModelId(id)) return null;
     try {
-      return await modelSavedWithChat(_container.read, id);
+      // Stops, asking and remembering nothing, once [account] has left.
+      return await modelSavedWithChat(
+        _container.read,
+        id,
+        isCurrent: () => account.isCurrent,
+      );
     } on Object catch (error) {
       DebugLogger.warning(
         'saved-model-unresolved',

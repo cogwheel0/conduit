@@ -101,11 +101,13 @@ final _hiddenModelLookupsProvider =
 /// or one the server hides from the picker but still offers
 /// ([modelSavedWithChat]): a chat saved on it runs on it, as mobile's
 /// selection keeps it. Null for one the server no longer offers, even when
-/// it is still selected. A coding agent is named by its terminal, not here.
+/// it is still selected, or once [isCurrent] says the answer is no longer
+/// wanted. A coding agent is named by its terminal, not here.
 Future<Model?> modelForId(
   T Function<T>(ProviderListenable<T> provider) read,
-  String id,
-) => modelSavedWithChat(read, id);
+  String id, {
+  bool Function()? isCurrent,
+}) => modelSavedWithChat(read, id, isCurrent: isCurrent);
 
 /// The model the user last picked in an open chat, with the ids of the
 /// prompts the chat held then. Open WebUI 0.12.5 regenerates an answer with
