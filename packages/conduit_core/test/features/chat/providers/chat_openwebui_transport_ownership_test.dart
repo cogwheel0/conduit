@@ -38,6 +38,8 @@ import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show libreChatCatalog;
 import 'package:conduit_core/features/chat/providers/remap_route_sync_provider.dart';
 import 'package:conduit_core/testing.dart'
     show FakeOpenWebUiServer, FakeSyncApiClient, openWebUiStorageOpenOverrides;
@@ -8732,6 +8734,7 @@ void main() {
       bool webSearchAvailable = false,
       bool modelSelectable = false,
       WorkerPort? worker,
+      List<Override> overrides = const [],
     }) async {
       if (storedBlob == null) {
         await _seedChat(db, chatId, storedParams: storedParams);
@@ -8778,6 +8781,7 @@ void main() {
             workerManagerProvider.overrideWithValue(
               WorkerManager(worker: worker),
             ),
+          ...overrides,
         ],
       );
       addTearDown(container.dispose);
@@ -10302,6 +10306,88 @@ void main() {
           .read(chatMessagesProvider)
           .firstWhere((m) => m.id == request.messageIds!.single.messageId);
       check(regenerated.modelSlot).equals(1);
+    });
+
+    /// A comparison of `model-1` and `model-2`, both answered, then the
+    /// second answer regenerated with [composer] in the composer: it is
+    /// asked of the chat's server, on that answer's model, in its column.
+    Future<void> regeneratesOnItsColumn(
+      Model composer, {
+      List<Override> overrides = const [],
+    }) async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        modelSelectable: true,
+        overrides: overrides,
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      final [a, b] = [for (final h in handles) h.assistantMessageId];
+      await replay(container);
+      socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
+      socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
+      container.read(selectedModelProvider.notifier).set(composer);
+
+      await regenerateMessage(container, 'compare these', null);
+
+      check(api.requests).length.equals(2);
+      final request = api.requests.last;
+      check(request.model).equals('model-2');
+      check(request.messageIds!.single.modelIdx).equals(1);
+    }
+
+    test('with a LibreChat model in the composer, regenerating a compared '
+        "answer asks the chat's server on that answer's model", () async {
+      // Refused outright before: a LibreChat model continues no other chat.
+      await regeneratesOnItsColumn(
+        libreChatCatalog(
+          startupConfig: const <String, dynamic>{},
+          endpoints: const <String, dynamic>{
+            'Sample': <String, dynamic>{'order': 0},
+          },
+          models: const <String, List<String>>{
+            'Sample': <String>['sample-model'],
+          },
+        ).single,
+      );
+    });
+
+    test('with a Direct model in the composer, regenerating a compared answer '
+        "asks the chat's server on that answer's model", () async {
+      // A connection kept in the server: before, the answer was asked of the
+      // connection's own model.
+      final profile = DirectConnectionProfile(
+        id: 'kept-profile',
+        name: 'Kept in the server',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://provider.example.test/v1',
+        modelIdPrefix: 'kept',
+      );
+      final registry = DirectModelRegistry();
+      final kept = registry
+          .replaceProfileModels(
+            profile,
+            <DirectRemoteModel>[
+              DirectRemoteModel(id: 'provider/model', name: 'Provider model'),
+            ],
+            source: DirectModelSource.openWebUi,
+            openWebUiUrlIndex: 0,
+          )
+          .single;
+      await regeneratesOnItsColumn(
+        kept,
+        overrides: [
+          directModelRegistryProvider.overrideWithValue(registry),
+          effectiveDirectConnectionProfilesFutureProvider.overrideWith(
+            (ref) async => <DirectConnectionProfile>[profile],
+          ),
+        ],
+      );
     });
 
     test('once another model is picked, regenerating a compared answer asks '

@@ -923,6 +923,16 @@ String? comparisonColumnModelId({
   answer,
 ], picked: picked)?.modelId;
 
+/// The listed model of [id], else one known by its id alone: a comparison's
+/// column model the list no longer holds is still asked by its id.
+Model _listedModel(dynamic ref, String id) {
+  final listed =
+      (ref.read(modelsProvider) as AsyncValue<List<Model>>).asData?.value ??
+      const <Model>[];
+  return listed.where((model) => model.id == id).firstOrNull ??
+      Model(id: id, name: id);
+}
+
 /// [_comparisonRegenerationTarget], for tests.
 @visibleForTesting
 ({String modelId, int slot})? debugComparisonRegenerationTarget(
@@ -956,7 +966,27 @@ Future<void> regenerateMessage(
 
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
-  final selectedModelCandidate = ref.read(selectedModelProvider) as Model?;
+  // One answer of a multi-model turn (only an Open WebUI chat holds one)
+  // regenerates on its own column's model, or the one picked since that
+  // turn was sent, whatever the picker holds now. Decided first, so the
+  // transport, the checks below and the model the answer names all follow
+  // it, on every host.
+  final comparisonTarget =
+      reviewerMode ||
+          conversationAtRegenerationStart == null ||
+          !conversationUsesOpenWebUiStorage(conversationAtRegenerationStart)
+      ? null
+      : _comparisonRegenerationTarget(
+          ref.read(chatMessagesProvider) as List<ChatMessage>,
+          picked: switch (ref.read(chatModelPickProvider) as ChatModelPick?) {
+            final pick? when pick.chatId == conversationAtRegenerationStart.id =>
+              pick,
+            _ => null,
+          },
+        );
+  final selectedModelCandidate = comparisonTarget == null
+      ? ref.read(selectedModelProvider) as Model?
+      : _listedModel(ref, comparisonTarget.modelId);
   // Admitted with the account and model this regeneration started under. The
   // request below drops it if a terminal turns out to be part of it.
   final codeInterpreterAtRegenerationStart = _admitCodeInterpreter(ref);
@@ -1080,29 +1110,6 @@ Future<void> regenerateMessage(
   if (!reviewerMode && directRoute != null) {
     await _regenerateDirectMessage(ref, route: directRoute);
     return;
-  }
-  // Regenerating one answer of a multi-model turn keeps that answer's model and
-  // column whatever the picker holds now. Read only once the turn is known to be
-  // an Open WebUI one, so the other transports never touch the transcript here.
-  final comparisonTarget = reviewerMode || openWebUiDirectRoute != null
-      ? null
-      : _comparisonRegenerationTarget(
-          ref.read(chatMessagesProvider) as List<ChatMessage>,
-          picked: switch (ref.read(chatModelPickProvider) as ChatModelPick?) {
-            final pick? when pick.chatId == activeConversation.id => pick,
-            _ => null,
-          },
-        );
-  if (comparisonTarget != null) {
-    final listed =
-        (ref.read(modelsProvider) as AsyncValue<List<Model>>).asData?.value ??
-        const <Model>[];
-    selectedModel =
-        listed
-            .where((model) => model.id == comparisonTarget.modelId)
-            .firstOrNull ??
-        Model(id: comparisonTarget.modelId, name: comparisonTarget.modelId);
-    serverModelId = selectedModel.id;
   }
   final regenerationOwner = captureOpenWebUiCompletionOwner(
     ref,
