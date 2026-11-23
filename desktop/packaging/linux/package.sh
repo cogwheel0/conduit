@@ -75,6 +75,14 @@ check_version "$version"
 out="${out:-$DESKTOP_DIR/target/linux/Conduit-$version}"
 case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
 winlinux="$here/../winlinux.py"
+if [ -n "$notices" ]; then
+  [ -f "$notices" ] || die "--notices $notices: no such file"
+  notices="$(cd "$(dirname "$notices")" && pwd)/$(basename "$notices")"
+  # The build moves an earlier --out aside, notices in it included.
+  case "$notices" in
+    "$out"/*) die "--notices $notices is inside --out $out, which the build moves aside first: put the notices elsewhere" ;;
+  esac
+fi
 
 # What the packages say about themselves. The description and the
 # maintainer are proposals awaiting the maintainer's word (the PR says so).

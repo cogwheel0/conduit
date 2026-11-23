@@ -147,6 +147,11 @@ $Notices = (Resolve-Path -LiteralPath $Notices).ProviderPath
 & python $winlinux notices $Notices --os windows
 if (-not $Out) { $Out = Join-Path $desktop "target\windows\Conduit-$Version" }
 $Out = [IO.Path]::GetFullPath($Out)
+# The build moves an earlier -Out aside, notices in it included.
+$outPrefix = $Out.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+if ($Notices.StartsWith($outPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+  throw "-Notices $Notices is inside -Out $Out, which the build moves aside first: put the notices elsewhere"
+}
 
 # 1. The app.
 $exe = Join-Path $desktop "target\$target\release\conduit-desktop.exe"
