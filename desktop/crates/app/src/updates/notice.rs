@@ -22,15 +22,17 @@ use gpui_kit::{App, AsyncApp};
 use super::checks::{self, Checks};
 use super::config::Config;
 use super::feed::{self, Decision};
-use super::{Found, Outcome, Updater};
+use super::{Found, Outcome, Status, Updater};
 
 /// The most a feed may be: a few kilobytes per release.
 const MAX_FEED_BYTES: u64 = 1 << 20;
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 enum Wake {
-    /// "Check Now", or the `--smoke` pass's check.
-    Check,
+    /// "Check Now": About says what it came to.
+    Manual,
+    /// The `--smoke` pass's check, quiet as the daily ones.
+    Quiet,
     /// The switch changed: work out the next check again.
     Reschedule,
 }
@@ -40,6 +42,8 @@ struct State {
     path: PathBuf,
     checking: bool,
     last_failure: Option<i64>,
+    /// Whether this session's last Check Now read the feed.
+    last_ok: Option<bool>,
 }
 
 pub struct Notice {
@@ -58,6 +62,7 @@ impl Notice {
             path,
             checking: false,
             last_failure: None,
+            last_ok: None,
         }));
         let (wake, woken) = mpsc::unbounded();
         let looping = state.clone();
@@ -73,7 +78,7 @@ impl Updater for Notice {
     }
 
     fn check_for_updates(&self) {
-        let _ = self.wake.unbounded_send(Wake::Check);
+        let _ = self.wake.unbounded_send(Wake::Manual);
     }
 
     fn automatic_checks(&self) -> bool {
@@ -88,11 +93,12 @@ impl Updater for Notice {
     }
 
     fn check_quietly(&self) -> bool {
-        self.wake.unbounded_send(Wake::Check).is_ok()
+        self.wake.unbounded_send(Wake::Quiet).is_ok()
     }
 
-    fn found(&self) -> Option<Found> {
-        self.state.borrow().checks.found.clone()
+    fn status(&self) -> Option<Status> {
+        let s = self.state.borrow();
+        checks::status(s.checks.found.as_ref(), s.last_ok)
     }
 }
 
@@ -114,20 +120,27 @@ async fn run(
                 futures::pin_mut!(timer);
                 futures::select! {
                     wake = woken.next() => wake,
-                    () = timer => Some(Wake::Check),
+                    () = timer => Some(Wake::Quiet),
                 }
             }
             None => woken.next().await,
         };
         match due {
-            Some(Wake::Check) => check(&config, &key, &state, cx).await,
+            Some(Wake::Manual) => check(&config, &key, true, &state, cx).await,
+            Some(Wake::Quiet) => check(&config, &key, false, &state, cx).await,
             Some(Wake::Reschedule) => {}
             None => return,
         }
     }
 }
 
-async fn check(config: &Config, key: &[u8; 32], state: &Rc<RefCell<State>>, cx: &mut AsyncApp) {
+async fn check(
+    config: &Config,
+    key: &[u8; 32],
+    manual: bool,
+    state: &Rc<RefCell<State>>,
+    cx: &mut AsyncApp,
+) {
     state.borrow_mut().checking = true;
     cx.update(|cx| cx.refresh_windows());
     let (tx, rx) = oneshot::channel();
@@ -142,11 +155,14 @@ async fn check(config: &Config, key: &[u8; 32], state: &Rc<RefCell<State>>, cx: 
         .and_then(|bytes| feed::decide(&bytes, key, config.build).map_err(|e| e.to_string()));
     let outcome = {
         let mut s = state.borrow_mut();
+        let s = &mut *s;
         s.checking = false;
+        checks::checked(&mut s.checks, &mut s.last_failure, result.is_ok(), now());
+        if manual {
+            s.last_ok = Some(result.is_ok());
+        }
         match result {
             Ok(decision) => {
-                s.last_failure = None;
-                s.checks.last_check = Some(now());
                 s.checks.found = match decision {
                     Decision::Newer(release) => Some(Found {
                         version: release.version,
@@ -154,16 +170,13 @@ async fn check(config: &Config, key: &[u8; 32], state: &Rc<RefCell<State>>, cx: 
                     }),
                     Decision::UpToDate => None,
                 };
-                save(&s);
+                save(s);
                 match &s.checks.found {
                     Some(found) => Outcome::Found(Some(found.version.clone())),
                     None => Outcome::UpToDate,
                 }
             }
-            Err(why) => {
-                s.last_failure = Some(now());
-                Outcome::Failed(why)
-            }
+            Err(why) => Outcome::Failed(why),
         }
     };
     cx.update(|cx| {

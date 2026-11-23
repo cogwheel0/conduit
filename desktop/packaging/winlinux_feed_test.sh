@@ -25,9 +25,16 @@
 # * A key rotation's bridge release: --next-public-key signs with the
 #   current key and needs <OS>_PUBLIC_ED_KEY; the same key, or no key, is
 #   refused.
-# * winlinux_feed.py check refuses a feed that drops an earlier item, an
-#   unsigned enclosure, the wrong length, an item on a channel, two
-#   signature blocks.
+# * winlinux_feed.py check refuses a feed that drops an earlier item or
+#   changes one (its enclosure, its signature), an unsigned enclosure, the
+#   wrong length, an item on a channel, two signature blocks.
+# * winlinux-appcast.sh refuses a feed or an installer inside --work, which
+#   it moves aside first, and moves nothing.
+# * It adds a release only to a feed signed with the key that signs this
+#   release, or the one --feed-public-key names (the release after a key
+#   swap): a feed changed after it was signed, unsigned, or signed with
+#   another key is refused. So is a feed with an <item> outside its
+#   <channel>, which the apps never read, and check refuses one too.
 # * Sparkle's own sign_update accepts the signatures these scripts make, and
 #   refuses a changed feed (macOS).
 # * The fixture the Linux app's tests read (crates/app/src/updates/
@@ -70,6 +77,14 @@ private_of() { tail -c 32 "$1" | base64; } # the seed, as generate_keys -x expor
 key_a="$(public_of "$tmp/key-a.der")"
 key_b="$(public_of "$tmp/key-b.der")"
 feed_check() { bash -c ". '$here/macos/lib.sh'; verify_feed \"\$@\"" _ "$@"; }
+sign_feed() { # unsigned signed key.der: appends the block Sparkle's signAppcast writes
+  "$openssl_path" pkeyutl -sign -inkey "$3" -keyform DER -rawin -in "$1" -out "$tmp/feed.sig" || return 1
+  {
+    cat "$1"
+    printf '<!-- sparkle-signatures:\nedSignature: %s\nlength: %s\n-->\n' \
+      "$(base64 <"$tmp/feed.sig" | tr -d '\n')" "$(wc -c <"$1" | tr -d ' ')"
+  } >"$2"
+}
 enclosure() { bash -c ". '$here/macos/lib.sh'; verify_enclosure \"\$@\"" _ "$@"; }
 appcast() { "$here/winlinux-appcast.sh" "$@"; }
 feed_py() { python3 -I "$here/winlinux_feed.py" "$@"; }
@@ -165,6 +180,49 @@ refused "another version's installer is refused" "is not Conduit-1.5.0-windows-x
 refused "a Linux release with an installer is refused" "names the release page, not a download" \
   --os linux --version 1.5.0 --installer "$(installer 1.5.0)" --existing "$l1" --work "$tmp/r8"
 expect 1 "  and none of them wrote a feed" bash -c "ls '$tmp'/r[1-8]/appcast-*.xml 2>/dev/null | grep -q ."
+# Inputs inside --work, which is moved aside before anything is read.
+mkdir -p "$tmp/inside"
+cp "$l1" "$tmp/inside/appcast-linux.xml"
+refused "a feed inside --work is refused" "is inside --work" \
+  --os linux --version 1.5.0 --existing "$tmp/inside/appcast-linux.xml" --work "$tmp/inside/../inside"
+cp "$(installer 1.5.0)" "$tmp/inside/"
+refused "an installer inside --work is refused" "is inside --work" \
+  --os windows --version 1.5.0 --installer "$tmp/inside/Conduit-1.5.0-windows-x64-setup.exe" \
+  --existing "$w2" --work "$tmp/inside"
+expect 0 "  and nothing was moved" \
+  bash -c "[ -f '$tmp/inside/appcast-linux.xml' ] && ! ls -d '$tmp'/inside.old-* 2>/dev/null | grep -q ."
+
+# ── only on top of a feed signed with a trusted key ──────────────────────────
+refused "a release on top of a feed changed after it was signed is refused" "is not signed with" \
+  --os windows --version 1.5.0 --installer "$(installer 1.5.0)" --existing "$tmp/changed.xml" --work "$tmp/t1"
+refused "a release on top of an unsigned feed is refused" "is not signed" \
+  --os windows --version 1.5.0 --installer "$(installer 1.5.0)" --existing "$tmp/unsigned.xml" --work "$tmp/t2"
+(
+  export LINUX_ED_PRIVATE_KEY="$(private_of "$tmp/key-b.der")" LINUX_PUBLIC_ED_KEY="$key_b"
+  appcast --os linux --version 1.3.0 --fresh --work "$tmp/by-b"
+) >/dev/null 2>&1
+refused "a release on top of a feed signed with another key is refused" "is not signed with" \
+  --os linux --version 1.4.0 --existing "$tmp/by-b/appcast-linux.xml" --work "$tmp/t3"
+expect 0 "--feed-public-key names the key the feed is signed with (the release after a swap)" \
+  appcast --os linux --version 1.4.0 --existing "$tmp/by-b/appcast-linux.xml" --work "$tmp/t4" \
+  --feed-public-key "$key_b"
+expect 0 "  and the new feed is signed with this release's key" feed_check "$tmp/t4/appcast-linux.xml" "$key_a"
+# An earlier release under <metadata>, outside the channel the apps read.
+python3 -I -c '
+import sys
+d = open(sys.argv[1], encoding="utf-8").read()
+d = d[: d.rfind("<!-- sparkle-signatures:")]
+moved = d[d.index("    <item>") : d.index("</item>") + len("</item>")]
+d = d.replace(moved, "").replace("  <channel>", "  <metadata>\n" + moved + "\n  </metadata>\n  <channel>", 1)
+open(sys.argv[2], "w", encoding="utf-8").write(d)
+' "$l1" "$tmp/misplaced-unsigned.xml"
+sign_feed "$tmp/misplaced-unsigned.xml" "$tmp/misplaced.xml" "$tmp/key-a.der"
+expect 0 "  (the misplaced feed is signed with the trusted key)" feed_check "$tmp/misplaced.xml" "$key_a"
+refused "a release on top of a feed with an <item> outside its <channel> is refused" "outside <channel>" \
+  --os linux --version 1.4.0 --existing "$tmp/misplaced.xml" --work "$tmp/t5"
+expect 1 "check refuses an <item> outside the <channel>" \
+  feed_py check --os linux --feed "$tmp/misplaced.xml" --version 1.3.0
+expect 1 "  and none of them wrote a feed" bash -c "ls '$tmp'/t[1235]/appcast-*.xml 2>/dev/null | grep -q ."
 
 # ── a key rotation's bridge release ───────────────────────────────────────────
 expect 0 "a bridge release (--next-public-key) is signed with the current key" \
@@ -192,6 +250,15 @@ d = re.sub(r"\s*<item>(?:(?!</item>).)*desktop-v1\.3\.0.*?</item>", "", d, flags
 open(sys.argv[2], "w", encoding="utf-8").write(d + "<!-- sparkle-signatures:\nedSignature: x\nlength: 1\n-->\n")
 EOF
 expect 1 "check refuses a feed that drops an earlier item" check_w --feed "$feed_drop" --old "$w1"
+# The 1.3.0 item's signature gone; everything else, the 1.4.0 item too, as signed.
+python3 -I -c '
+import re, sys
+d = open(sys.argv[1], encoding="utf-8").read()
+old = re.search(r"<item>(?:(?!</item>).)*desktop-v1\.3\.0.*?</item>", d, flags=re.S).group(0)
+d = d.replace(old, re.sub(r" sparkle:edSignature=\"[^\"]*\"", "", old))
+open(sys.argv[2], "w", encoding="utf-8").write(d)
+' "$w2" "$tmp/changed-old-item.xml"
+expect 1 "check refuses a feed that changes an earlier item" check_w --feed "$tmp/changed-old-item.xml" --old "$w1"
 sed 's#sparkle:edSignature="[^"]*"/>#/>#' "$w2" >"$tmp/no-item-signature.xml"
 expect 1 "check refuses an unsigned enclosure" check_w --feed "$tmp/no-item-signature.xml"
 sed 's#length="[0-9]*"#length="1"#' "$w2" >"$tmp/length.xml"

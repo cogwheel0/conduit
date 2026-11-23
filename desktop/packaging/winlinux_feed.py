@@ -8,7 +8,8 @@ release workflow publishes what it writes.
       with its own file name: appcast-windows.xml or appcast-linux.xml.
       The packaging scripts build it into the app.
 
-  winlinux_feed.py add --os windows|linux --version V --out FILE [--old FILE]
+  winlinux_feed.py add --os windows|linux --version V --out FILE
+                       [--old FILE --old-public-key K]
                        [--installer FILE] [--download-url-prefix U]
                        [--release-url U] [--pub-date DATE]
       Writes FILE: the items of OLD (a feed as published; none for the
@@ -16,7 +17,9 @@ release workflow publishes what it writes.
       signed with the private key in WINDOWS_ED_PRIVATE_KEY or
       LINUX_ED_PRIVATE_KEY (base64 of the 32-byte seed, as Sparkle's
       `generate_keys -x` exports it). The key reaches openssl on stdin,
-      never argv or a file.
+      never argv or a file. OLD must be signed with K (lib.sh verify_feed's
+      check): a feed someone changed is never signed again. A stable
+      version only: neither feed has a beta channel.
       * Windows: the item's enclosure is the installer, at the download
         URL prefix (default: the version's GitHub release), with its length
         and EdDSA signature, `sparkle:os` windows-x64 and the arguments
@@ -30,8 +33,8 @@ release workflow publishes what it writes.
 
   winlinux_feed.py check --os windows|linux --feed FILE [--old FILE]
                          --version V [--installer FILE] [--url U]
-      Fails, saying why, unless FILE keeps every item of OLD, has exactly
-      one item for V (its build number, lib.sh build_number) that is newer
+      Fails, saying why, unless FILE keeps every item of OLD as it was, has
+      exactly one item for V (its build number, lib.sh build_number) that is newer
       than every other and on no channel, ends in one signature block, and
       (Windows) its enclosure is URL, as long as the installer, and signed.
       The signatures themselves are lib.sh's to check: verify_feed for the
@@ -53,6 +56,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
@@ -128,12 +132,25 @@ def unsigned_content(data):
     return data if start < 0 else data[:start]
 
 
+def channel_items(root):
+    """The <channel>'s own <item>s, which are all the apps read
+    (updates/feed.rs; WinSparkle the first channel's). A feed with an <item>
+    anywhere else is refused, so what is signed is what the apps see."""
+    channels = root.findall("channel")
+    if len(channels) != 1:
+        raise FeedError(f"the feed has {len(channels)} <channel> elements, not one")
+    direct = channels[0].findall("item")
+    if len(list(root.iter("item"))) != len(direct):
+        raise FeedError("the feed has an <item> outside <channel>, which the apps never read")
+    return direct
+
+
 def items(data):
     root = ET.fromstring(unsigned_content(data))
     if root.tag != "rss":
         raise FeedError("not an appcast (no <rss>)")
     out = []
-    for item in root.iter("item"):
+    for item in channel_items(root):
         text = lambda tag, ns=SPARKLE: (item.findtext(f"{{{ns}}}{tag}" if ns else tag) or "").strip()
         enc = item.find("enclosure")
         attr = lambda name: (enc.get(name) or "") if enc is not None else ""
@@ -194,6 +211,48 @@ def sign(der, path):
     if out.returncode != 0 or len(out.stdout) != 64:
         raise FeedError(f"openssl could not sign {path}: {out.stderr.decode(errors='replace').strip()}")
     return base64.b64encode(out.stdout).decode()
+
+
+def verified(data, public, name):
+    """The bytes `data` signs when its last signature block is `public`'s
+    Ed25519 signature over them: lib.sh verify_feed's check, which accepts
+    the block only as Sparkle writes it."""
+    start = data.rfind(SIGNATURE_PREFIX)
+    if start < 0:
+        raise FeedError(f"{name} is not signed (no sparkle-signatures block)")
+    end = data.find(b"-->", start + len(SIGNATURE_PREFIX))
+    if end < 0:
+        raise FeedError(f"{name}'s signature block is not closed")
+    content, block = data[:start], data[start + len(SIGNATURE_PREFIX) : end]
+    if data[end + 3 :].strip():
+        raise FeedError(f"something follows {name}'s signature block")
+    m = re.fullmatch(rb"edSignature: ([A-Za-z0-9+/]+={0,2})\nlength: ([0-9]+)\n", block)
+    if not m or int(m.group(2)) != len(content):
+        raise FeedError(f"{name}'s signature block is not an edSignature and the length it signs")
+    try:
+        signature = base64.b64decode(m.group(1), validate=True)
+        key = base64.b64decode(public, validate=True)
+    except binascii.Error:
+        raise FeedError("the signature or the key is not base64") from None
+    if len(signature) != 64 or len(key) != 32:
+        raise FeedError("not an Ed25519 signature and public key")
+    with tempfile.TemporaryDirectory(prefix="conduit-feed-") as scratch:
+        files = {
+            "content": content,
+            "signature": signature,
+            "public.der": bytes.fromhex("302a300506032b6570032100") + key,
+        }
+        for file, value in files.items():
+            Path(scratch, file).write_bytes(value)
+        out = subprocess.run(
+            [_openssl(), "pkeyutl", "-verify", "-pubin", "-keyform", "DER",
+             "-inkey", str(Path(scratch, "public.der")), "-rawin",
+             "-in", str(Path(scratch, "content")), "-sigfile", str(Path(scratch, "signature"))],
+            capture_output=True,
+        )
+    if out.returncode != 0:
+        raise FeedError(f"{name} is not signed with {public}: a release is added only to a feed that key signed")
+    return content
 
 
 def signature_block(signature, length):
@@ -262,9 +321,11 @@ def add(args):
     der = private_key_der(os.environ[key_env])
     release_url = args.release_url or f"https://github.com/{repo}/releases/tag/desktop-v{version}"
     if args.old:
-        old_bytes = Path(args.old).read_bytes()
-        old_items = items(old_bytes)
-        old_text = unsigned_content(old_bytes).decode("utf-8")
+        if not args.old_public_key:
+            raise FeedError("--old-public-key: the key the published feed is signed with")
+        old_content = verified(Path(args.old).read_bytes(), args.old_public_key, Path(args.old).name)
+        old_items = items(old_content)
+        old_text = old_content.decode("utf-8")
     else:
         old_items, old_text = [], empty_feed(f"https://github.com/{repo}/releases")
     for item in old_items:
@@ -301,10 +362,9 @@ def check(args):
         return f"the feed has {data.count(SIGNATURE_PREFIX)} signature blocks, not one"
     new = items(data)
     old = items(Path(args.old).read_bytes()) if args.old else []
-    builds = [i["build"] for i in new]
     for previous in old:
-        if previous["build"] not in builds:
-            return f"the new feed drops build {previous['build']} ({previous['short']})"
+        if previous not in new:
+            return f"the new feed drops or changes build {previous['build']} ({previous['short']})"
     build = str(build_number(args.version))
     mine = [i for i in new if i["build"] == build]
     if len(mine) != 1:
@@ -352,6 +412,7 @@ def main(argv):
     p.add_argument("--version", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--old")
+    p.add_argument("--old-public-key")
     p.add_argument("--installer")
     p.add_argument("--download-url-prefix")
     p.add_argument("--release-url")

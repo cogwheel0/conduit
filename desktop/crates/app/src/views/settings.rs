@@ -1510,11 +1510,13 @@ impl SettingsView {
     fn updates_section(&self, cx: &mut Context<Self>) -> AnyElement {
         let l10n = cx.l10n().clone();
         let available = crate::updates::available(cx);
+        let status = crate::updates::status(cx);
+        let (subtitle, download) = software_update(available, status.as_ref(), &l10n);
         let mut rows = vec![];
         // The row names the subject, the button keeps the verb.
-        let check = match crate::updates::found(cx) {
-            Some(found) => Button::new("download-update", l10n.download())
-                .on_click(Rc::new(move |_, _, cx| cx.open_url(&found.page))),
+        let check = match download {
+            Some(page) => Button::new("download-update", l10n.download())
+                .on_click(Rc::new(move |_, _, cx| cx.open_url(&page))),
             None => Button::new("check-for-updates", l10n.desktop_check_now())
                 .disabled(!crate::updates::can_check(cx))
                 .on_click(Rc::new(|_, _, cx| crate::updates::check_for_updates(cx))),
@@ -1522,7 +1524,7 @@ impl SettingsView {
         rows.push(
             setting_row(
                 l10n.desktop_software_update(),
-                (!available).then(|| l10n.desktop_updates_unavailable().into()),
+                subtitle.map(Into::into),
                 check,
                 cx,
             )
@@ -2479,9 +2481,61 @@ fn pane_fade(switched: Option<std::time::Instant>, now: std::time::Instant) -> f
     specs::CROSSFADE.curve.sample(t)
 }
 
+/// About › Software Update for what the updater says: the row's subtitle,
+/// and the page of a newer release when its button downloads it.
+fn software_update(
+    available: bool,
+    status: Option<&crate::updates::Status>,
+    l10n: &L10n,
+) -> (Option<String>, Option<String>) {
+    use crate::updates::Status;
+    match (available, status) {
+        (false, _) => (Some(l10n.desktop_updates_unavailable()), None),
+        (true, Some(Status::Available(found))) => (
+            Some(l10n.desktop_update_available(&found.version)),
+            Some(found.page.clone()),
+        ),
+        (true, Some(Status::UpToDate)) => (Some(l10n.desktop_update_up_to_date()), None),
+        (true, Some(Status::Failed)) => (Some(l10n.desktop_update_check_failed()), None),
+        (true, None) => (None, None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{helper_version, middle_truncate, pane_fade};
+    use super::{helper_version, middle_truncate, pane_fade, software_update};
+    use crate::l10n::L10n;
+    use crate::updates::{Found, Status};
+
+    #[test]
+    fn about_says_what_the_update_check_came_to() {
+        let en = L10n::new("en");
+        let found = Found {
+            version: "1.3.0".into(),
+            page: "https://example.org/releases/tag/desktop-v1.3.0".into(),
+        };
+        let available = Status::Available(found.clone());
+        assert_eq!(
+            software_update(false, None, &en),
+            (Some("Updates come with the installed app.".into()), None)
+        );
+        assert_eq!(software_update(true, None, &en), (None, None));
+        assert_eq!(
+            software_update(true, Some(&available), &en),
+            (Some("Conduit 1.3.0 is available.".into()), Some(found.page))
+        );
+        assert_eq!(
+            software_update(true, Some(&Status::UpToDate), &en),
+            (Some("Conduit is up to date.".into()), None)
+        );
+        assert_eq!(
+            software_update(true, Some(&Status::Failed), &en),
+            (
+                Some("Couldn't check for updates. Try again later.".into()),
+                None
+            )
+        );
+    }
 
     #[test]
     fn the_helper_shows_its_protocol_as_a_build() {

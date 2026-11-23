@@ -7,8 +7,9 @@
 //!
 //! Each item is a release: `sparkle:version` its build number,
 //! `sparkle:shortVersionString` its version, `<link>` its release page.
-//! Items on a channel are left out (releases are stable only), and so is
-//! an item whose version and build disagree.
+//! Releases are stable only: an item on a channel or of a beta version is
+//! left out, and so is one whose version and build disagree. (A beta app
+//! still sees its release as newer: its own build number orders before it.)
 
 use ring::signature::{ED25519, UnparsedPublicKey};
 
@@ -161,7 +162,8 @@ fn release(item: roxmltree::Node) -> Option<Release> {
     let build: u64 = child(Some(SPARKLE), "version")?.parse().ok()?;
     let version = child(Some(SPARKLE), "shortVersionString")?;
     let page = child(None, "link")?;
-    if build_number(version) != Some(build) || !page.starts_with("https://") {
+    let stable = !version.contains('-');
+    if !stable || build_number(version) != Some(build) || !page.starts_with("https://") {
         return None;
     }
     Some(Release {
@@ -384,6 +386,22 @@ pub(crate) mod tests {
         assert_eq!(
             decide(feed, &key(1).1, 1_020_099),
             Err(FeedError::BadSignature)
+        );
+    }
+
+    #[test]
+    fn a_beta_is_never_offered_even_without_a_channel() {
+        let (pair, public) = key(1);
+        let feed = appcast(&[item("1.4.0-beta.1", 1_040_001), item("1.3.0", 1_030_099)]);
+        assert_eq!(
+            decide(&signed(&feed, &pair), &public, 1_020_099),
+            Ok(Decision::Newer(release("1.3.0", 1_030_099)))
+        );
+        // An installed beta still sees its release as newer.
+        let release_only = signed(&appcast(&[item("1.3.0", 1_030_099)]), &pair);
+        assert_eq!(
+            decide(&release_only, &public, 1_030_001),
+            Ok(Decision::Newer(release("1.3.0", 1_030_099)))
         );
     }
 

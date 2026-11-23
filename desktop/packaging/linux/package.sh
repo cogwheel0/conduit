@@ -17,7 +17,9 @@
 #    conduitd reads and the third-party notices; checked (winlinux.py
 #    layout: complete, Linux's notices, no test harness), and the desktop
 #    entry with desktop-file-validate when it's installed.
-# 4. The dependencies, worked out from the binaries: the .deb's with
+# 4. The dependencies, worked out from the binaries, plus the root
+#    certificates the update notice's HTTPS needs (winlinux.py
+#    extra-requires): the .deb's with
 #    dpkg-shlibdeps, as Debian names them on the build machine (so build on
 #    the oldest release the packages are for: CI uses Ubuntu 22.04, glibc
 #    2.35, and newer Debian and Ubuntu releases provide the same names);
@@ -262,6 +264,9 @@ log "dependencies (dpkg-shlibdeps; readelf)"
 deb_deps="$(deb_depends "$app_dir")"
 rpm_deps="$(python3 -I "$winlinux" rpm-requires "$app_dir")"
 [ -n "$deb_deps" ] && [ -n "$rpm_deps" ] || die "found no dependencies in $app_dir"
+extra="$(python3 -I "$winlinux" extra-requires)"
+deb_deps+=$'\n'"$extra"
+rpm_deps+=$'\n'"$extra"
 printf 'deb Depends:\n%s\nrpm Requires:\n%s\n' "$deb_deps" "$rpm_deps" | sed 's/^/  /' >&2
 
 # --- 5. the packages ---------------------------------------------------------
@@ -338,12 +343,15 @@ for packager in deb rpm; do
   log "nfpm: $packager"
   "$nfpm" package --config "$config" --packager "$packager" --target "$out/"
 done
-# Every file the packages install is root's and readable by everyone.
+# Every file the packages install is root's and readable by everyone, and
+# each requires what the binaries' libraries don't name.
 python3 -I "$winlinux" package-modes "$out"/*.deb
+python3 -I "$winlinux" package-requires "$out"/*.deb
 if command -v rpm >/dev/null; then
   python3 -I "$winlinux" package-modes "$out"/*.rpm
+  python3 -I "$winlinux" package-requires "$out"/*.rpm
 else
-  warn "no rpm: the .rpm's modes are not checked"
+  warn "no rpm: the .rpm's modes and requirements are not checked"
 fi
 log "packages in $out:"
 for f in "$out"/*.deb "$out"/*.rpm; do

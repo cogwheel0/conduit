@@ -11,23 +11,33 @@
 //! `cargo run` neither link nor need it, as the Mac loads Sparkle.framework.
 //! Without it, or without the build's feed and key, there is no updater.
 //!
+//! The daily checks are the app's own ([`super::checks`]): WinSparkle's
+//! periodic thread ends at the first check that fails (0.9.4's
+//! `PerformUpdateCheck` rethrows out of `PeriodicUpdateChecker::Run`) and
+//! starts only in `win_sparkle_init`, with the setting on then. So its
+//! automatic checks stay off, and when one is due the app asks WinSparkle
+//! for a check that shows its window only for an update.
+//!
 //! What WinSparkle decides (found, nothing newer, an error) goes to the
 //! app log and to [`super::next_outcome`]; its callbacks come from its own
 //! threads, so they only post to a channel the app's main thread reads.
 
+use std::cell::RefCell;
 use std::ffi::{CString, c_char, c_int};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::OnceLock;
+use std::time::Duration;
 
-use futures::StreamExt as _;
 use futures::channel::mpsc;
-use gpui_kit::App;
+use futures::{FutureExt as _, StreamExt as _};
+use gpui_kit::{App, AsyncApp};
 use windows::Win32::System::LibraryLoader::{
     GetProcAddress, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW,
 };
 use windows::core::{HSTRING, PCSTR};
 
-use super::checks::Checks;
+use super::checks::{self, Checks};
 use super::config::{Config, Unavailable, WinSparkleSettings};
 use super::{Outcome, Updater};
 
@@ -47,7 +57,6 @@ struct Api {
     set_app_build_version: unsafe extern "C" fn(*const u16),
     set_registry_path: unsafe extern "C" fn(*const c_char),
     set_automatic_check_for_updates: unsafe extern "C" fn(c_int),
-    set_update_check_interval: unsafe extern "C" fn(c_int),
     set_error_callback: unsafe extern "C" fn(Callback),
     set_can_shutdown_callback: unsafe extern "C" fn(CanQuit),
     set_shutdown_request_callback: unsafe extern "C" fn(Callback),
@@ -64,7 +73,13 @@ enum Event {
     Error,
     /// It has started the installer and asks the app to quit.
     Quit,
+    /// It would start the installer, which closes the app: may it?
+    CanQuit(std::sync::mpsc::SyncSender<bool>),
 }
+
+/// How long WinSparkle's thread waits for the app's answer: past the saves
+/// Quit waits for (3 s), never for ever.
+const CAN_QUIT_WAIT: Duration = Duration::from_secs(10);
 
 static EVENTS: OnceLock<mpsc::UnboundedSender<Event>> = OnceLock::new();
 
@@ -90,23 +105,37 @@ extern "C" fn on_quit_request() {
     post(Event::Quit);
 }
 
-/// Before WinSparkle starts the installer: the app always can quit (what
-/// it has unsaved, a sheet's draft, asks on the quit itself).
+/// Before WinSparkle starts the installer, which closes the app however
+/// Quit would have gone: the app's main thread answers
+/// ([`crate::views::sheet::ready_for_installer`]) while WinSparkle's thread
+/// waits here. No answer is no: WinSparkle then says the app can't be
+/// restarted, and its Install button stays for later.
 extern "C" fn can_quit() -> c_int {
-    1
+    let (answer, answered) = std::sync::mpsc::sync_channel(1);
+    post(Event::CanQuit(answer));
+    c_int::from(answered.recv_timeout(CAN_QUIT_WAIT).unwrap_or(false))
+}
+
+/// The daily checks' state, the app's.
+struct Schedule {
+    checks: Checks,
+    path: PathBuf,
+    last_failure: Option<i64>,
 }
 
 /// The running updater.
 pub struct WinSparkle {
     api: &'static Api,
-    checks: std::cell::RefCell<Checks>,
-    path: PathBuf,
+    schedule: Rc<RefCell<Schedule>>,
+    /// The switch changed: the schedule works out its next check again.
+    reschedule: mpsc::UnboundedSender<()>,
 }
 
 impl WinSparkle {
     /// Loads WinSparkle, configures it from the build's `config` and the
-    /// app's language, and starts it: when automatic checks are on and the
-    /// last was a day ago or more, it checks now.
+    /// app's language, and starts it with the daily checks: when automatic
+    /// checks are on and the last read the feed a day ago or more, one runs
+    /// now.
     pub fn start(
         config: &Config,
         locale: &str,
@@ -128,7 +157,7 @@ impl WinSparkle {
         let registry = c(settings.registry_path)?;
         let (company, app) = (wide(settings.company_name), wide(settings.app_name));
         let (version, build) = (wide(&settings.app_version), wide(&settings.build_version));
-        let (events, mut received) = mpsc::unbounded();
+        let (events, received) = mpsc::unbounded();
         if EVENTS.set(events).is_err() {
             return Err(Unavailable::LoadFailed(
                 "WinSparkle was started twice".into(),
@@ -143,12 +172,10 @@ impl WinSparkle {
             (api.set_app_details)(company.as_ptr(), app.as_ptr(), version.as_ptr());
             (api.set_app_build_version)(build.as_ptr());
             (api.set_registry_path)(registry.as_ptr());
-            // Set each launch from the app's switch, so WinSparkle never
-            // asks the user itself (it does on a second launch when this
-            // isn't set). Turned on while the app runs, its daily checks
-            // start at the next launch.
-            (api.set_automatic_check_for_updates)(c_int::from(checks.automatic));
-            (api.set_update_check_interval)(settings.check_interval_secs);
+            // Off, and set, so WinSparkle never runs its own periodic checks
+            // nor asks the user about them (it does on a second launch when
+            // this isn't set): the app's schedule asks for each.
+            (api.set_automatic_check_for_updates)(0);
             (api.set_did_find_update_callback)(on_found);
             (api.set_did_not_find_update_callback)(on_nothing_newer);
             (api.set_error_callback)(on_error);
@@ -161,36 +188,115 @@ impl WinSparkle {
         if !key_taken {
             return Err(Unavailable::Invalid("CONDUIT_UPDATE_PUBLIC_ED_KEY"));
         }
-        cx.spawn(async move |cx| {
-            while let Some(event) = received.next().await {
-                cx.update(|cx| match event {
-                    Event::Found => super::report(Outcome::Found(None), cx),
-                    Event::NothingNewer => super::report(Outcome::UpToDate, cx),
-                    Event::Error => {
-                        super::report(Outcome::Failed("WinSparkle reported an error".into()), cx)
-                    }
-                    Event::Quit => {
-                        log::info!("updates: the installer runs; quitting for it");
-                        crate::views::sheet::quit(cx);
-                    }
-                });
-            }
-        })
-        .detach();
+        let schedule = Rc::new(RefCell::new(Schedule {
+            checks,
+            path,
+            last_failure: None,
+        }));
+        let (reschedule, woken) = mpsc::unbounded();
+        let running = schedule.clone();
+        cx.spawn(async move |cx| run(api, running, received, woken, cx).await)
+            .detach();
         cx.on_app_quit(move |_| {
             // SAFETY: WinSparkle's shutdown, once, as the app quits.
             unsafe { (api.cleanup)() };
             async {}
         })
         .detach();
-        // SAFETY: configured above; starts its check (and threads) now.
+        // SAFETY: configured above; starts its threads now.
         unsafe { (api.init)() };
         Ok(Self {
             api,
-            checks: std::cell::RefCell::new(checks),
-            path,
+            schedule,
+            reschedule,
         })
     }
+}
+
+/// The daily checks, and what WinSparkle's threads report.
+async fn run(
+    api: &'static Api,
+    schedule: Rc<RefCell<Schedule>>,
+    mut events: mpsc::UnboundedReceiver<Event>,
+    mut woken: mpsc::UnboundedReceiver<()>,
+    cx: &mut AsyncApp,
+) {
+    loop {
+        let next = {
+            let s = schedule.borrow();
+            checks::next_check(&s.checks, s.last_failure, now())
+        };
+        let due: futures::future::LocalBoxFuture<'static, ()> = match next {
+            Some(wait) => Box::pin(cx.background_executor().timer(wait)),
+            None => Box::pin(futures::future::pending()),
+        };
+        let mut due = due.fuse();
+        futures::select! {
+            event = events.next() => match event {
+                Some(event) => cx.update(|cx| handle(event, &schedule, cx)),
+                None => return,
+            },
+            wake = woken.next() => if wake.is_none() {
+                return;
+            },
+            () = due => {
+                // Until it reports, the check counts as failed, so the
+                // schedule waits an hour at most for its answer.
+                schedule.borrow_mut().last_failure = Some(now());
+                // SAFETY: a call WinSparkle takes on the main thread after
+                // init; it shows its window only for an update.
+                unsafe { (api.check_update_without_ui)() };
+            },
+        }
+    }
+}
+
+fn handle(event: Event, schedule: &Rc<RefCell<Schedule>>, cx: &mut App) {
+    let checked = |read_the_feed: bool| {
+        let mut s = schedule.borrow_mut();
+        let s = &mut *s;
+        checks::checked(&mut s.checks, &mut s.last_failure, read_the_feed, now());
+        save(&s.path, &s.checks);
+    };
+    match event {
+        Event::Found => {
+            checked(true);
+            super::report(Outcome::Found(None), cx);
+        }
+        Event::NothingNewer => {
+            checked(true);
+            super::report(Outcome::UpToDate, cx);
+        }
+        Event::Error => {
+            checked(false);
+            super::report(Outcome::Failed("WinSparkle reported an error".into()), cx);
+        }
+        Event::Quit => {
+            log::info!("updates: the installer runs; quitting for it");
+            crate::views::sheet::quit(cx);
+        }
+        Event::CanQuit(answer) => {
+            let ready = crate::views::sheet::ready_for_installer(cx);
+            cx.spawn(async move |_| {
+                let ready = ready.await;
+                log::info!("updates: the installer may close the app: {ready}");
+                let _ = answer.send(ready);
+            })
+            .detach();
+        }
+    }
+}
+
+fn save(path: &std::path::Path, checks: &Checks) {
+    if let Err(e) = crate::prefs::save(path, checks) {
+        log::warn!("updates: {}: {e}", path.display());
+    }
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 impl Updater for WinSparkle {
@@ -207,17 +313,15 @@ impl Updater for WinSparkle {
     }
 
     fn automatic_checks(&self) -> bool {
-        self.checks.borrow().automatic
+        self.schedule.borrow().checks.automatic
     }
 
+    /// Takes effect at once: the schedule is the app's.
     fn set_automatic_checks(&self, on: bool) {
-        // SAFETY: writes the setting its daily check reads each round.
-        unsafe { (self.api.set_automatic_check_for_updates)(c_int::from(on)) };
-        let mut checks = self.checks.borrow_mut();
-        checks.automatic = on;
-        if let Err(e) = crate::prefs::save(&self.path, &*checks) {
-            log::warn!("updates: {}: {e}", self.path.display());
-        }
+        let mut s = self.schedule.borrow_mut();
+        s.checks.automatic = on;
+        save(&s.path, &s.checks);
+        let _ = self.reschedule.unbounded_send(());
     }
 
     /// WinSparkle shows its window only when it finds an update.
@@ -279,9 +383,6 @@ fn load() -> Result<Api, Unavailable> {
         ),
         set_automatic_check_for_updates: function!(
             "win_sparkle_set_automatic_check_for_updates" as unsafe extern "C" fn(c_int)
-        ),
-        set_update_check_interval: function!(
-            "win_sparkle_set_update_check_interval" as unsafe extern "C" fn(c_int)
         ),
         set_error_callback: function!(
             "win_sparkle_set_error_callback" as unsafe extern "C" fn(Callback)

@@ -41,11 +41,20 @@ pub trait Updater {
     fn check_quietly(&self) -> bool {
         false
     }
-    /// A newer release this updater leaves to the user to install (the
-    /// Linux notice): About offers its page.
-    fn found(&self) -> Option<Found> {
+    /// What this updater's checks came to, for About to say (the Linux
+    /// notice; Sparkle and WinSparkle say it in their own windows).
+    fn status(&self) -> Option<Status> {
         None
     }
+}
+
+/// What About says of the Linux notice's checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Status {
+    /// A newer release, which About offers to download.
+    Available(Found),
+    UpToDate,
+    Failed,
 }
 
 /// A newer release the user installs themselves.
@@ -193,9 +202,9 @@ pub fn set_automatic_checks(on: bool, cx: &mut App) {
     }
 }
 
-/// A newer release the user installs themselves (Linux), for About.
-pub fn found(cx: &App) -> Option<Found> {
-    updater(cx).and_then(|u| u.found())
+/// What the updater's checks came to, for About (Linux).
+pub fn status(cx: &App) -> Option<Status> {
+    updater(cx).and_then(|u| u.status())
 }
 
 /// A check that shows nothing unless it finds a newer version (the

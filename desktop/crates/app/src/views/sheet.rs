@@ -21,7 +21,7 @@ use conduit_components::views::kit::grouped_tones;
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, AnyEntity, AnyWindowHandle, App, Bounds, Context, Entity, FocusHandle, Focusable,
-    Global, Pixels, Role, SharedString, Subscription, Window, WindowBackgroundAppearance,
+    Global, Pixels, Role, SharedString, Subscription, Task, Window, WindowBackgroundAppearance,
     WindowBounds, WindowKind, WindowOptions, div, point, px, size,
 };
 
@@ -380,6 +380,42 @@ pub(crate) fn quit_with(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     cx.default_global::<OpenSheet>().after = None;
     dismiss(cx);
     quit_once_gone(cx, then);
+}
+
+/// Whether an update's installer may close the app now (WinSparkle asks
+/// before it starts one, and the installer then closes the app whatever
+/// Quit would have done). A sheet Quit couldn't close without the user
+/// (busy, asking something, or holding unsaved edits) comes forward and the
+/// answer is no, so the install waits for the user; otherwise the saves
+/// Quit waits for run first, and the answer is yes once they've landed (or
+/// after [`SAVES_BEFORE_QUIT`]).
+pub fn ready_for_installer(cx: &mut App) -> Task<bool> {
+    if let Some(sheet) = holding_sheet(cx) {
+        let _ = sheet.update(cx, |_, window, _| window.activate_window());
+        crate::shell::sheet::beep(cx);
+        return Task::ready(false);
+    }
+    let saves = cx.default_global::<BeforeQuit>().0.clone();
+    let pending: Vec<_> = saves.iter().filter_map(|save| save(cx)).collect();
+    cx.spawn(async move |cx| {
+        let timer = cx.background_executor().timer(SAVES_BEFORE_QUIT);
+        let _ = futures::future::select(futures::future::join_all(pending), Box::pin(timer)).await;
+        // A sheet that opened while the saves ran holds the install too.
+        cx.update(|cx| holding_sheet(cx).is_none())
+    })
+}
+
+/// The sheet down now that Quit couldn't close without the user: busy,
+/// asking something, or holding unsaved edits.
+fn holding_sheet(cx: &mut App) -> Option<AnyWindowHandle> {
+    let open = cx.try_global::<OpenSheet>()?;
+    let sheet = open.current.as_ref().map(|(handle, _)| *handle)?;
+    let waiting = open.quit.is_some();
+    let unsaved = open.unsaved.clone();
+    let holds = waiting
+        || unsaved.is_some_and(|u| (u.busy)(cx) || (u.edits)(cx))
+        || crate::shell::sheet::question_up(sheet, cx);
+    holds.then_some(sheet)
 }
 
 /// The sheet has gone: once AppKit has ended it, Quit comes in again
@@ -847,6 +883,60 @@ mod tests {
         }
         vcx.run_until_parked();
         assert_eq!(quits.get(), 1, "Discard did not quit once");
+    }
+
+    /// An installer about to replace the app waits while a sheet holds
+    /// unsaved edits: the sheet comes forward with a beep, and nothing is
+    /// asked or closed.
+    #[gpui_kit::test]
+    fn an_installer_waits_for_a_sheet_with_unsaved_edits(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let asks = Rc::new(Cell::new(0));
+        let (probe, question) = (asks.clone(), Rc::new(Cell::new(None)));
+        vcx.update(|window, cx| open(window, 400., cx, move |_, _| Probe(probe, question)))
+            .expect("the sheet opens");
+        vcx.run_until_parked();
+        let mut ready = vcx.update(|_, cx| ready_for_installer(cx));
+        vcx.run_until_parked();
+        assert_eq!(futures::FutureExt::now_or_never(&mut ready), Some(false));
+        assert!(vcx.update(|_, cx| is_open(cx)), "the sheet closed");
+        assert_eq!(asks.get(), 0, "the sheet was asked to close");
+        assert_eq!(
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0),
+            1,
+            "the sheet didn't come forward with a beep"
+        );
+    }
+
+    /// With no sheet down, the saves Quit waits for run first, and the
+    /// answer is yes only once they've landed.
+    #[gpui_kit::test]
+    fn an_installer_may_close_the_app_once_its_saves_land(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let (landed, landing) = futures::channel::oneshot::channel::<()>();
+        let landing = Rc::new(std::cell::RefCell::new(Some(landing)));
+        let ran = Rc::new(Cell::new(0));
+        let counted = ran.clone();
+        vcx.update(|_, cx| {
+            save_before_quit(cx, move |_| {
+                counted.set(counted.get() + 1);
+                let landing = landing.borrow_mut().take()?;
+                Some(futures::FutureExt::boxed_local(async move {
+                    let _ = landing.await;
+                }))
+            })
+        });
+        let mut ready = vcx.update(|_, cx| ready_for_installer(cx));
+        vcx.run_until_parked();
+        assert_eq!(ran.get(), 1, "the save didn't run");
+        assert_eq!(
+            futures::FutureExt::now_or_never(&mut ready),
+            None,
+            "it answered before the save landed"
+        );
+        landed.send(()).unwrap();
+        vcx.run_until_parked();
+        assert_eq!(futures::FutureExt::now_or_never(&mut ready), Some(true));
     }
 
     #[test]

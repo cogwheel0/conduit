@@ -222,6 +222,12 @@ which). A stacked pull request skips it unless it has the `full-ci` label.
 | `MACOS_APP_PROVISIONING_PROFILE` | secret | base64 of the app's Developer ID provisioning profile | optional (widget listed) |
 | `MACOS_WIDGET_PROVISIONING_PROFILE` | secret | base64 of the widget extension's | optional (widget listed) |
 | `DESKTOP_MACOS_RUNNER` | variable | another runner image for the macOS jobs (default `macos-26`) | optional |
+| `WINDOWS_ED_PRIVATE_KEY` | secret | the Windows feed's private EdDSA key ([Windows and Linux updates](#windows-and-linux-updates)) | Windows releases |
+| `WINDOWS_PUBLIC_ED_KEY` | variable | its public key, built into every Windows app | Windows releases |
+| `LINUX_ED_PRIVATE_KEY` | secret | the Linux feed's private EdDSA key | Linux releases |
+| `LINUX_PUBLIC_ED_KEY` | variable | its public key, built into every Linux app | Linux releases |
+| `WINDOWS_NEXT_PUBLIC_ED_KEY`, `WINDOWS_KEY_ROTATION_TAG` | variables | a Windows key rotation's next public key and bridge tag | a Windows key rotation only, together |
+| `LINUX_NEXT_PUBLIC_ED_KEY`, `LINUX_KEY_ROTATION_TAG` | variables | a Linux key rotation's next public key and bridge tag | a Linux key rotation only, together |
 
 Either option A or option B is needed for notarization; with both, A is
 used. The `GITHUB_TOKEN` creates the draft release (`contents: write`, in
@@ -522,7 +528,8 @@ the feed can hold an update back but can't push unsigned code.
 **The keys** were made with Sparkle's `generate_keys` in the maintainer's
 login keychain (service `https://sparkle-project.org`), under the accounts
 `conduit-desktop-windows` and `conduit-desktop-linux`. The repository
-needs (names proposed with the scripts; the release jobs read them):
+needs these (also in [Secrets and variables](#secrets-and-variables)),
+which the Windows and Linux release jobs read:
 
 | Name | Kind | Holds |
 | --- | --- | --- |
@@ -561,10 +568,14 @@ It fetches the current feed (`--existing FILE` instead; `--fresh` or
 `--allow-new` for an OS's first release), adds the version's item on top,
 signs the installer and the feed with the private key (it reaches openssl
 on stdin, never argv), and writes `desktop/target/feeds/<os>-<version>/`.
-It stops unless the private key belongs to `<OS>_PUBLIC_ED_KEY`, the new
-item is the newest build, every earlier item is kept, and `lib.sh`'s
-`verify_enclosure` (Windows) and `verify_feed` accept the result with the
-public key alone. `desktop/packaging/winlinux_feed_test.sh` checks these
+It adds to a feed only when that feed is signed with the key that signs
+this release (or the one `--feed-public-key` names: see the rotation
+below) and has its items only under its `<channel>`, where the apps read
+them, so a feed someone else changed is never signed again. It stops
+unless the private key belongs to `<OS>_PUBLIC_ED_KEY`, the version is a
+stable one, the new item is the newest build, every earlier item is kept
+exactly as it was, and `lib.sh`'s `verify_enclosure` (Windows) and
+`verify_feed` accept the result with the public key alone. `desktop/packaging/winlinux_feed_test.sh` checks these
 safeguards against keys it makes. CI's **Update feeds (rehearsal)** runs it,
 then makes a throwaway key per OS: the rehearsal packages are built with
 its public half and a feed on 127.0.0.1, and the install smokes serve a
@@ -589,6 +600,9 @@ install it trust only the new key; every later release is signed with it.
 3. Publish it. Then swap the keys (`<OS>_ED_PRIVATE_KEY` and
    `<OS>_PUBLIC_ED_KEY` from the new pair) and delete both rotation
    variables.
+4. The next release's item is added with `winlinux-appcast.sh
+   --feed-public-key <the retired public key>`: the published feed is still
+   signed with it. Every release after that is added without it.
 
 What installed copies see: there is no safe mode like Sparkle's on the Mac.
 WinSparkle offers the newest item only, so a Windows copy older than the

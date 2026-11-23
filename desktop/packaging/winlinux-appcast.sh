@@ -37,6 +37,11 @@
 #   --fresh                 start a new feed (that OS's first release only)
 #   --allow-new             start a new feed when its URL answers 404 (CI:
 #                           the first release); any other failure stops
+#   --feed-public-key K     the key the current feed is signed with, when
+#                           it isn't the one that signs this release: the
+#                           first release after a key swap names the retired
+#                           key (docs/RELEASING-DESKTOP.md). A release is
+#                           added only to a feed that key signed.
 #   --next-public-key K     a key rotation's bridge release
 #                           (docs/RELEASING-DESKTOP.md, "Rotating the Windows
 #                           and Linux keys"): the app built for this release
@@ -67,6 +72,7 @@ existing=""
 fresh=0
 allow_new=0
 next_key=""
+feed_key=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --os) os="$2"; shift ;;
@@ -78,6 +84,7 @@ while [ $# -gt 0 ]; do
     --fresh) fresh=1 ;;
     --allow-new) allow_new=1 ;;
     --next-public-key) next_key="$2"; shift ;;
+    --feed-public-key) feed_key="$2"; shift ;;
     -h | --help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
@@ -126,13 +133,27 @@ if [ -n "$next_key" ]; then
   [ "$next_key" != "$public" ] || die "--next-public-key is $private_var's own public key: nothing to rotate"
   warn "key rotation: the $os app of $version trusts the next public key; its item and the feed are signed with $private_var, which installed copies have now"
 fi
+if [ -n "$feed_key" ]; then
+  is_ed25519_public_key "$feed_key" || die "--feed-public-key is not an EdDSA public key (base64 of 32 bytes)"
+else
+  feed_key="$public"
+fi
+
+# Inputs inside --work would be moved aside with it before they are read.
+for input in "$existing" "$installer"; do
+  [ -n "$input" ] || continue
+  if python3 -I -c 'import os, sys; w, p = map(os.path.realpath, sys.argv[1:]); sys.exit(os.path.commonpath([w, p]) != w)' \
+    "$work" "$input"; then
+    die "$input is inside --work $work, which is moved aside first: put it elsewhere"
+  fi
+done
 
 move_aside "$work"
 mkdir -p "$work"
-old=()
+old_file=""
 if [ -n "$existing" ]; then
   cp "$existing" "$work/previous-$feed_name"
-  old=(--old "$work/previous-$feed_name")
+  old_file="$work/previous-$feed_name"
   log "starting from $existing"
 elif [ "$fresh" = 1 ]; then
   log "starting a new $os feed"
@@ -142,7 +163,7 @@ else
   code="$(curl -sSL --retry 3 -o "$work/previous-$feed_name" -w '%{http_code}' "$feed" || true)"
   case "$code" in
     200)
-      old=(--old "$work/previous-$feed_name")
+      old_file="$work/previous-$feed_name"
       log "fetched the current $os feed from $feed"
       ;;
     404)
@@ -155,8 +176,12 @@ else
 fi
 
 out="$work/$feed_name"
-args=(add --os "$os" --version "$version" --out "$out" ${old[@]+"${old[@]}"})
-checks=(check --os "$os" --feed "$out" --version "$version" ${old[@]+"${old[@]}"})
+args=(add --os "$os" --version "$version" --out "$out")
+checks=(check --os "$os" --feed "$out" --version "$version")
+if [ -n "$old_file" ]; then
+  args+=(--old "$old_file" --old-public-key "$feed_key")
+  checks+=(--old "$old_file")
+fi
 if [ "$os" = windows ]; then
   args+=(--installer "$installer" --download-url-prefix "$prefix")
   checks+=(--installer "$installer" --url "$prefix$(basename "$installer")")

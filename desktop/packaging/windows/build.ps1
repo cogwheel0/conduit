@@ -198,6 +198,8 @@ if ($UpdatePublicKey) {
   if ($bytes.Length -ne 32) {
     throw '-UpdatePublicKey is not an EdDSA public key (base64 of 32 bytes, as generate_keys -p prints it)'
   }
+  # FromBase64String skips whitespace inside; the app's decoder doesn't.
+  $UpdatePublicKey = [Convert]::ToBase64String($bytes)
   if (-not $UpdateFeedUrl) { $UpdateFeedUrl = & python (Join-Path $packaging 'winlinux_feed.py') url windows }
   if ($UpdateFeedUrl -notmatch '^https?://') { throw "-UpdateFeedUrl $UpdateFeedUrl is not an http(s) URL" }
   $update = @{ CONDUIT_UPDATE_PUBLIC_ED_KEY = $UpdatePublicKey; CONDUIT_UPDATE_FEED_URL = $UpdateFeedUrl }

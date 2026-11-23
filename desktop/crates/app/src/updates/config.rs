@@ -140,10 +140,10 @@ pub struct WinSparkleSettings {
     pub app_version: String,
     /// What WinSparkle compares with each item's `sparkle:version`.
     pub build_version: String,
-    /// Under HKCU: when it last checked, a skipped version, and "check
-    /// automatically", which the app sets from its own switch each launch.
+    /// Under HKCU: when it last checked, a skipped version, and its own
+    /// "check automatically", which the app keeps off (its schedule is the
+    /// app's).
     pub registry_path: &'static str,
-    pub check_interval_secs: i32,
     /// The language of WinSparkle's windows: the app's.
     pub lang: String,
 }
@@ -159,7 +159,6 @@ impl WinSparkleSettings {
             app_version: config.version.clone(),
             build_version: config.build.to_string(),
             registry_path: r"Software\Conduit\Updates",
-            check_interval_secs: CHECK_INTERVAL_SECS as i32,
             lang: winsparkle_lang(locale),
         }
     }
@@ -298,7 +297,6 @@ mod tests {
                 app_version: "1.3.0".into(),
                 build_version: "1030099".into(),
                 registry_path: r"Software\Conduit\Updates",
-                check_interval_secs: 86_400,
                 lang: "de".into(),
             }
         );

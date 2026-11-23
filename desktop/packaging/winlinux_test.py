@@ -472,6 +472,22 @@ class Modes(unittest.TestCase):
         self.assertIn("conduitd/bin/conduitd", problems[0])
 
 
+class PackageRequires(unittest.TestCase):
+    """Beyond their libraries, the packages require the system's root
+    certificates: the update notice reads its feed over HTTPS with them."""
+
+    def test_the_root_certificates_are_required(self):
+        deb = "libc6 (>= 2.35), libgtk-3-0 (>= 3.24), ca-certificates"
+        self.assertEqual(winlinux.missing_requires(deb, "deb"), [])
+        self.assertEqual(winlinux.missing_requires("libc6 (>= 2.35), libgtk-3-0", "deb"), ["ca-certificates"])
+        # An alternative counts; a longer name that starts the same doesn't.
+        self.assertEqual(winlinux.missing_requires("ca-certificates | ca-bundle", "deb"), [])
+        self.assertEqual(winlinux.missing_requires("ca-certificates-java", "deb"), ["ca-certificates"])
+        rpm = "libc.so.6()(64bit)\nca-certificates\nrpmlib(CompressedFileNames) <= 3.0.4-1\n"
+        self.assertEqual(winlinux.missing_requires(rpm, "rpm"), [])
+        self.assertEqual(winlinux.missing_requires("libc.so.6()(64bit)\n", "rpm"), ["ca-certificates"])
+
+
 class Leftovers(unittest.TestCase):
     def test_what_an_uninstall_left(self):
         tree = Tree(self)

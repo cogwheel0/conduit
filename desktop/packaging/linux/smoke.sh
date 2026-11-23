@@ -135,6 +135,12 @@ if [ "${1:-}" = --container ]; then
   esac
   log "installed $(basename "$package") ($(. /etc/os-release && printf '%s' "$PRETTY_NAME"))"
   libraries_resolve
+  # The root certificates came with it: the update notice reads over HTTPS.
+  case "$package" in
+    *.deb) dpkg -s ca-certificates >/dev/null 2>&1 ;;
+    *.rpm) rpm -q ca-certificates >/dev/null 2>&1 ;;
+  esac || die "ca-certificates didn't come with $(basename "$package")"
+  log "ca-certificates came with it"
   has_notices docs-may-drop
   refuses_harness_flags "$(mktemp -d)"
   case "$package" in
@@ -184,9 +190,12 @@ report="$work/smoke/report.txt"
 keyring_data="$work/keyring-data"
 server=""
 if [ -n "$update_feed" ]; then
+  [ -f "$update_feed/appcast-linux.xml" ] || die "no appcast-linux.xml in $update_feed"
   python3 -I -m http.server "$update_port" --bind 127.0.0.1 --directory "$update_feed" \
     >"$work/feed-server.log" 2>&1 &
   server=$!
+  # Stopped however the smoke ends from here on.
+  trap 'kill "$server" 2>/dev/null || true' EXIT
   # The pass checks once it has connected; the server answers well before.
   for _ in $(seq 50); do
     curl -fsS -o /dev/null "http://127.0.0.1:$update_port/appcast-linux.xml" 2>/dev/null && break
