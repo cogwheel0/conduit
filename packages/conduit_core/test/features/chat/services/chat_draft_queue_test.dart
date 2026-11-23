@@ -2262,6 +2262,95 @@ void main() {
           .deepEquals(['queued']);
     });
 
+    // The delete's stop is the Stop button's: one the server refuses stays
+    // owed, and the batch waits for it as for any refused Stop.
+    test('a delete whose stop the server refuses keeps it owed, and the '
+        'batch waits for it', () async {
+      final s = await _Session.start();
+      final turn = _runningTurn();
+      s.switchTo(
+        _Session.chatId,
+        messages: [
+          turn.first,
+          turn.last.copyWith(
+            metadata: const {
+              'taskId': 'task-1',
+              'taskConversationId': _Session.chatId,
+            },
+          ),
+        ],
+      );
+      s.queue.enqueue('queued');
+      s.api
+        ..stopError = StateError('stop refused')
+        ..deleteError = StateError('the server kept the message');
+
+      check(
+        await deleteChatMessageGroup(s.container, ['a0']),
+      ).equals(ChatMessageDeleteOutcome.persistFailed);
+      await s.reaches(() => s.active?.admissionFailed == true);
+      check(await s.sentUserRows()).isEmpty();
+
+      s.api.stopError = null;
+      s.queue.retryAdmission();
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['queued']);
+    });
+
+    // Every wait yields; whatever began meanwhile is looked at again before
+    // the batch goes.
+    test('a delete begun while an owed Stop settles after another delete '
+        'holds the batch', () async {
+      final hold = Completer<void>();
+      var waits = 0;
+      final s = await _Session.start(
+        admissionWait: () => ++waits == 1 ? hold.future : null,
+      );
+      addTearDown(() {
+        if (!hold.isCompleted) hold.complete();
+      });
+      s.queue.enqueue('queued');
+      s.finishResponse();
+      await s.reaches(() => s.active?.phase == ChatDraftQueuePhase.admitting);
+
+      // A first delete is out when the host lets the batch go.
+      final first = s.api.deleteGate = Completer<void>();
+      s.api.deleteError = StateError('the server kept the message');
+      final firstDelete = deleteChatMessageGroup(s.container, ['a0']);
+      hold.complete();
+      await pumpEventQueue();
+
+      // While it is out, a message is sent and stopped; the server has not
+      // taken that Stop yet.
+      await s.container.read(_sendOrdinaryMessage)('sent meanwhile');
+      final stop = s.api.stopGate = Completer<void>();
+      addTearDown(() {
+        if (!stop.isCompleted) stop.complete();
+      });
+      s.container.read(stopGenerationProvider)();
+      first.complete();
+      await firstDelete;
+      await pumpEventQueue();
+
+      // While that Stop settles, a second delete begins.
+      final second = s.api.deleteGate = Completer<void>();
+      addTearDown(() {
+        if (!second.isCompleted) second.complete();
+      });
+      final secondDelete = deleteChatMessageGroup(s.container, ['u0']);
+      stop.complete();
+      await pumpEventQueue();
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile']);
+
+      second.complete();
+      await secondDelete;
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['sent meanwhile', 'queued']);
+    });
+
     // Its admission is not awaited: a wait whose chat goes away ends, it
     // does not throw.
     test('a hold wait whose provider goes away ends quietly', () async {

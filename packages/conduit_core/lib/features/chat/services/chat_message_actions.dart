@@ -6,8 +6,9 @@
 /// mutations live here, where they are tested without Flutter.
 library;
 
+import 'dart:async';
+
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
-import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
 import 'package:conduit_core/features/chat/services/chat_turn_gate.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 import 'package:conduit_core/features/chat/utils/message_targeting.dart';
@@ -21,7 +22,6 @@ import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
 
@@ -73,22 +73,9 @@ Future<ChatMessageDeleteOutcome> deleteChatMessageGroup(
   if (messageIds.isEmpty) {
     return Future.value(ChatMessageDeleteOutcome.nothingToDelete);
   }
-  final stops = <Future<bool>>[];
   return (ref.read(chatTurnHoldsProvider.notifier) as ChatTurnHolds).holding(
     (ref.read(activeConversationProvider) as Conversation?)?.id,
-    () async {
-      try {
-        return await _deleteChatMessageGroup(
-          ref,
-          messageIds,
-          isStillCurrent,
-          stops,
-        );
-      } finally {
-        // Held until the server has answered the stop it was sent.
-        await Future.wait(stops);
-      }
-    },
+    () => _deleteChatMessageGroup(ref, messageIds, isStillCurrent),
   );
 }
 
@@ -96,7 +83,6 @@ Future<ChatMessageDeleteOutcome> _deleteChatMessageGroup(
   dynamic ref,
   List<String> messageIds,
   bool Function()? isStillCurrent,
-  List<Future<bool>> stops,
 ) async {
   final latestMessages = List<ChatMessage>.from(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
@@ -123,16 +109,8 @@ Future<ChatMessageDeleteOutcome> _deleteChatMessageGroup(
   final messagesNotifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
   if (removedStreamingMessage != null) {
-    final api = ref.read(apiServiceProvider) as ApiService?;
-    final chatId = (ref.read(activeConversationProvider) as Conversation?)?.id;
-    Future<bool> stop() => stopActiveTransport(removedStreamingMessage, api);
-    // The stop ends every task of the chat on the server: a request sent
-    // there before it is answered waits for it, as after a Stop.
-    stops.add(
-      api == null || chatId == null
-          ? stop()
-          : api.holdingChatCompletions(chatId, stop),
-    );
+    // Stopped as Stop stops it, the stop owed until the server takes it.
+    unawaited(stopRemovedAnswer(ref, removedStreamingMessage));
     messagesNotifier.cancelActiveMessageStream();
   }
   messagesNotifier.setMessages(updatedMessages);

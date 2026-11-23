@@ -12,6 +12,31 @@ bool assistantHasNormalizedImageFiles(ChatMessage message) {
   return files.any((f) => f['type'] == 'image');
 }
 
+/// Stops [answer]'s run on the server as Stop does, and keeps that stop owed
+/// to the open chat until the server accepts it, asked again as a refused
+/// Stop is ([ChatMessagesNotifier.settlePendingCancellation]); a request to
+/// the chat waits for it meanwhile. For a delete that took a running answer
+/// out: the stop ends every task of the chat, so a queued batch is not
+/// admitted over one the server has not taken.
+Future<bool> stopRemovedAnswer(dynamic ref, ChatMessage answer) {
+  final api = ref.read(apiServiceProvider) as ApiService?;
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  final chatId = active?.id ?? '';
+  Future<bool> stop(String _) => stopActiveTransport(answer, api);
+  final step = _CancellationStep(stop, retry: api == null ? null : stop);
+  final taken = step.attempt(chatId);
+  if (api != null && active != null && chatId.isNotEmpty) {
+    unawaited(api.holdingChatCompletions(chatId, () => taken));
+    (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
+        ._oweCancellation(
+          owner: captureChatMutationOwner(ref, active),
+          chatId: chatId,
+          steps: [step],
+        );
+  }
+  return taken;
+}
+
 // Regenerate last message
 final regenerateLastMessageProvider = Provider<Future<void> Function()>(
   _regenerateLastMessage,

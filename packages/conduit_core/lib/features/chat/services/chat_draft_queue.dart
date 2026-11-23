@@ -879,41 +879,50 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
       }();
     }
 
-    final refusedBefore = await settleOwedStops();
-    if (refusedBefore != null) return refusedBefore;
-    // A wait that fails, or a host that throws instead of waiting, admits
-    // nothing: the drafts stay, as when a cancellation is refused.
-    Future<bool>? settled;
-    try {
-      settled = ref
-          .read(chatDraftQueueAdmissionWaitProvider)()
-          ?.then((_) => true, onError: (Object _) => false);
-    } catch (_) {
-      settled = Future<bool>.value(false);
-    }
-    if (settled != null) {
-      final refused = await _settleOwedWork(queueId, draftIds, settled);
-      if (refused != null) return refused;
-      // The composer was free while the host waited: a Stop pressed meanwhile
-      // is settled before the batch goes, as one pressed before.
-      if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
-      final refusedAfter = await settleOwedStops();
-      if (refusedAfter != null) return refusedAfter;
-    }
-    // A delete, merge or Save Chat begun while the host waited rewrites the
-    // transcript the batch would join: the batch goes once it is done.
+    // Each step below may wait, and the composer is free meanwhile: a Stop
+    // pressed, or a delete, merge or Save Chat begun, while one waits is
+    // looked at again. The batch goes only after a pass that found nothing
+    // owed, the host's wait done and no hold, awaiting nothing since.
     final heldChat = state
         .where((queue) => queue.id == queueId)
         .firstOrNull
         ?.chatId;
-    if (chatTurnHeldByCore(ref, chatId: heldChat)) {
-      await whileChatHeldByCore(ref, chatId: heldChat);
-      if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
-      // A Stop pressed meanwhile is settled before the batch goes, as one
-      // pressed while the host waited.
-      final refusedAfterHold = await settleOwedStops();
-      if (refusedAfterHold != null) return refusedAfterHold;
-      if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
+    var hostWaited = false;
+    while (true) {
+      final owed = settleOwedStops();
+      if (owed != null) {
+        final refused = await owed;
+        if (refused != null) return refused;
+        if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
+        continue;
+      }
+      if (!hostWaited) {
+        hostWaited = true;
+        // A wait that fails, or a host that throws instead of waiting, admits
+        // nothing: the drafts stay, as when a cancellation is refused.
+        Future<bool>? settled;
+        try {
+          settled = ref
+              .read(chatDraftQueueAdmissionWaitProvider)()
+              ?.then((_) => true, onError: (Object _) => false);
+        } catch (_) {
+          settled = Future<bool>.value(false);
+        }
+        if (settled != null) {
+          final refused = await _settleOwedWork(queueId, draftIds, settled);
+          if (refused != null) return refused;
+          if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
+          continue;
+        }
+      }
+      // A delete, merge or Save Chat rewrites the transcript the batch would
+      // join: the batch goes once it is done.
+      if (chatTurnHeldByCore(ref, chatId: heldChat)) {
+        await whileChatHeldByCore(ref, chatId: heldChat);
+        if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
+        continue;
+      }
+      break;
     }
     // Waiting on the server (or the host) leaves the composer free, so another
     // answer may have started meanwhile. A turn is not sent over it: the drafts
