@@ -73,6 +73,7 @@ Future<ChatMessageDeleteOutcome> deleteChatMessageGroup(
     return Future.value(ChatMessageDeleteOutcome.nothingToDelete);
   }
   return (ref.read(chatTurnHoldsProvider.notifier) as ChatTurnHolds).holding(
+    (ref.read(activeConversationProvider) as Conversation?)?.id,
     () => _deleteChatMessageGroup(ref, messageIds, isStillCurrent),
   );
 }
@@ -161,7 +162,17 @@ Future<ChatMessageDeleteOutcome> _deleteChatMessageGroup(
         id,
       );
     }
-    final restoredConversation = deletedOnServer.isEmpty
+    // The answer this delete stopped comes back stopped: nothing streams it.
+    final stoppedId = removedStreamingMessage?.id;
+    if (stoppedId != null) {
+      restoredMessages = [
+        for (final message in restoredMessages)
+          message.id == stoppedId
+              ? message.copyWith(isStreaming: false)
+              : message,
+      ];
+    }
+    final restoredConversation = deletedOnServer.isEmpty && stoppedId == null
         ? activeConversation
         : inheritNativeHermesConversationProvenance(
             activeConversation,

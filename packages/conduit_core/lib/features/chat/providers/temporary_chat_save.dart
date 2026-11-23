@@ -52,6 +52,7 @@ Future<TemporaryChatSaveOutcome> saveTemporaryChat(
     return Future.value(TemporaryChatSaveOutcome.skipped);
   }
   return (ref.read(chatTurnHoldsProvider.notifier) as ChatTurnHolds).holding(
+    (ref.read(activeConversationProvider) as Conversation?)?.id,
     () => _saveTemporaryChat(ref, isCurrentOwner),
   );
 }

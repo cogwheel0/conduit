@@ -902,8 +902,17 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     }
     // A delete, merge or Save Chat begun while the host waited rewrites the
     // transcript the batch would join: the batch goes once it is done.
-    if (chatTurnHeldByCore(ref)) {
-      await whileChatHeldByCore(ref);
+    final heldChat = state
+        .where((queue) => queue.id == queueId)
+        .firstOrNull
+        ?.chatId;
+    if (chatTurnHeldByCore(ref, chatId: heldChat)) {
+      await whileChatHeldByCore(ref, chatId: heldChat);
+      if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
+      // A Stop pressed meanwhile is settled before the batch goes, as one
+      // pressed while the host waited.
+      final refusedAfterHold = await settleOwedStops();
+      if (refusedAfterHold != null) return refusedAfterHold;
       if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
     }
     // Waiting on the server (or the host) leaves the composer free, so another

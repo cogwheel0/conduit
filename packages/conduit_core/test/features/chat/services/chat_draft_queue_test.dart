@@ -351,6 +351,7 @@ class _Session {
     bool online = true,
     Model? model,
     ChatDraftQueueAdmissionWait? admissionWait,
+    ChatTurnGateSettings? gate,
     List<Override> overrides = const <Override>[],
   }) async {
     final db = AppDatabase(NativeDatabase.memory());
@@ -405,9 +406,10 @@ class _Session {
         // A hold is looked at again each turn of the event loop, not on a
         // timer.
         chatTurnGateSettingsProvider.overrideWithValue(
-          ChatTurnGateSettings.atOnce.withClock(
-            pause: (_) => Future<void>(() {}),
-          ),
+          gate ??
+              ChatTurnGateSettings.atOnce.withClock(
+                pause: (_) => Future<void>(() {}),
+              ),
         ),
         ...overrides,
       ],
@@ -2169,11 +2171,96 @@ void main() {
       final deleting = Completer<void>();
       final held = s.container
           .read(chatTurnHoldsProvider.notifier)
-          .holding(() => deleting.future);
-      check(wait()).isNotNull();
+          .holding(_Session.chatId, () => deleting.future);
+      final waiting = wait();
+      check(waiting).isNotNull();
       deleting.complete();
       await held;
+      await waiting;
       check(wait()).isNull();
+    });
+
+    // The phone keeps every chat's holds in one container: another chat's
+    // delete cannot rewrite this chat's transcript.
+    test('a delete out in another chat does not hold this chat\'s batch',
+        () async {
+      final s = await _Session.start();
+      s.queue.enqueue('queued');
+      final elsewhere = Completer<void>();
+      addTearDown(() {
+        if (!elsewhere.isCompleted) elsewhere.complete();
+      });
+      unawaited(
+        s.container
+            .read(chatTurnHoldsProvider.notifier)
+            .holding('another-chat', () => elsewhere.future),
+      );
+
+      s.finishResponse();
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['queued']);
+    });
+
+    // The delete stopped the answer; one the server refuses puts it back
+    // stopped, so the batch goes without another Stop.
+    test('a refused delete of the running answer puts it back stopped, and '
+        'the batch goes', () async {
+      final s = await _Session.start();
+      s.queue.enqueue('queued');
+      s.api
+        ..deleteGate = Completer<void>()
+        ..deleteError = StateError('the server kept the message');
+
+      final deleting = deleteChatMessageGroup(s.container, ['a0']);
+      await pumpEventQueue();
+      check(await s.sentUserRows()).isEmpty();
+
+      s.api.deleteGate!.complete();
+      check(await deleting).equals(ChatMessageDeleteOutcome.persistFailed);
+      await s.reaches(() => s.active == null);
+      final shown = s.container.read(chatMessagesProvider);
+      check(shown.firstWhere((m) => m.id == 'a0').isStreaming).isFalse();
+      check(shown.map((m) => m.content)).contains('queued');
+    });
+
+    test('a delete the server takes lets the batch go once it is done',
+        () async {
+      final s = await _Session.start();
+      s.queue.enqueue('queued');
+      s.api.deleteGate = Completer<void>();
+
+      final deleting = deleteChatMessageGroup(s.container, ['a0']);
+      await pumpEventQueue();
+      check(await s.sentUserRows()).isEmpty();
+
+      s.api.deleteGate!.complete();
+      check(await deleting).equals(ChatMessageDeleteOutcome.deleted);
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['queued']);
+    });
+
+    // The desktop's setting, through the queue's own admission wait.
+    test('the strict setting admits the batch once the chat is quiet',
+        () async {
+      var now = DateTime.utc(2026, 11, 23);
+      final s = await _Session.start(
+        gate: ChatTurnGateSettings.strict.withClock(
+          now: () => now,
+          pause: (duration) {
+            now = now.add(duration);
+            return Future<void>(() {});
+          },
+        ),
+      );
+      s.queue.enqueue('queued');
+
+      s.finishResponse();
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['queued']);
+      check(s.active?.admissionFailed ?? false).isFalse();
     });
   });
 }

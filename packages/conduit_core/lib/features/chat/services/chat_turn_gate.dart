@@ -8,6 +8,9 @@ import 'dart:async';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatMessagesProvider, comparisonMergeProvider, isChatStreamingProvider;
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show activeConversationProvider;
 import 'package:riverpod/riverpod.dart';
 
 /// How long a turn the core sends on its own waits for its chat.
@@ -88,36 +91,50 @@ final chatTurnHostHoldsProvider = Provider<ChatTurnHostHolds?>((_) => null);
 
 /// Deletes and Save Chats out in the chat: each rewrites the transcript, and
 /// one the server refuses puts back the transcript it started from, without a
-/// turn sent meanwhile.
-final chatTurnHoldsProvider = NotifierProvider<ChatTurnHolds, int>(
-  ChatTurnHolds.new,
-);
+/// turn sent meanwhile. Counted by chat: the phone keeps every chat's in one
+/// container, and one chat's delete cannot rewrite another's transcript.
+final chatTurnHoldsProvider =
+    NotifierProvider<ChatTurnHolds, Map<String?, int>>(ChatTurnHolds.new);
 
-class ChatTurnHolds extends Notifier<int> {
+class ChatTurnHolds extends Notifier<Map<String?, int>> {
   @override
-  int build() => 0;
+  Map<String?, int> build() => const <String?, int>{};
 
-  /// Runs [work] with the chat held.
-  Future<T> holding<T>(Future<T> Function() work) async {
-    state = state + 1;
+  /// Runs [work] with [chatId] held, and lets it go however [work] ends.
+  Future<T> holding<T>(String? chatId, Future<T> Function() work) async {
+    _count(chatId, 1);
     try {
       return await work();
     } finally {
-      if (ref.mounted) state = state - 1;
+      if (ref.mounted) _count(chatId, -1);
     }
+  }
+
+  void _count(String? chatId, int change) {
+    final count = (state[chatId] ?? 0) + change;
+    state = <String?, int>{
+      for (final entry in state.entries)
+        if (entry.key != chatId) entry.key: entry.value,
+      if (count > 0) chatId: count,
+    };
   }
 }
 
-/// Whether the core itself holds the chat: a delete or Save Chat out, or a
-/// comparison merge running.
-bool chatTurnHeldByCore(dynamic ref) =>
-    (ref.read(chatTurnHoldsProvider) as int) > 0 ||
-    ref.read(comparisonMergeProvider) != null;
+/// Whether the core itself holds [chatId] (the open chat when not named): a
+/// delete or Save Chat out in it, or a comparison merge running.
+bool chatTurnHeldByCore(dynamic ref, {String? chatId}) {
+  final id =
+      chatId ?? (ref.read(activeConversationProvider) as Conversation?)?.id;
+  return (ref.read(chatTurnHoldsProvider) as Map<String?, int>).containsKey(
+        id,
+      ) ||
+      ref.read(comparisonMergeProvider) != null;
+}
 
-/// Waits while [chatTurnHeldByCore] holds.
-Future<void> whileChatHeldByCore(dynamic ref) async {
+/// Waits while [chatTurnHeldByCore] holds for [chatId].
+Future<void> whileChatHeldByCore(dynamic ref, {String? chatId}) async {
   final pause = _Gate.of(ref).pause;
-  while (chatTurnHeldByCore(ref)) {
+  while (chatTurnHeldByCore(ref, chatId: chatId)) {
     await pause(const Duration(milliseconds: 50));
   }
 }
@@ -185,7 +202,9 @@ final class _Gate {
   final ChatTurnGateSettings settings;
   final ChatTurnHostHolds? host;
 
-  bool get closed => host?.closed ?? false;
+  /// The host's scope is gone, or the provider asking was disposed.
+  bool get closed =>
+      (host?.closed ?? false) || (ref is Ref && !(ref as Ref).mounted);
   DateTime now() => (settings.now ?? DateTime.now)();
   Future<void> pause(Duration duration) =>
       (settings.pause ?? Future<void>.delayed)(duration);
@@ -239,12 +258,13 @@ final class _Gate {
   Future<void> settle() async {
     if (settings.quiet == Duration.zero || closed) return;
     var lastChange = now();
-    final ProviderSubscription<List<ChatMessage>> watch = ref.listen(
-      chatMessagesProvider,
-      (Object? _, Object? _) {
-        lastChange = now();
-      },
-    );
+    final ProviderSubscription<List<ChatMessage>> watch = ref
+        .listen<List<ChatMessage>>(chatMessagesProvider, (
+          Object? _,
+          Object? _,
+        ) {
+          lastChange = now();
+        });
     try {
       final deadline = now().add(settings.quietLimit);
       while (!closed) {
