@@ -10,6 +10,8 @@ import 'package:conduit_core/database/local_conversation_loader.dart'
     show readStoredConversation;
 import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show chatModelPickProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
@@ -899,7 +901,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
   ///
   /// A branch, not an overwrite: the new answer is another child of the same
   /// question, so the previous one stays reachable as a version.
-  Future<SendTurnAccepted> regenerate(RegenerateTurn request) async {
+  ///
+  /// [selectedNow] names the model the chat shows now (its window's pick),
+  /// for a request that names none and an answer that is not a comparison
+  /// column's; without it, the account's selection.
+  Future<SendTurnAccepted> regenerate(
+    RegenerateTurn request, {
+    Future<String?> Function()? selectedNow,
+  }) async {
     final account = AccountScope.capture(_container);
     _refuseTemporary(request.chatId);
     final session = await _sessionFor(request.chatId, account: account);
@@ -923,9 +932,21 @@ final class TurnsService implements ChatTurns, AddressReplies {
               : 'no such message in that conversation',
         );
       }
-      // The model selected now, as the core regenerates on mobile; an answer
-      // of a comparison keeps its own there.
-      final model = await _resolveModel(request.model);
+      // The model selected now, as the core regenerates on mobile, except
+      // that a comparison's answer keeps its column's own model there: so
+      // the readiness check, the selection and `turn.started` name the model
+      // that answers.
+      final pick = session.scope.container.read(chatModelPickProvider);
+      final column = request.model != null
+          ? null
+          : comparisonColumnModelId(
+              question: target.userMessage,
+              answer: target.assistantMessage,
+              picked: pick?.chatId == request.chatId ? pick : null,
+            );
+      final model = await _resolveModel(
+        request.model ?? column ?? await selectedNow?.call(),
+      );
       await _requireBackendFor(model);
       _choose(session.scope.container, model);
       if (request.withoutReasoningEffort) {

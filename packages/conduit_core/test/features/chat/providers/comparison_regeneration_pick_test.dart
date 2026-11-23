@@ -36,6 +36,17 @@ void main() {
     _answer('b2', 'model-2', 1),
   ];
 
+  test('an answer of a comparison is regenerated on its own column\'s '
+      'model; an answer of a plain turn names none', () {
+    final chat = twoComparisons();
+    check(
+      comparisonColumnModelId(question: chat[5], answer: chat[7]),
+    ).equals('model-2');
+    check(
+      comparisonColumnModelId(question: chat[0], answer: chat[1]),
+    ).isNull();
+  });
+
   test('a model picked after a comparison was sent answers in it', () {
     final target = debugComparisonRegenerationTarget(
       twoComparisons(),

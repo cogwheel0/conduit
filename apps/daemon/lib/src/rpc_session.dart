@@ -872,11 +872,13 @@ class RpcSession {
       return accepted;
     });
     // Regenerate and edit run on the model the chat shows now, as a send
-    // does, unless the caller names one (Regenerate With).
+    // does, unless the caller names one (Regenerate With); a comparison's
+    // answer keeps its column's model (the turns service tells).
     _on(
       ConduitMethodSpecs.turnsRegenerate,
-      (r) async => _requireTurns().regenerate(
-        r.copyWith(model: r.model ?? await _models?.modelFor(r.chatId)),
+      (r) => _requireTurns().regenerate(
+        r,
+        selectedNow: () async => _models?.modelFor(r.chatId),
       ),
     );
     _on(

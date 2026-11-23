@@ -909,6 +909,20 @@ Future<void> forgetReplacedHermesStoredContent(
   return null;
 }
 
+/// The model regenerating [answer], the answer to [question], runs on when
+/// the caller names none: for one of a comparison's answers, its column's
+/// own model (or the one picked in the chat since that turn was sent,
+/// [picked]), as [_comparisonRegenerationTarget] keeps it; null for an
+/// answer of a single-model turn, which runs on the model selected now.
+String? comparisonColumnModelId({
+  required ChatMessage question,
+  required ChatMessage answer,
+  ChatModelPick? picked,
+}) => _comparisonRegenerationTarget(<ChatMessage>[
+  question,
+  answer,
+], picked: picked)?.modelId;
+
 /// [_comparisonRegenerationTarget], for tests.
 @visibleForTesting
 ({String modelId, int slot})? debugComparisonRegenerationTarget(
