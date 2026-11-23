@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:conduit_core/features/chat/services/chat_backend_readiness.dart';
 import 'package:conduit_core/features/chat/services/url_context.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
@@ -62,6 +63,7 @@ import '../../chat/services/clipboard_attachment_service.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/chat_comparison_widgets.dart'
     show comparisonAdmissionMessage;
+import '../../chat/widgets/chat_backend_not_ready_notice.dart';
 import '../../chat/widgets/model_selector_sheet.dart';
 import '../../chat/widgets/context_attachment_widget.dart';
 import '../../chat/widgets/file_attachment_widget.dart';
@@ -652,6 +654,18 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       if (!hasModel || !chat.chatSendOwnerIsCurrent(container, owner)) {
         return null;
       }
+      // Asked here, before the folder's draft gives way to a new chat: a
+      // refusal leaves the user on this page with the draft.
+      final backendReady = requireChatBackendReady(
+        container,
+        container.read(selectedModelProvider),
+      );
+      if (backendReady != null) {
+        await backendReady;
+        if (!mounted || !chat.chatSendOwnerIsCurrent(container, owner)) {
+          return null;
+        }
+      }
 
       final mediaUploadController = container.read(
         mediaUploadControllerProvider,
@@ -705,6 +719,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         }),
       );
       return pendingSend;
+    } on ChatBackendNotReadyException catch (error) {
+      if (mounted) showChatBackendNotReady(context, error.reason);
+      return null;
     } catch (e, stackTrace) {
       // durableSend adds an optimistic streaming placeholder before its
       // throwable DB work; on failure recover the UI by finishing the

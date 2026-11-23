@@ -56,7 +56,10 @@ import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart
 import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
@@ -1601,6 +1604,8 @@ ProviderContainer _container({
       activeConversationProvider.overrideWith(() => _SeededActive(active)),
       chatMessagesProvider.overrideWith(_TestMessagesNotifier.new),
       apiServiceProvider.overrideWithValue(api),
+      // Signed in to [api]'s server.
+      isAuthenticatedProvider2.overrideWithValue(true),
       if (modelSelectable)
         selectedModelProvider.overrideWith(() => _SelectableModel(model))
       else
@@ -5147,6 +5152,7 @@ void main() {
         ),
         chatMessagesProvider.overrideWith(_TestMessagesNotifier.new),
         apiServiceProvider.overrideWithValue(apiB),
+        isAuthenticatedProvider2.overrideWithValue(true),
         selectedModelProvider.overrideWithValue(
           const Model(id: 'model-1', name: 'Model 1'),
         ),
@@ -6714,6 +6720,18 @@ void main() {
               syncEngine: _NoDrainSyncEngine(db, api),
               // Not an Open WebUI model: ordinarily this goes inline.
               model: hermesSyntheticModel(),
+              extraOverrides: [
+                hermesApiServiceProvider.overrideWithValue(
+                  HermesApiService(
+                    config: const HermesConfig(
+                      enabled: true,
+                      baseUrl: 'https://agent.example.test',
+                      apiKey: 'key',
+                    ),
+                    dio: Dio(),
+                  ),
+                ),
+              ],
             );
             addTearDown(container.dispose);
 
@@ -7278,7 +7296,6 @@ void main() {
             currentUserProvider2.overrideWithValue(_accountA),
             openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
           ],
-          isAuthenticatedProvider2.overrideWithValue(true),
           backendConfigProvider.overrideWith(() => _FetchedConfig(api)),
           openWebUiUserSettingsCacheProvider.overrideWithValue(
             OpenWebUiUserSettingsCache(),
@@ -7368,7 +7385,6 @@ void main() {
           extraOverrides: [
             isOnlineProvider.overrideWithValue(true),
             currentUserProvider2.overrideWithValue(_accountA),
-            isAuthenticatedProvider2.overrideWithValue(true),
             openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
             backendConfigProvider.overrideWith(
               () => _FetchedConfig(session.api),
@@ -7990,7 +8006,6 @@ void main() {
           terminalId: 'terminal-1',
           extraOverrides: [
             currentUserProvider2.overrideWithValue(_accountA),
-            isAuthenticatedProvider2.overrideWithValue(true),
             openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
             backendConfigProvider.overrideWith(
               () => _FetchedConfig(session.api),
@@ -8038,7 +8053,6 @@ void main() {
         ),
         extraOverrides: [
           currentUserProvider2.overrideWithValue(_accountA),
-          isAuthenticatedProvider2.overrideWithValue(true),
           openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
           backendConfigProvider.overrideWith(() => _FetchedConfig(session.api)),
           codeInterpreterEnabledProvider.overrideWith(_AlwaysSelected.new),

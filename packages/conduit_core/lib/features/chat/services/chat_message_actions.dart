@@ -222,11 +222,23 @@ Future<bool> resendEditedUserMessage(
   required String newText,
 }) async {
   final text = newText.trim();
-  final messages = ref.read(chatMessagesProvider) as List<ChatMessage>;
-  final index = indexOfMessageId(messages, messageId);
-  if (index < 0 || text.isEmpty || text == messages[index].content) {
+  bool nothingToDo(List<ChatMessage> messages) {
+    final index = indexOfMessageId(messages, messageId);
+    return index < 0 || text.isEmpty || text == messages[index].content;
+  }
+
+  // An edit that changes nothing asks nothing of the backend.
+  if (nothingToDo(ref.read(chatMessagesProvider) as List<ChatMessage>)) {
     return false;
   }
+  // Before the transcript is cut: the send's own preparation (the mixed
+  // chat's connection offer, then the answering backend), so a refusal
+  // leaves the transcript as it was.
+  final prepared = prepareChatTurnBackend(ref);
+  if (prepared != null) await prepared;
+  final messages = ref.read(chatMessagesProvider) as List<ChatMessage>;
+  if (nothingToDo(messages)) return false;
+  final index = indexOfMessageId(messages, messageId);
   final original = messages[index];
   // One turn at a time in a LibreChat chat: refused before the transcript
   // changes, so nothing it shows goes and the edit can be sent once the
@@ -248,6 +260,10 @@ Future<bool> resendEditedUserMessage(
       );
       return true;
     }
+    // Nothing could send it: refused before the transcript is cut.
+    if (ref.read(selectedModelProvider) == null) {
+      throw StateError('No model is selected to send the edit with.');
+    }
     final keep = truncateMessagesAfterId(
       messages,
       messageId,
@@ -264,6 +280,7 @@ Future<bool> resendEditedUserMessage(
           : editedMessageAttachmentIds(original),
       toolIds: toolIds.isNotEmpty ? toolIds : null,
       onAssistantPlaceholderCreated: (handle) => pendingSend = handle,
+      backendPrepared: true,
     );
     return true;
   } catch (error) {

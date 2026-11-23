@@ -293,6 +293,9 @@ Future<void> durableSend(
   /// them. The send reads them here, not in the tray, which may have changed
   /// since. Null reads the tray.
   List<FileUploadState>? attachmentStates,
+
+  /// The caller has run [prepareChatTurnBackend] for this turn already.
+  bool backendPrepared = false,
 }) async {
   Future<void> inlineSend() {
     if (onAdmissionCommitted != null) {
@@ -309,6 +312,7 @@ Future<void> durableSend(
       voice,
       onTurnStarted,
       attachmentStates,
+      true,
     );
   }
 
@@ -338,6 +342,15 @@ Future<void> durableSend(
       ? ref.read(pendingFolderIdProvider) as String?
       : null;
   final storageFolderId = pendingFolderIdOverride ?? draftFolderId;
+
+  // Before anything is written: a backend that cannot take the turn refuses
+  // it here rather than as an error answer in the chat
+  // ([prepareChatTurnBackend]). An edit has asked already, before its cut.
+  if (!backendPrepared) {
+    final prepared = prepareChatTurnBackend(ref);
+    if (prepared != null) await prepared;
+  }
+
   if (isTemporaryChat(activeAtSendStart?.id)) {
     await inlineSend();
     return;

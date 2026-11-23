@@ -28,13 +28,6 @@ import 'hermes_connection.dart';
 import 'hermes_rooms_service.dart' show HermesBotChats;
 import 'settled.dart';
 
-/// Whether [config] is a desktop gateway that signs in natively and has not
-/// signed in yet: saved, with nothing to authenticate its requests by.
-bool hermesAwaitsSignIn(HermesConfig config) =>
-    config.mode == HermesBackendMode.desktopGateway &&
-    config.desktopAuthKind == HermesDesktopAuthKind.nativePkce &&
-    config.desktopCredentials?.nativeTokens == null;
-
 /// The chat id a Hermes session opens as, the same one mobile uses.
 String hermesChatId(String sessionId) => 'local:hermes_$sessionId';
 
@@ -162,7 +155,7 @@ final class HermesService {
       // Not before its sign-in: counted usable, onboarding went straight on
       // to a chat whose every message failed as "couldn't connect", with
       // the sign-in button left behind on a page nobody was sent to.
-      usable: config.isUsable && !hermesAwaitsSignIn(config),
+      usable: config.isUsable && !config.awaitsSignIn,
     );
   }
 

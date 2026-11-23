@@ -22,6 +22,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 
 import 'dart:async';
 
+import 'package:conduit_core/features/chat/services/chat_backend_readiness.dart';
 import 'package:conduit_core/features/chat/services/url_context.dart';
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
@@ -104,6 +105,7 @@ import '../../../shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../../../platform/android_assistant_handler.dart';
+import '../widgets/chat_backend_not_ready_notice.dart';
 import '../widgets/chat_branch_actions.dart';
 import '../widgets/chat_export_sheet.dart';
 import '../widgets/chat_comparison_widgets.dart';
@@ -1716,6 +1718,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           duration: const Duration(seconds: 3),
         );
       }
+    } on ChatBackendNotReadyException catch (error) {
+      // Refused before anything was written; the draft stays for once the
+      // backend is signed in or set up.
+      if (mounted) showChatBackendNotReady(context, error.reason);
+      return false;
     } on ComparisonAdmissionException catch (error) {
       // Refused before anything was written; the composer text is still there
       // for the user to adjust and try again.
@@ -3900,6 +3907,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         assistantMessageId,
         columnAnswerId: columnAnswerId,
       );
+    } on ChatBackendNotReadyException catch (error) {
+      if (mounted) showChatBackendNotReady(context, error.reason);
     } catch (e) {
       DebugLogger.log('Regenerate failed: $e', scope: 'chat/page');
     }

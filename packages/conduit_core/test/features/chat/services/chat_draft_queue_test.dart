@@ -356,6 +356,8 @@ class _Session {
         ),
         chatMessagesProvider.overrideWith(_Messages.new),
         apiServiceProvider.overrideWith((ref) => ref.watch(wires.api)),
+        // Signed in to that server.
+        isAuthenticatedProvider2.overrideWithValue(true),
         openWebUiAuthSessionEpochProvider.overrideWith(
           (ref) => ref.watch(wires.epoch),
         ),

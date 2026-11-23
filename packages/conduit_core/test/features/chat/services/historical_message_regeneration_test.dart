@@ -13,7 +13,7 @@ import 'package:dio/dio.dart'
         ResponseBody;
 import 'package:fake_async/fake_async.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
-    show currentUserProvider2;
+    show currentUserProvider2, isAuthenticatedProvider2;
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/models/chat_message.dart';
@@ -162,6 +162,8 @@ ProviderContainer _container({
             : _FixedConversationNotifier(activeConversation),
       ),
       apiServiceProvider.overrideWithValue(apiService),
+      // Signed in to [apiService]'s server.
+      isAuthenticatedProvider2.overrideWithValue(true),
       selectedModelProvider.overrideWithValue(
         const Model(id: 'gpt-4', name: 'GPT-4'),
       ),
