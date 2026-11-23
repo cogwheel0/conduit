@@ -595,12 +595,12 @@ jobs:
         with:
           name: conduit-desktop-linux-unsigned-${{ github.sha }}
           path: dist
-      - name: Install Xvfb, Mesa, GNOME Keyring and desktop-file-utils
+      - name: Install Xvfb, Mesa, GNOME Keyring, secret-tool and desktop-file-utils
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             xvfb xauth dbus mesa-vulkan-drivers libegl1 libgl1-mesa-dri \
-            gnome-keyring desktop-file-utils
+            gnome-keyring libsecret-tools desktop-file-utils
       - name: Install, smoke-test and remove the .deb
         run: desktop/packaging/linux/smoke.sh dist/*.deb "$RUNNER_TEMP/conduit-smoke"
       - name: The .deb in clean Ubuntu 22.04 and Debian 12

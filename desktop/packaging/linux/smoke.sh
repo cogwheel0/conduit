@@ -13,9 +13,12 @@
 #    library the binaries need is found.
 # 2. The installed app refuses the test harness's flags (exit 64), and runs
 #    its --smoke pass under Xvfb, on a session bus of its own with GNOME
-#    Keyring unlocked by an empty password (the Secret Service the app
-#    keeps its key in), on a profile of its own in WORK: exit code 0 and
-#    "SMOKE passed". No conduitd from the package runs afterwards.
+#    Keyring as the Secret Service the app keeps its key in, on a profile of
+#    its own in WORK: exit code 0 and "SMOKE passed". No conduitd from the
+#    package runs afterwards. The keyring is the smoke's own (WORK), never
+#    the user's: an unencrypted "login" keyring that is the default, so
+#    nothing prompts; secret-tool (libsecret-tools), when installed, checks
+#    it stores and finds a secret before the app starts.
 # 3. Removes the package: none of its files is left, conduit:// is no longer
 #    registered, and the user's data folder is still there.
 #
@@ -124,11 +127,36 @@ refuses_harness_flags "$work/harness-check"
 log "the app's --smoke pass (profile in $work/smoke)"
 mkdir -p "$work/smoke"
 report="$work/smoke/report.txt"
+# GNOME Keyring prompts to create a default keyring that doesn't exist, and
+# the app's key lookup would wait on that prompt. So its data folder (only
+# the daemon gets this XDG_DATA_HOME) holds an unencrypted "login" keyring
+# named the default, and its control socket goes in a runtime folder of its
+# own: a running keyring of the user's is never reached.
+keyring_data="$work/keyring-data"
+mkdir -p "$keyring_data/keyrings" "$work/runtime"
+chmod 700 "$keyring_data/keyrings" "$work/runtime"
+printf '[keyring]\ndisplay-name=login\nctime=0\nmtime=0\nlock-on-idle=false\nlock-after=false\n' \
+  >"$keyring_data/keyrings/login.keyring"
+printf 'login' >"$keyring_data/keyrings/default"
 status=0
-env -u CONDUITD_PATH CONDUIT_USER_DATA="$work/smoke/user-data" CONDUIT_LOGS="$work/smoke/logs" \
+env -u CONDUITD_PATH XDG_RUNTIME_DIR="$work/runtime" \
+  CONDUIT_USER_DATA="$work/smoke/user-data" CONDUIT_LOGS="$work/smoke/logs" \
   xvfb-run -a -s '-screen 0 1440x900x24' \
-  dbus-run-session -- sh -c 'printf "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null &&
-    exec /usr/bin/conduit-desktop --smoke "$1"' sh "$report" >"$work/smoke/run.log" 2>&1 || status=$?
+  dbus-run-session -- sh -c '
+    XDG_DATA_HOME="$2" gnome-keyring-daemon --components=secrets >/dev/null || exit 70
+    if command -v secret-tool >/dev/null; then
+      printf probe | timeout 20 secret-tool store --label="Conduit smoke probe" conduit-smoke probe &&
+        [ "$(timeout 20 secret-tool lookup conduit-smoke probe)" = probe ] || exit 71
+    fi
+    exec /usr/bin/conduit-desktop --smoke "$1"' sh "$report" "$keyring_data" >"$work/smoke/run.log" 2>&1 ||
+  status=$?
+case "$status" in
+  70 | 71)
+    tail -n 30 "$work/smoke/run.log" >&2
+    [ "$status" = 70 ] && die "gnome-keyring-daemon didn't start"
+    die "the smoke's keyring didn't store and find a secret without a prompt (secret-tool)"
+    ;;
+esac
 cat "$report" 2>/dev/null || true
 if [ "$status" != 0 ] || [ "$(tail -n 1 "$report" 2>/dev/null)" != "SMOKE passed" ] ||
   grep -q '^SMOKE FAILED' "$report" 2>/dev/null; then
