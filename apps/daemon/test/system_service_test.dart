@@ -2,33 +2,27 @@
 library;
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// `system.handshake`'s onboarding answer and `system.shutdown`, without a
 /// socket in the way.
 void main() {
-  late Directory temp;
   late List<String> stops;
 
-  setUp(() {
-    temp = Directory.systemTemp.createTempSync('conduitd_system');
-    stops = <String>[];
-  });
-  tearDown(() => temp.deleteSync(recursive: true));
+  setUp(() => stops = <String>[]);
 
   SystemService service({
     Future<bool> Function()? needsOnboarding,
     Future<int> Function()? flushOutbox,
   }) => SystemService(
-    directories: DaemonDirectories.create(temp.path),
+    paths: testDaemonPaths,
+    platform: 'macos',
     daemonVersion: '0.0.0-test',
-    log: DaemonLog(level: 'error', sink: NullSink()),
     requestStop: stops.add,
     needsOnboarding: needsOnboarding,
     flushOutbox: flushOutbox,
@@ -44,6 +38,25 @@ void main() {
       locale: 'en',
     ),
   );
+
+  test('the handshake reports the layout and platform the host gave', () async {
+    final response = await handshake(service());
+    expect(response.paths, testDaemonPaths);
+    expect(response.platform, 'macos');
+  });
+
+  test('a host without a diagnostics export says it has none', () async {
+    await expectLater(
+      service().exportDiagnostics(),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.unsupported,
+        ),
+      ),
+    );
+  });
 
   group('needsOnboarding', () {
     test('is the core\'s answer once there is one', () async {

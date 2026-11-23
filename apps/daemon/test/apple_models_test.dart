@@ -18,7 +18,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// Apple's on-device model runs in the window; the chat runs here, in the
 /// core's Direct engine and Apple adapter. A fake window answers
@@ -596,16 +596,15 @@ void main() {
 
     setUp(() async {
       temporary = await Directory.systemTemp.createTemp('conduitd_apple_drop');
-      final log = DaemonLog(level: 'error', sink: NullSink());
       pipe = StreamChannelController<String>(sync: true);
       // The window's daemon session, as DaemonServer makes one per socket.
       session = RpcSession(
         sessionId: window.id,
         channel: pipe.local,
         system: SystemService(
-          directories: DaemonDirectories.create(temporary.path),
+          paths: testDaemonPaths,
+          platform: 'macos',
           daemonVersion: '0.0.0-test',
-          log: log,
           requestStop: (_) => fail('nothing here stops the daemon'),
         ),
         events: bus,

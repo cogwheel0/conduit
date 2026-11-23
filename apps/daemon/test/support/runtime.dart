@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 
 import 'null_sink.dart';
@@ -31,4 +32,13 @@ BootstrapConfig testBootstrapConfig(Directory dataDir) => BootstrapConfig(
   sessionToken: 'a' * 43,
   masterKey: base64.encode(List<int>.generate(32, (i) => i)),
   userDataDir: dataDir.path,
+);
+
+/// A data layout that exists nowhere, for a session that never reaches it.
+const DaemonPaths testDaemonPaths = DaemonPaths(
+  userData: '/conduit-test',
+  database: '/conduit-test/db',
+  cache: '/conduit-test/cache',
+  logs: '/conduit-test/logs',
+  staging: '/conduit-test/staging',
 );
