@@ -589,6 +589,22 @@ jobs:
           restore-keys: desktop-registry-${{ runner.os }}-
       - name: Packaging helper tests
         run: python3 desktop/packaging/winlinux_test.py
+      # The refusal itself: --notices inside --out (named through ..) stops
+      # the build before anything compiles, and nothing is moved or staged.
+      - name: package.sh refuses notices inside its output folder
+        run: |
+          out="$RUNNER_TEMP/guard-out"
+          mkdir -p "$out" "$RUNNER_TEMP/guard-x"
+          printf '# Third-party notices: Conduit Desktop for Linux\n' >"$out/THIRD_PARTY_NOTICES.md"
+          status=0
+          desktop/packaging/linux/package.sh --out "$RUNNER_TEMP/guard-x/../guard-out" \
+            --notices "$out/THIRD_PARTY_NOTICES.md" >"$RUNNER_TEMP/guard.log" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/guard.log"
+          [ "$status" != 0 ] || { echo "::error::package.sh accepted notices inside --out"; exit 1; }
+          grep -q 'is inside --out' "$RUNNER_TEMP/guard.log" || { echo "::error::not the guard's refusal"; exit 1; }
+          [ -f "$out/THIRD_PARTY_NOTICES.md" ] && [ ! -e "$out/stage" ] &&
+            ! ls -d "$RUNNER_TEMP"/guard-out.old-* 2>/dev/null ||
+            { echo "::error::the refused build moved or staged something"; exit 1; }
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: conduit-desktop-notices-${{ github.sha }}
@@ -723,6 +739,31 @@ jobs:
           restore-keys: desktop-registry-${{ runner.os }}-
       - name: Packaging helper tests
         run: python desktop/packaging/winlinux_test.py
+      # The refusal itself: -Notices inside -Out (named through ..) stops the
+      # build before anything compiles, and nothing is moved or staged.
+      - name: build.ps1 refuses notices inside its output folder
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'guard-out'
+          New-Item -ItemType Directory -Force -Path $out, (Join-Path $env:RUNNER_TEMP 'guard-x') | Out-Null
+          $notices = Join-Path $out 'THIRD_PARTY_NOTICES.md'
+          Set-Content -LiteralPath $notices -Value '# Third-party notices: Conduit Desktop for Windows'
+          # In this process, so the refusal is the exception's own message.
+          $refusal = $null
+          try {
+            & ./desktop/packaging/windows/build.ps1 -Notices $notices `
+              -Out (Join-Path $env:RUNNER_TEMP 'guard-x\..\guard-out')
+          } catch {
+            $refusal = $_.Exception.Message
+          }
+          Write-Host "build.ps1: $refusal"
+          if (-not $refusal) { throw 'build.ps1 accepted notices inside -Out' }
+          if ($refusal -notmatch 'is inside -Out') { throw "not the guard's refusal: $refusal" }
+          $moved = @(Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'guard-out.old-*')
+          if (-not (Test-Path -LiteralPath $notices) -or (Test-Path -LiteralPath (Join-Path $out 'stage')) -or $moved.Count) {
+            throw 'the refused build moved or staged something'
+          }
+          exit 0
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: conduit-desktop-notices-${{ github.sha }}
