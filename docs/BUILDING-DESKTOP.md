@@ -775,8 +775,9 @@ with "Check for Updates Automatically" in Settings › About (kept in
   feed over HTTPS (the system's certificate store), checks its signature as
   `lib.sh verify_feed` does (`updates/feed.rs`), and when it lists a newer
   release, About's button becomes **Download**, which opens the release's
-  page. It never installs anything: the package manager, or the user with
-  the new package, does.
+  page, after a restart too, until the app is that version or newer. It
+  never installs anything: the package manager, or the user with the new
+  package, does.
 
 What each decides goes to the app log (`updates: up to date`, `found …`,
 `failed: …`). The feeds, the keys and their rotation are in

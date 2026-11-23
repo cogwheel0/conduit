@@ -1,8 +1,9 @@
 //! The Windows and Linux updaters' "Check for Updates Automatically" (on
-//! by default, as the Mac's) and when the Linux notice last read its feed,
-//! kept in `update-checks.json` under userData. WinSparkle keeps its own
-//! last check; the app sets its "check automatically" from this switch at
-//! each launch, so WinSparkle never asks the user itself.
+//! by default, as the Mac's), and when the Linux notice last read its feed
+//! and what newer release it found, kept in `update-checks.json` under
+//! userData. WinSparkle keeps its own last check; the app sets its "check
+//! automatically" from this switch at each launch, so WinSparkle never asks
+//! the user itself.
 
 #[cfg(not(target_os = "macos"))]
 use std::path::{Path, PathBuf};
@@ -11,8 +12,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use super::Found;
 #[cfg(any(target_os = "linux", test))]
-use super::config::CHECK_INTERVAL_SECS;
+use super::config::{CHECK_INTERVAL_SECS, build_number};
 
 /// After a check that failed (no network, a feed refused), the next try:
 /// an hour later, or the next daily check if that comes later.
@@ -25,6 +27,9 @@ pub struct Checks {
     pub automatic: bool,
     /// When a check last read the feed (Unix seconds).
     pub last_check: Option<i64>,
+    /// The newer release that check found (Linux): offered again after a
+    /// restart, until a check finds none.
+    pub found: Option<Found>,
 }
 
 impl Default for Checks {
@@ -32,6 +37,7 @@ impl Default for Checks {
         Self {
             automatic: true,
             last_check: None,
+            found: None,
         }
     }
 }
@@ -61,6 +67,18 @@ pub fn next_check(checks: &Checks, last_failure: Option<i64>, now: i64) -> Optio
     Some(Duration::from_secs(due.saturating_sub(now).max(0) as u64))
 }
 
+/// The release the last check found, while it is still newer than the
+/// app's `build` (the user may have installed it since) and its page is
+/// https. The file is the user's to change, so it's checked again.
+#[cfg(any(target_os = "linux", test))]
+pub fn found_for(checks: &Checks, build: u64) -> Option<Found> {
+    checks
+        .found
+        .clone()
+        .filter(|f| build_number(&f.version).is_some_and(|b| b > build))
+        .filter(|f| f.page.starts_with("https://"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +90,17 @@ mod tests {
         Checks {
             automatic,
             last_check,
+            found: None,
+        }
+    }
+
+    fn found(version: &str, page: &str) -> Checks {
+        Checks {
+            found: Some(Found {
+                version: version.into(),
+                page: page.into(),
+            }),
+            ..Checks::default()
         }
     }
 
@@ -123,5 +152,26 @@ mod tests {
             next_check(&recent, Some(ten_minutes_ago), NOW),
             Some(Duration::from_secs(23 * HOUR))
         );
+    }
+
+    #[test]
+    fn a_release_found_before_is_offered_again_until_the_app_has_it() {
+        let page = "https://example.org/releases/tag/desktop-v1.3.0";
+        let kept = found("1.3.0", page);
+        assert_eq!(found_for(&kept, 1_020_099), kept.found.clone());
+        // Installed since (or a newer one): nothing to offer.
+        assert_eq!(found_for(&kept, 1_030_099), None);
+        assert_eq!(found_for(&kept, 1_040_099), None);
+        // What a check would never have kept.
+        assert_eq!(found_for(&found("1.3", page), 99), None);
+        assert_eq!(found_for(&found("1.3.0", "javascript:alert(1)"), 99), None);
+        assert_eq!(found_for(&Checks::default(), 99), None);
+    }
+
+    #[test]
+    fn the_file_keeps_what_was_found() {
+        let kept = found("1.3.0", "https://example.org/releases/tag/desktop-v1.3.0");
+        let json = serde_json::to_string(&kept).unwrap();
+        assert_eq!(serde_json::from_str::<Checks>(&json).unwrap(), kept);
     }
 }

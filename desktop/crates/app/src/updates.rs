@@ -49,7 +49,7 @@ pub trait Updater {
 }
 
 /// A newer release the user installs themselves.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Found {
     pub version: String,
     /// Where they get it (its GitHub release).

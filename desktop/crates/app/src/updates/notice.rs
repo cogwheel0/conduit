@@ -40,7 +40,6 @@ struct State {
     path: PathBuf,
     checking: bool,
     last_failure: Option<i64>,
-    found: Option<Found>,
 }
 
 pub struct Notice {
@@ -52,12 +51,13 @@ impl Notice {
     /// Starts the daily check (the first is due at once, unless one ran in
     /// the last day).
     pub fn start(config: Config, key: [u8; 32], path: PathBuf, cx: &mut App) -> Self {
+        let mut checks: Checks = crate::prefs::load(&path);
+        checks.found = checks::found_for(&checks, config.build);
         let state = Rc::new(RefCell::new(State {
-            checks: crate::prefs::load(&path),
+            checks,
             path,
             checking: false,
             last_failure: None,
-            found: None,
         }));
         let (wake, woken) = mpsc::unbounded();
         let looping = state.clone();
@@ -92,7 +92,7 @@ impl Updater for Notice {
     }
 
     fn found(&self) -> Option<Found> {
-        self.state.borrow().found.clone()
+        self.state.borrow().checks.found.clone()
     }
 }
 
@@ -147,15 +147,15 @@ async fn check(config: &Config, key: &[u8; 32], state: &Rc<RefCell<State>>, cx: 
             Ok(decision) => {
                 s.last_failure = None;
                 s.checks.last_check = Some(now());
-                save(&s);
-                s.found = match decision {
+                s.checks.found = match decision {
                     Decision::Newer(release) => Some(Found {
                         version: release.version,
                         page: release.page,
                     }),
                     Decision::UpToDate => None,
                 };
-                match &s.found {
+                save(&s);
+                match &s.checks.found {
                     Some(found) => Outcome::Found(Some(found.version.clone())),
                     None => Outcome::UpToDate,
                 }
