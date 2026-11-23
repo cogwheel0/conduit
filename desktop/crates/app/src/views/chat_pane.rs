@@ -77,6 +77,9 @@ pub struct OpenChat {
 pub struct NewChatTicket {
     selection: crate::stores::navigation::Selection,
     composition: crate::stores::composer::CompositionTicket,
+    /// The request set Send waiting for its content: only it ends the wait,
+    /// never a plain request that shares its composition.
+    awaits: bool,
 }
 
 /// What [`ChatPane::compose_new_chat`] writes into a new chat.
@@ -2191,10 +2194,11 @@ impl ChatPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        // Landed or dropped, the request is done with: Send stops waiting
-        // for it.
-        self.composer_store
-            .update(cx, |c, cx| c.stop_awaiting(ticket.composition, cx));
+        // Landed or dropped, the request that set Send waiting is done with.
+        if ticket.awaits {
+            self.composer_store
+                .update(cx, |c, cx| c.stop_awaiting(ticket.composition, cx));
+        }
         // The new chat its request opened, still shown, and its draft, in
         // that account: another chat or area (Notes), another draft, a
         // fresh one over it, another account, or a send since, and the
@@ -2258,6 +2262,7 @@ impl ChatPane {
         NewChatTicket {
             selection: self.stores.navigation.read(cx).selection().clone(),
             composition: self.composer_store.read(cx).ticket(),
+            awaits: false,
         }
     }
 
@@ -2277,12 +2282,16 @@ impl ChatPane {
         cx: &mut Context<Self>,
     ) -> NewChatTicket {
         self.sync_selection(cx);
-        if fresh && self.read_here(owner, cx) {
+        let awaits = fresh && self.read_here(owner, cx);
+        if awaits {
             self.composer_store.update(cx, |c, cx| {
                 c.await_content(cx);
             });
         }
-        self.new_chat_ticket(cx)
+        NewChatTicket {
+            awaits,
+            ..self.new_chat_ticket(cx)
+        }
     }
 
     /// Whether content read under `owner` is the account in charge's (no
@@ -4223,6 +4232,47 @@ mod tests {
             vcx.run_until_parked();
             assert_eq!(text(vcx), "Shared note");
             assert!(sends(vcx), "Send still waits once the content landed");
+        }
+
+        /// A fresh request (Share, with files) waits for its file check; a
+        /// plain new-chat link (`conduit://new?q=`) after it, in the same
+        /// composition, lands first: Send still waits for the shared
+        /// content, and comes back once that lands.
+        #[gpui_kit::test]
+        fn only_the_fresh_request_ends_its_wait(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            // Online (the bench has no connection).
+            let sends = |vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, _, cx| {
+                    p.composer.update(cx, |c, _| c.offline = false);
+                    p.composer.read(cx).can_send(cx)
+                })
+            };
+            let shared = open_with_request(&stores, &pane, true, vcx);
+            let plain = open_with_request(&stores, &pane, false, vcx);
+            let later = NewChatContent {
+                text: Some("Later".into()),
+                ..NewChatContent::default()
+            };
+            assert!(pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&plain, later, window, cx)
+            }));
+            vcx.run_until_parked();
+            assert!(!sends(vcx), "Send came back before the shared content");
+            let note = NewChatContent {
+                text: Some("Shared note".into()),
+                fresh: true,
+                ..NewChatContent::default()
+            };
+            assert!(pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&shared, note, window, cx)
+            }));
+            vcx.run_until_parked();
+            assert!(
+                sends(vcx),
+                "Send still waits once the shared content landed"
+            );
         }
 
         /// Another account takes over while the files are looked at: its
