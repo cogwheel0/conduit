@@ -38,6 +38,8 @@ use gpui_kit::{
 };
 use serde_json::Value;
 
+use crate::keymap::KeyOs;
+
 use super::doc::{Block, BlockKind, Doc, FileLink, Mark, Marks, Pos, Selection, blocks_from_ops};
 // The Edit menu's own actions, so its items work (and show their keys)
 // while a note is edited.
@@ -102,6 +104,81 @@ actions!(
 /// window's while a note is being edited: ⌘K is Add Link there, ⌘I
 /// Italic).
 pub fn bindings() -> Vec<KeyBinding> {
+    bindings_on(KeyOs::CURRENT)
+}
+
+/// [`bindings`] for `os`: off the Mac, Windows' and Linux's text keys (Home
+/// and End for the line, Ctrl with an arrow for a word, Ctrl+Home and
+/// Ctrl+End for the note) and Ctrl for ⌘.
+pub fn bindings_on(os: KeyOs) -> Vec<KeyBinding> {
+    if os.is_mac() {
+        mac_bindings()
+    } else {
+        other_bindings()
+    }
+}
+
+fn other_bindings() -> Vec<KeyBinding> {
+    let c = Some(EDITOR_CONTEXT);
+    vec![
+        KeyBinding::new("left", MoveLeft, c),
+        KeyBinding::new("right", MoveRight, c),
+        KeyBinding::new("up", MoveUp, c),
+        KeyBinding::new("down", MoveDown, c),
+        KeyBinding::new("ctrl-left", MoveWordLeft, c),
+        KeyBinding::new("ctrl-right", MoveWordRight, c),
+        KeyBinding::new("home", MoveLineStart, c),
+        KeyBinding::new("end", MoveLineEnd, c),
+        KeyBinding::new("ctrl-home", MoveDocStart, c),
+        KeyBinding::new("ctrl-end", MoveDocEnd, c),
+        KeyBinding::new("pageup", PageUp, c),
+        KeyBinding::new("pagedown", PageDown, c),
+        KeyBinding::new("shift-left", SelectLeft, c),
+        KeyBinding::new("shift-right", SelectRight, c),
+        KeyBinding::new("shift-up", SelectUp, c),
+        KeyBinding::new("shift-down", SelectDown, c),
+        KeyBinding::new("ctrl-shift-left", SelectWordLeft, c),
+        KeyBinding::new("ctrl-shift-right", SelectWordRight, c),
+        KeyBinding::new("shift-home", SelectLineStart, c),
+        KeyBinding::new("shift-end", SelectLineEnd, c),
+        KeyBinding::new("ctrl-shift-home", SelectDocStart, c),
+        KeyBinding::new("ctrl-shift-end", SelectDocEnd, c),
+        KeyBinding::new("ctrl-a", SelectAll, c),
+        KeyBinding::new("backspace", Backspace, c),
+        KeyBinding::new("shift-backspace", Backspace, c),
+        KeyBinding::new("delete", Delete, c),
+        KeyBinding::new("ctrl-backspace", DeleteWordLeft, c),
+        KeyBinding::new("ctrl-delete", DeleteWordRight, c),
+        KeyBinding::new("enter", Newline, c),
+        KeyBinding::new("shift-enter", Newline, c),
+        KeyBinding::new("tab", Indent, c),
+        KeyBinding::new("shift-tab", Outdent, c),
+        KeyBinding::new("ctrl-c", Copy, c),
+        KeyBinding::new("ctrl-x", Cut, c),
+        KeyBinding::new("ctrl-v", Paste, c),
+        KeyBinding::new("ctrl-shift-v", PastePlain, c),
+        KeyBinding::new("ctrl-z", Undo, c),
+        KeyBinding::new("ctrl-shift-z", Redo, c),
+        KeyBinding::new("ctrl-y", Redo, c),
+        KeyBinding::new("ctrl-b", ToggleBold, c),
+        KeyBinding::new("ctrl-i", ToggleItalic, c),
+        KeyBinding::new("ctrl-shift-x", ToggleStrike, c),
+        KeyBinding::new("ctrl-e", ToggleCode, c),
+        KeyBinding::new("ctrl-k", AddLink, c),
+        KeyBinding::new("ctrl-shift-t", Title, c),
+        KeyBinding::new("ctrl-shift-h", Heading, c),
+        KeyBinding::new("ctrl-shift-j", Subheading, c),
+        KeyBinding::new("ctrl-shift-b", Body, c),
+        KeyBinding::new("ctrl-shift-7", BulletList, c),
+        KeyBinding::new("ctrl-shift-9", NumberedList, c),
+        KeyBinding::new("ctrl-shift-8", Checklist, c),
+        KeyBinding::new("ctrl-shift-u", ToggleChecked, c),
+        KeyBinding::new("ctrl-'", QuoteBlock, c),
+        KeyBinding::new("ctrl-shift-c", CodeBlock, c),
+    ]
+}
+
+fn mac_bindings() -> Vec<KeyBinding> {
     let c = Some(EDITOR_CONTEXT);
     vec![
         KeyBinding::new("left", MoveLeft, c),

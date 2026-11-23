@@ -1184,7 +1184,7 @@ impl Render for EventEditor {
             })
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &e.keystroke;
-                if (k.key == "enter" || k.key == "s") && k.modifiers.platform {
+                if (k.key == "enter" || k.key == "s") && crate::keymap::held(&k.modifiers).primary {
                     this.save(window, cx);
                     cx.stop_propagation();
                 }

@@ -451,6 +451,16 @@ pub fn run() {
         let services = shell::services::install();
         gpui_kit::init(cx);
         menus::KitBindings::capture(cx);
+        // Off the Mac the app draws its questions (the Mac attaches NSAlert
+        // sheets): keyboard-driven, and taken down when settled elsewhere.
+        #[cfg(not(target_os = "macos"))]
+        {
+            shell::app_prompt::install(cx);
+            // Announcements as AccessKit live regions, and the fonts this
+            // system has, before any window opens.
+            conduit_components::announce::install_live_regions(cx);
+            shell::system_look::resolve_fonts(cx);
+        }
         conduit_components::views::markdown::preload_grammars(&["python", "rust", "bash"]);
 
         let system_dark = matches!(
@@ -465,6 +475,8 @@ pub fn run() {
             )
         });
         settings.update(cx, |s, cx| s.apply(cx));
+        #[cfg(not(target_os = "macos"))]
+        shell::system_look::follow_accent(settings.clone(), cx);
         install_component_strings(cx);
         // The chat view over a fixture daemon (perf and AccessKit checks).
         #[cfg(all(target_os = "macos", feature = "harness"))]
@@ -611,7 +623,7 @@ pub fn run() {
         // The setup window and the main window follow the session.
         windows::install(cx);
         // Settings › Keyboard records chords before bindings see them.
-        cx.intercept_keystrokes(|event, _, cx| {
+        shell::app_prompt::intercept_behind(cx, |event, _, cx| {
             let Some(settings) = cx.try_global::<AppState>().map(|s| s.settings.clone()) else {
                 return;
             };

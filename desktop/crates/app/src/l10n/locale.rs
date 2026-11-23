@@ -4,7 +4,8 @@
 use super::LOCALES;
 
 /// The user's preferred languages, most preferred first (BCP-47, e.g.
-/// `de-DE`, `zh-Hant-TW`).
+/// `de-DE`, `zh-Hant-TW`): the Mac's Language & Region list, Windows'
+/// display languages, or Linux's `LANGUAGE` and locale ([`posix_languages`]).
 pub fn system_languages() -> Vec<String> {
     #[cfg(target_os = "macos")]
     {
@@ -14,10 +15,144 @@ pub fn system_languages() -> Vec<String> {
             return out;
         }
     }
-    std::env::var("LANG")
-        .ok()
-        .map(|l| vec![l.split('.').next().unwrap_or("en").replace('_', "-")])
-        .unwrap_or_default()
+    #[cfg(target_os = "windows")]
+    {
+        let out = windows::preferred_ui_languages();
+        if !out.is_empty() {
+            return out;
+        }
+    }
+    if cfg!(target_os = "macos") {
+        return std::env::var("LANG")
+            .ok()
+            .map(|l| vec![l.split('.').next().unwrap_or("en").replace('_', "-")])
+            .unwrap_or_default();
+    }
+    posix_languages(|name| std::env::var(name).ok())
+}
+
+/// The locale dates are written for (BCP-47), off the Mac: Windows' user
+/// locale, else `LC_ALL`, `LC_TIME` or `LANG`. `None` for the C locale.
+pub fn system_format_locale() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    if let Some(tag) = windows::user_locale() {
+        return Some(tag);
+    }
+    posix_category(&|name| std::env::var(name).ok(), "LC_TIME")
+}
+
+/// The languages a POSIX environment asks for, as gettext reads them:
+/// `LANGUAGE` (a `:` list) first, unless the locale is C, then the locale
+/// of `LC_ALL`, else `LC_MESSAGES`, else `LANG`.
+pub fn posix_languages(var: impl Fn(&str) -> Option<String>) -> Vec<String> {
+    let locale = posix_category(&var, "LC_MESSAGES");
+    let mut out: Vec<String> = vec![];
+    if locale.is_some() {
+        for entry in var("LANGUAGE").unwrap_or_default().split(':') {
+            // gettext stops at C: untranslated, which is English here.
+            let base = entry.split(['.', '@']).next().unwrap_or("");
+            if base == "C" || base == "POSIX" {
+                out.push("en".into());
+                out.dedup();
+                return out;
+            }
+            out.extend(posix_to_bcp47(entry));
+        }
+    }
+    out.extend(locale);
+    out.dedup();
+    out
+}
+
+/// The locale a POSIX category is in (`LC_ALL`, else the category, else
+/// `LANG`), as BCP-47; `None` when unset or C.
+fn posix_category(var: &dyn Fn(&str) -> Option<String>, category: &str) -> Option<String> {
+    ["LC_ALL", category, "LANG"]
+        .into_iter()
+        .find_map(|name| var(name).filter(|v| !v.is_empty()))
+        .and_then(|v| posix_to_bcp47(&v))
+}
+
+/// A POSIX locale name as BCP-47: `de_DE.UTF-8` is `de-DE`, `sr_RS@latin`
+/// `sr-Latn-RS`; `C` and `POSIX` are none.
+pub fn posix_to_bcp47(name: &str) -> Option<String> {
+    let (rest, modifier) = match name.split_once('@') {
+        Some((rest, m)) => (rest, Some(m)),
+        None => (name, None),
+    };
+    let base = rest.split('.').next().unwrap_or("");
+    if base.is_empty() || base == "C" || base == "POSIX" {
+        return None;
+    }
+    let mut parts = base.split(['_', '-']);
+    let language = parts.next()?.to_ascii_lowercase();
+    if !(2..=3).contains(&language.len()) || !language.chars().all(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let mut tag = language;
+    match modifier {
+        Some("latin") => tag.push_str("-Latn"),
+        Some("cyrillic") => tag.push_str("-Cyrl"),
+        _ => {}
+    }
+    if let Some(region) = parts.next().filter(|r| !r.is_empty()) {
+        tag.push('-');
+        tag.push_str(&region.to_ascii_uppercase());
+    }
+    Some(tag)
+}
+
+/// The strings of a Windows multi-string (each ends with a NUL, the list
+/// with another).
+pub fn multi_sz(buffer: &[u16]) -> Vec<String> {
+    buffer
+        .split(|c| *c == 0)
+        .take_while(|s| !s.is_empty())
+        .map(String::from_utf16_lossy)
+        .collect()
+}
+
+#[cfg(target_os = "windows")]
+mod windows {
+    use ::windows::Win32::Globalization::{
+        GetUserDefaultLocaleName, GetUserPreferredUILanguages, MUI_LANGUAGE_NAME,
+    };
+    use ::windows::core::PWSTR;
+
+    /// Windows' display languages, most preferred first.
+    pub fn preferred_ui_languages() -> Vec<String> {
+        let mut count = 0u32;
+        let mut len = 0u32;
+        // SAFETY: a null buffer asks for the length only.
+        if unsafe { GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, None, &mut len) }
+            .is_err()
+        {
+            return vec![];
+        }
+        let mut buffer = vec![0u16; len as usize];
+        // SAFETY: the buffer holds the `len` characters asked for.
+        if unsafe {
+            GetUserPreferredUILanguages(
+                MUI_LANGUAGE_NAME,
+                &mut count,
+                Some(PWSTR(buffer.as_mut_ptr())),
+                &mut len,
+            )
+        }
+        .is_err()
+        {
+            return vec![];
+        }
+        super::multi_sz(&buffer)
+    }
+
+    /// The user's locale for formats (Region › Regional format).
+    pub fn user_locale() -> Option<String> {
+        let mut buffer = [0u16; 85];
+        // SAFETY: LOCALE_NAME_MAX_LENGTH (85) characters fit.
+        let len = unsafe { GetUserDefaultLocaleName(&mut buffer) };
+        (len > 1).then(|| String::from_utf16_lossy(&buffer[..len as usize - 1]))
+    }
 }
 
 /// The catalog locale for one BCP-47 tag, if there is one.
@@ -91,6 +226,70 @@ mod tests {
         assert_eq!(resolve(&prefs(&["pt-BR", "fr-CA", "de"])), "fr");
         assert_eq!(resolve(&prefs(&["pt-BR"])), "en");
         assert_eq!(resolve(&[]), "en");
+    }
+
+    /// gettext's order: `LANGUAGE`'s list, then the messages locale
+    /// (`LC_ALL`, else `LC_MESSAGES`, else `LANG`); a C locale turns
+    /// `LANGUAGE` off.
+    #[test]
+    fn linux_languages_come_as_gettext_reads_them() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        assert_eq!(
+            posix_languages(env(&[("LANGUAGE", "pt_BR:de"), ("LANG", "fr_FR.UTF-8")])),
+            vec!["pt-BR", "de", "fr-FR"]
+        );
+        assert_eq!(
+            resolve(&posix_languages(env(&[
+                ("LANGUAGE", "pt_BR:de"),
+                ("LANG", "fr_FR.UTF-8")
+            ]))),
+            "de"
+        );
+        assert_eq!(
+            posix_languages(env(&[
+                ("LC_MESSAGES", "zh_TW.UTF-8"),
+                ("LANG", "en_US.UTF-8")
+            ])),
+            vec!["zh-TW"]
+        );
+        assert_eq!(
+            posix_languages(env(&[("LC_ALL", "C"), ("LANGUAGE", "de")])),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            posix_languages(env(&[("LC_ALL", "C.UTF-8"), ("LANG", "de_DE")])),
+            Vec::<String>::new()
+        );
+        // C in LANGUAGE is English, as gettext ends there untranslated.
+        assert_eq!(
+            resolve(&posix_languages(env(&[
+                ("LANGUAGE", "C"),
+                ("LANG", "de_DE.UTF-8")
+            ]))),
+            "en"
+        );
+        assert_eq!(
+            posix_languages(env(&[("LANGUAGE", "fr:C:de"), ("LANG", "de_DE.UTF-8")])),
+            vec!["fr", "en"]
+        );
+        assert_eq!(posix_to_bcp47("sr_RS@latin").as_deref(), Some("sr-Latn-RS"));
+        assert_eq!(posix_to_bcp47("POSIX"), None);
+        assert_eq!(posix_to_bcp47("de").as_deref(), Some("de"));
+    }
+
+    #[test]
+    fn windows_display_languages_read_from_a_multi_string() {
+        let wide: Vec<u16> = "de-DE\0en-US\0\0".encode_utf16().collect();
+        assert_eq!(multi_sz(&wide), vec!["de-DE", "en-US"]);
+        assert!(multi_sz(&[0, 0]).is_empty());
+        assert_eq!(resolve(&multi_sz(&wide)), "de");
     }
 
     #[test]

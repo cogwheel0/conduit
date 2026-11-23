@@ -421,7 +421,7 @@ impl TasksPane {
                 crate::views::a11y::announce_row(&items[next].name, next, items.len(), cx);
                 true
             }
-            "backspace" | "delete" if m.platform && !(m.alt || m.control || m.shift) => {
+            key if crate::keymap::deletes_item(key, m) => {
                 if let Some(id) = selected {
                     self.delete(&id, window, cx);
                 }

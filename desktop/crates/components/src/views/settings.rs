@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use crate::assets::{IconName, icon};
 use crate::strings::{ActiveStrings as _, Strings, fill};
-use crate::theme::{ActiveConduitTheme, UI_FONT, with_alpha};
+use crate::theme::{ActiveConduitTheme, ui_font, with_alpha};
 use crate::views::focus::{ControlExt as _, RadioGroupExt as _, radio_option_id};
 use crate::views::kit::{Button, IconButton, SelectHandler, avatar, badge, grouped, heading};
 use crate::views::model::{Account, Backend};
@@ -159,7 +159,7 @@ impl RenderOnce for SettingsWindow {
         div()
             .size_full()
             .flex()
-            .font_family(UI_FONT)
+            .font_family(ui_font())
             .text_color(r.text)
             .child(
                 div()

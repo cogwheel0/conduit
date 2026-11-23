@@ -9,7 +9,7 @@ use std::rc::Rc;
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, brand_mark, icon};
-use conduit_components::theme::{MONO_FONT, with_alpha};
+use conduit_components::theme::{mono_font, with_alpha};
 use conduit_components::views::kit::{Button, ClickHandler, heading};
 use conduit_components::views::onboarding::first_run_frame;
 use gpui_kit::prelude::*;
@@ -320,7 +320,7 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
                     .py(px(6.))
                     .rounded(t.control_radius())
                     .bg(with_alpha(r.text, if t.dark { 0.08 } else { 0.05 }))
-                    .font_family(MONO_FONT)
+                    .font_family(mono_font())
                     .text_size(px(t.metrics.small))
                     .text_color(r.text_subtle)
                     .child(text),

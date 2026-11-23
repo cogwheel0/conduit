@@ -45,12 +45,25 @@ actions!(
 );
 
 pub fn bindings() -> Vec<KeyBinding> {
+    bindings_on(crate::keymap::KeyOs::CURRENT)
+}
+
+/// [`bindings`] for `os`: Delete is ⌘⌫ on the Mac, Delete off it.
+pub fn bindings_on(os: crate::keymap::KeyOs) -> Vec<KeyBinding> {
     let c = Some(NOTES_LIST_CONTEXT);
     vec![
         KeyBinding::new("up", SelectPrevious, c),
         KeyBinding::new("down", SelectNext, c),
         KeyBinding::new("enter", OpenSelected, c),
-        KeyBinding::new("cmd-backspace", DeleteSelected, c),
+        KeyBinding::new(
+            if os.is_mac() {
+                "cmd-backspace"
+            } else {
+                "delete"
+            },
+            DeleteSelected,
+            c,
+        ),
     ]
 }
 

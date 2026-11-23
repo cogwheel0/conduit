@@ -294,7 +294,7 @@ impl CalendarPane {
         let k = &e.keystroke;
         let m = &k.modifiers;
         let plain = !(m.platform || m.alt || m.control || m.shift);
-        let command = m.platform && !(m.alt || m.control || m.shift);
+        let command = crate::keymap::held(m).only_primary();
         match k.key.as_str() {
             "left" if command => {
                 self.previous(cx);
@@ -318,7 +318,7 @@ impl CalendarPane {
                 }
                 true
             }
-            "backspace" | "delete" if command => {
+            key if crate::keymap::deletes_item(key, m) => {
                 if let Some((key, _)) = self.selected.clone() {
                     self.delete(&key, window, cx);
                 }

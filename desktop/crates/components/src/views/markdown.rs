@@ -26,7 +26,7 @@ use gpui_kit::{
 
 use crate::assets::{IconName, icon};
 use crate::strings::ActiveStrings as _;
-use crate::theme::{ActiveConduitTheme, MONO_FONT, with_alpha};
+use crate::theme::{ActiveConduitTheme, mono_font, with_alpha};
 use crate::views::focus::{ControlExt as _, Ring};
 use crate::views::kit::ClickHandler;
 
@@ -197,7 +197,7 @@ impl MarkdownPlugin for BlockMath {
         let body = match render_math(&latex, size, window.scale_factor(), color) {
             Some((image, w, h, _)) => img(image).w(px(w)).h(px(h)).into_any_element(),
             None => div()
-                .font_family(MONO_FONT)
+                .font_family(mono_font())
                 .child(SharedString::from(latex.clone()))
                 .into_any_element(),
         };
@@ -548,7 +548,7 @@ impl RenderOnce for CodeBlock {
                 div()
                     .px(px(14.))
                     .py(px(11.))
-                    .font_family(MONO_FONT)
+                    .font_family(mono_font())
                     .text_size(px(t.metrics.code))
                     .line_height(relative(1.55))
                     .text_color(r.text)

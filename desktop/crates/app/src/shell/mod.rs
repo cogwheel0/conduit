@@ -12,6 +12,7 @@
 //! Services menu ([`services`]); and Apple's on-device model
 //! ([`apple_models`]).
 
+pub mod app_prompt;
 pub mod apple_models;
 #[cfg(target_os = "macos")]
 pub mod continuity_camera;
@@ -43,6 +44,7 @@ pub mod sheet;
 pub mod speech;
 pub mod speech_engine;
 pub mod sso;
+pub mod system_look;
 #[cfg(target_os = "macos")]
 pub mod tray;
 #[cfg(target_os = "macos")]

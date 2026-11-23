@@ -607,7 +607,7 @@ impl Render for ImageViewer {
             )
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &e.keystroke;
-                let cmd = k.modifiers.platform;
+                let cmd = crate::keymap::held(&k.modifiers).primary;
                 match (cmd, k.key.as_str()) {
                     (false, "escape") | (false, "space") => window.remove_window(),
                     (false, "left") => this.go(-1, window, cx),

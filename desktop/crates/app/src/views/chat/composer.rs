@@ -454,13 +454,13 @@ impl ChatComposer {
             }),
             // The menu and picker keys, ahead of the text field's own; ⌘↩
             // sends whatever Enter does.
-            cx.intercept_keystrokes(move |event, window, cx| {
+            crate::shell::app_prompt::intercept_behind(cx, move |event, window, cx| {
                 let key = event.keystroke.key.as_str();
                 let m = event.keystroke.modifiers;
                 let Some(this) = weak.upgrade() else {
                     return;
                 };
-                if key == "enter" && m.platform && !m.shift && !m.alt && !m.control {
+                if key == "enter" && crate::keymap::held(&m).only_primary() {
                     let handled = this.update(cx, |c, cx| {
                         let focused = c.input.read(cx).focus_handle(cx).is_focused(window);
                         // An input method composing keeps its keys (as Enter).
@@ -5614,6 +5614,51 @@ mod tests {
         );
     }
 
+    /// Off the Mac a question drawn over the composer has the keys: Esc
+    /// answers it Cancel, the expanded editor stays as it was, and the
+    /// keyboard goes back to the field.
+    #[gpui_kit::test]
+    fn a_question_over_the_composer_takes_its_esc(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        cx.update(|_, cx| {
+            crate::shell::app_prompt::install(cx);
+            cx.bind_keys(crate::shell::app_prompt::bindings());
+        });
+        view.update_in(cx, |c, window, cx| c.set_expanded(true, window, cx));
+        let answer = Rc::new(std::cell::Cell::new(None));
+        let seen = answer.clone();
+        cx.update(|window, cx| {
+            let spec = crate::shell::sheet::SheetSpec::new(
+                "Delete the chat?",
+                "It leaves every device.",
+                "Delete",
+                "Cancel",
+            );
+            let task = crate::shell::sheet::present_sheet(window, spec, cx);
+            cx.spawn(async move |_| seen.set(Some(task.await))).detach();
+        });
+        cx.run_until_parked();
+        assert!(cx.update(|window, _| window.has_active_prompt()));
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert_eq!(answer.get(), Some(false), "Esc answered Cancel");
+        assert!(!cx.update(|window, _| window.has_active_prompt()));
+        assert!(
+            view.read_with(cx, |c, _| c.expanded),
+            "the editor collapsed"
+        );
+        let input = view.read_with(cx, |c, _| c.input.clone());
+        assert!(
+            cx.update(|window, cx| input.read(cx).focus_handle(cx).is_focused(window)),
+            "the field has the keyboard back"
+        );
+    }
+
+    /// ⌘↩ on the Mac, Ctrl+Enter elsewhere, as the shortcut table binds it.
+    fn primary_enter() -> String {
+        crate::keymap::to_gpui(&crate::keymap::KeyStroke::new("enter").primary())
+    }
+
     #[gpui_kit::test]
     fn nothing_sends_while_an_input_method_composes(cx: &mut TestAppContext) {
         let (view, cx, seen) = composer(cx);
@@ -5626,7 +5671,7 @@ mod tests {
         assert!(cx.update(|window, cx| {
             input.update(cx, |s, cx| s.marked_text_range(window, cx).is_some())
         }));
-        cx.simulate_keystrokes("cmd-enter");
+        cx.simulate_keystrokes(&primary_enter());
         assert!(seen.borrow().is_empty(), "⌘↩ while composing does not send");
         cx.simulate_keystrokes("enter");
         assert!(
@@ -6020,7 +6065,7 @@ mod tests {
         cx.simulate_input("two");
         assert!(seen.borrow().is_empty());
         assert_eq!(value(&view, cx), "one\ntwo");
-        cx.simulate_keystrokes("cmd-enter");
+        cx.simulate_keystrokes(&primary_enter());
         assert_eq!(
             *seen.borrow(),
             vec![ChatComposerEvent::Submit {

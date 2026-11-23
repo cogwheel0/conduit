@@ -145,6 +145,9 @@ fn control_byte(c: char) -> Option<u8> {
         ']' | '5' => 0x1d,
         '^' | '6' => 0x1e,
         '_' | '-' | '7' => 0x1f,
+        // Off the Mac the console leaves Ctrl+/ to the shell (readline's
+        // undo, as xterm sends it); the Mac's ⌃/ stays unmapped.
+        '/' if !cfg!(target_os = "macos") => 0x1f,
         '?' | '8' => 0x7f,
         _ => return None,
     })
@@ -211,6 +214,20 @@ mod tests {
 
     fn m() -> Mods {
         Mods::default()
+    }
+
+    /// Ctrl+/ is readline's undo off the Mac, as xterm sends it.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ctrl_slash_is_the_shells_undo_off_the_mac() {
+        let ctrl = Mods {
+            control: true,
+            ..m()
+        };
+        assert_eq!(
+            keystroke_bytes("/", ctrl, TermMode::empty(), false),
+            Some(vec![0x1f])
+        );
     }
 
     fn keys(key: &str, mods: Mods) -> Option<Vec<u8>> {

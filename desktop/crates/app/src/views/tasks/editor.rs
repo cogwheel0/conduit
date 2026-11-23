@@ -936,7 +936,7 @@ impl TaskEditor {
                             )
                             .child(
                                 div()
-                                    .font_family(conduit_components::theme::MONO_FONT)
+                                    .font_family(conduit_components::theme::mono_font())
                                     .child(Textarea::new(&self.rrule)),
                             )
                             .child(
@@ -1508,7 +1508,7 @@ impl Render for TaskEditor {
             })
             .on_key_down(cx.listener(|this, e: &gpui_kit::KeyDownEvent, window, cx| {
                 let k = &e.keystroke;
-                if (k.key == "enter" || k.key == "s") && k.modifiers.platform {
+                if (k.key == "enter" || k.key == "s") && crate::keymap::held(&k.modifiers).primary {
                     this.save(window, cx);
                     cx.stop_propagation();
                 }

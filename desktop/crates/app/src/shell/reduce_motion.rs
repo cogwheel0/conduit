@@ -1,4 +1,5 @@
-//! macOS's Reduce Motion (System Settings › Accessibility › Display), kept
+//! macOS's Reduce Motion (System Settings › Accessibility › Display), or
+//! Windows' and Linux's ([`crate::shell::system_look`]), kept
 //! in [`App::reduce_motion`], which every transition reads
 //! ([`conduit_components::motion`]): movement and size changes turn
 //! instant, fades become plain crossfades.
@@ -36,6 +37,8 @@ pub fn install(cx: &mut App) {
             })
             .detach();
         }
+        #[cfg(not(target_os = "macos"))]
+        crate::shell::system_look::follow_reduce_motion(cx);
     }
 }
 

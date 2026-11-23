@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use conduit_components::ActiveConduitTheme as _;
-use conduit_components::theme::MONO_FONT;
+use conduit_components::theme::mono_font;
 use conduit_components::views::kit::Button;
 use conduit_protocol::{TerminalFileContent, TerminalPath, methods};
 use gpui_kit::prelude::*;
@@ -304,7 +304,7 @@ impl Render for FileSheet {
                 .border_1()
                 .border_color(r.border)
                 .bg(conduit_components::views::kit::field_fill(&t))
-                .font_family(MONO_FONT)
+                .font_family(mono_font())
                 .text_size(px(m.small))
                 .text_color(r.text)
                 .children(text.lines().map(|line| {
@@ -340,7 +340,7 @@ impl Render for FileSheet {
             .child(
                 div()
                     .text_size(px(m.small))
-                    .font_family(MONO_FONT)
+                    .font_family(mono_font())
                     .text_color(r.text_subtle)
                     .truncate()
                     .child(SharedString::from(self.path.clone())),

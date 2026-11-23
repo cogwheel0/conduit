@@ -9,7 +9,7 @@ use gpui_kit::{
 
 use crate::assets::{IconName, icon};
 use crate::strings::ActiveStrings as _;
-use crate::theme::{ActiveConduitTheme, ToolbarLayout, UI_FONT, with_alpha};
+use crate::theme::{ActiveConduitTheme, ToolbarLayout, ui_font, with_alpha};
 use crate::views::focus::{ControlExt as _, Ring};
 use crate::views::kit::{IconButton, heading};
 use crate::window::{TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, drag_region};
@@ -93,7 +93,7 @@ impl RenderOnce for MainWindowFrame {
             .size_full()
             .flex()
             .flex_row()
-            .font_family(UI_FONT)
+            .font_family(ui_font())
             .text_size(px(t.metrics.body))
             .text_color(r.text)
             .children(sidebar)

@@ -301,8 +301,10 @@ pub fn present_sheet(window: &Window, spec: SheetSpec, cx: &mut App) -> Task<boo
 
 /// Asks `spec` through GPUI's prompt on `window`, started between GPUI
 /// borrows as the AppKit sheet is; resolves with whether the first button
-/// was chosen. A `closer` settles it as Cancel, but GPUI cannot take its
-/// prompt down: it stays up until answered, and that answer is dropped.
+/// was chosen. A `closer` settles it as Cancel, and takes down the app's
+/// own prompt ([`crate::shell::app_prompt`], Windows and Linux). A prompt
+/// the platform draws (the Mac's NSAlert for a window with no NSWindow)
+/// stays up until answered, and that answer is dropped.
 fn ask_in_window(
     window: AnyWindowHandle,
     spec: SheetSpec,
@@ -337,14 +339,22 @@ fn ask_in_window(
             .then(|| {
                 window
                     .update(cx, |_, window, cx| {
-                        window.prompt(level, &spec.title, Some(&spec.message), &buttons, cx)
+                        let before = crate::shell::app_prompt::shown_on(window.window_handle(), cx);
+                        let answer =
+                            window.prompt(level, &spec.title, Some(&spec.message), &buttons, cx);
+                        // Weak: a window closed unanswered drops its prompt,
+                        // and with it the answer's sender (Cancel).
+                        let drawn = crate::shell::app_prompt::shown_on(window.window_handle(), cx)
+                            .filter(|p| Some(p) != before.as_ref())
+                            .map(|p| p.downgrade());
+                        (answer, drawn)
                     })
                     .map_err(|e| log::warn!("sheet {:?} not shown: {e}", spec.title))
                     .ok()
             })
             .flatten();
         let yes = match shown {
-            Some(answer) => {
+            Some((answer, drawn)) => {
                 // Only a close settles it: a closer dropped unused does not.
                 let closed = async {
                     if closed.await.is_err() {
@@ -353,7 +363,12 @@ fn ask_in_window(
                 };
                 let chose = futures::select! {
                     answer = answer.fuse() => answer == Ok(0),
-                    () = closed.fuse() => false,
+                    () = closed.fuse() => {
+                        if let Some(prompt) = drawn.and_then(|p| p.upgrade()) {
+                            cx.update(|cx| prompt.update(cx, |p, cx| p.dismiss(cx)));
+                        }
+                        false
+                    }
                 };
                 // A close settles it at once, though its signal comes later:
                 // an answer that won the race after it is still Cancel.
@@ -425,7 +440,7 @@ mod tests {
     use std::cell::Cell;
 
     use gpui_kit::prelude::*;
-    use gpui_kit::{Context, TestAppContext, VisualTestContext, div};
+    use gpui_kit::{Context, TestAppContext, VisualTestContext, div, px};
 
     use super::*;
 
@@ -434,6 +449,14 @@ mod tests {
     impl Render for Blank {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             div()
+        }
+    }
+
+    struct Focused(gpui_kit::FocusHandle);
+
+    impl Render for Focused {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().track_focus(&self.0)
         }
     }
 
@@ -461,6 +484,208 @@ mod tests {
         vcx.update(|_, cx| cx.spawn(async move |_| seen.set(Some(task.await))).detach());
         vcx.run_until_parked();
         (answer, closer)
+    }
+
+    /// The app's own prompt (Windows and Linux), with the app's Esc bound
+    /// as `menus::bind_keys` binds it: no context, before the prompt's keys.
+    /// The returned count is how often Esc reached Stop Generating instead.
+    fn app_prompts(cx: &mut TestAppContext) -> Rc<Cell<u32>> {
+        cx.update(crate::views::test_globals);
+        let stops = Rc::new(Cell::new(0));
+        let seen = stops.clone();
+        cx.update(|cx| {
+            crate::shell::app_prompt::install(cx);
+            cx.bind_keys([gpui_kit::KeyBinding::new(
+                "escape",
+                crate::actions::StopGenerating,
+                None,
+            )]);
+            cx.bind_keys(crate::shell::app_prompt::bindings());
+            cx.on_action(move |_: &crate::actions::StopGenerating, _| seen.set(seen.get() + 1));
+        });
+        stops
+    }
+
+    fn prompt_up(vcx: &mut VisualTestContext) -> bool {
+        vcx.update(|window, _| window.has_active_prompt())
+    }
+
+    /// Off the Mac the app draws the question itself: the confirm button
+    /// has the keyboard, Tab and Shift-Tab move between the buttons and
+    /// stay in the prompt, Return and Space answer the focused one, Esc
+    /// answers Cancel (a notice's only button) and goes nowhere else.
+    #[gpui_kit::test]
+    fn an_app_prompt_answers_from_the_keyboard(cx: &mut TestAppContext) {
+        let stops = app_prompts(cx);
+        let (_, vcx) = cx.add_window_view(|_, _| Blank);
+        for (keys, yes) in [
+            ("enter", true),
+            ("space", true),
+            ("escape", false),
+            ("tab enter", false),
+            ("tab tab enter", true),
+            ("shift-tab enter", false),
+            ("right space", false),
+        ] {
+            let (answer, _) = ask(vcx, false);
+            assert!(prompt_up(vcx), "{keys}: not drawn");
+            assert_eq!(answer.get(), None, "{keys}: answered before a key");
+            vcx.simulate_keystrokes(keys);
+            vcx.run_until_parked();
+            assert_eq!(answer.get(), Some(yes), "{keys}");
+            assert!(!prompt_up(vcx), "{keys}: still drawn");
+        }
+        assert_eq!(stops.get(), 0, "Esc went past the prompt");
+
+        // A notice has one button, which Return and Esc both answer.
+        let answer = Rc::new(Cell::new(None));
+        let seen = answer.clone();
+        vcx.update(|window, cx| {
+            let task = present_sheet(
+                window,
+                SheetSpec::notice("Name taken", "Pick another name.", "OK"),
+                cx,
+            );
+            cx.spawn(async move |_| seen.set(Some(task.await))).detach();
+        });
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("escape");
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(true));
+        assert!(!prompt_up(vcx));
+    }
+
+    /// While a question is up, the app's chords act on nothing behind it:
+    /// Ctrl+Shift+Enter doesn't allow a waiting tool request (off the Mac;
+    /// the Mac's sheets are AppKit's).
+    #[gpui_kit::test]
+    fn a_prompt_keeps_the_apps_chords_from_what_it_covers(cx: &mut TestAppContext) {
+        app_prompts(cx);
+        let allowed = Rc::new(Cell::new(0));
+        let seen = allowed.clone();
+        cx.update(|cx| {
+            use crate::keymap::{KeyOs, Keymap, app_chords};
+            // As `menus::bind_keys` binds them off the Mac.
+            cx.bind_keys([gpui_kit::KeyBinding::new(
+                "ctrl-shift-enter",
+                crate::actions::AllowRequest,
+                None,
+            )]);
+            cx.on_action(move |_: &crate::actions::AllowRequest, _| seen.set(seen.get() + 1));
+            let chords = app_chords(&Keymap::default(), None, KeyOs::Linux);
+            let guard = crate::shell::app_prompt::guard_bindings(&chords, KeyOs::Linux, cx);
+            cx.bind_keys(guard);
+        });
+        // A focused view behind, as the main window has (with nothing
+        // focused, no key reaches any handler).
+        let (behind, vcx) = cx.add_window_view(|_, cx| Focused(cx.focus_handle()));
+        vcx.update(|window, cx| {
+            let focus = behind.read(cx).0.clone();
+            window.focus(&focus, cx);
+        });
+        let (answer, _) = ask(vcx, false);
+        vcx.simulate_keystrokes("ctrl-shift-enter");
+        vcx.run_until_parked();
+        assert_eq!(allowed.get(), 0, "allowed the request behind the question");
+        assert!(prompt_up(vcx));
+        vcx.simulate_keystrokes("escape");
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(false));
+        // With no question up, the chord allows.
+        vcx.simulate_keystrokes("ctrl-shift-enter");
+        vcx.run_until_parked();
+        assert_eq!(allowed.get(), 1);
+    }
+
+    /// A message longer than the window scrolls inside the prompt: the
+    /// buttons stay in the window and answer, and the keys scroll it.
+    #[gpui_kit::test]
+    fn a_long_message_scrolls_and_the_buttons_stay_in_view(cx: &mut TestAppContext) {
+        app_prompts(cx);
+        let (_, vcx) = cx.add_window_view(|_, _| Blank);
+        let height = px(320.);
+        vcx.simulate_resize(gpui_kit::size(px(480.), height));
+        let answer = Rc::new(Cell::new(None));
+        let seen = answer.clone();
+        vcx.update(|window, cx| {
+            let detail = "A synthetic sentence that makes the message long. ".repeat(80);
+            let spec = SheetSpec::new("Clear the synthetic data?", detail, "Clear", "Cancel");
+            let task = present_sheet(window, spec, cx);
+            cx.spawn(async move |_| seen.set(Some(task.await))).detach();
+        });
+        vcx.run_until_parked();
+        let bounds = |vcx: &mut VisualTestContext, selector| {
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            vcx.debug_bounds(selector)
+                .unwrap_or_else(|| panic!("{selector} not drawn"))
+        };
+        let buttons = bounds(vcx, "prompt-buttons");
+        assert!(
+            buttons.bottom() <= height,
+            "the buttons end at {:?}, below the window",
+            buttons.bottom()
+        );
+        let message = bounds(vcx, "prompt-message");
+        assert!(message.top() >= px(0.) && message.bottom() <= buttons.top());
+        let top = |vcx: &mut VisualTestContext| {
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            vcx.debug_bounds("prompt-detail").map(|b| b.top())
+        };
+        let before = top(vcx);
+        vcx.simulate_keystrokes("pagedown");
+        vcx.run_until_parked();
+        assert!(top(vcx) < before, "Page Down scrolls the message");
+        vcx.simulate_keystrokes("enter");
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(true));
+    }
+
+    /// A window closed with the question unanswered settles it as Cancel,
+    /// so nothing waits on it for good.
+    #[gpui_kit::test]
+    fn a_window_closed_unanswered_settles_its_question(cx: &mut TestAppContext) {
+        app_prompts(cx);
+        let (_, vcx) = cx.add_window_view(|_, _| Blank);
+        let (answer, _closer) = ask(vcx, true);
+        assert!(prompt_up(vcx));
+        vcx.update(|window, _| window.remove_window());
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(false));
+    }
+
+    /// A question settled somewhere else (an account change) is taken down
+    /// at once, as Cancel, and the next question is asked and answered.
+    #[gpui_kit::test]
+    fn an_app_prompt_settled_elsewhere_is_taken_down(cx: &mut TestAppContext) {
+        app_prompts(cx);
+        let (_, vcx) = cx.add_window_view(|_, _| Blank);
+        let (answer, closer) = ask(vcx, true);
+        assert!(prompt_up(vcx));
+        vcx.update(|_, cx| closer.unwrap().close(cx));
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(false));
+        assert!(!prompt_up(vcx), "still drawn after the close");
+
+        let (answer, _) = ask(vcx, false);
+        assert!(prompt_up(vcx));
+        vcx.simulate_keystrokes("enter");
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(true));
+
+        // Closed before it could be drawn: never drawn.
+        let (answer, closer) = vcx.update(|window, cx| {
+            let spec = SheetSpec::new("Sign out?", "", "Sign Out", "Cancel");
+            let (task, closer) = present_sheet_closable(window, spec, cx);
+            closer.close(cx);
+            let answer = Rc::new(Cell::new(None));
+            let seen = answer.clone();
+            cx.spawn(async move |_| seen.set(Some(task.await))).detach();
+            (answer, closer)
+        });
+        vcx.run_until_parked();
+        assert!(closer.is_closed());
+        assert_eq!(answer.get(), Some(false));
+        assert!(!prompt_up(vcx));
     }
 
     /// With no native sheet to attach it to (Windows and Linux, or a window

@@ -8,7 +8,7 @@ use gpui_kit::{
 
 use crate::assets::{IconName, icon};
 use crate::strings::ActiveStrings as _;
-use crate::theme::{ActiveConduitTheme, ConduitTheme, MONO_FONT, with_alpha};
+use crate::theme::{ActiveConduitTheme, ConduitTheme, mono_font, with_alpha};
 use crate::views::markdown::CodeBlock;
 use crate::views::model::{RunStatus, Source};
 
@@ -189,7 +189,7 @@ fn mono_box(label: &str, content: &SharedString, t: &ConduitTheme) -> Div {
                 .bg(crate::theme::composite(r.raised, t.surfaces.panel))
                 .border_1()
                 .border_color(r.border)
-                .font_family(MONO_FONT)
+                .font_family(mono_font())
                 .text_size(px(t.metrics.code - 0.5))
                 .line_height(relative(1.5))
                 .text_color(r.text)

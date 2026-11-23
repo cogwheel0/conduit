@@ -791,7 +791,11 @@ impl EditorElement {
             {
                 return;
             }
-            let (clicks, shift, cmd) = (e.click_count, e.modifiers.shift, e.modifiers.platform);
+            let (clicks, shift, cmd) = (
+                e.click_count,
+                e.modifiers.shift,
+                crate::keymap::held(&e.modifiers).primary,
+            );
             editor.update(cx, |ed, cx| {
                 ed.mouse_down(e.position, clicks, shift, cmd, window, cx)
             });
