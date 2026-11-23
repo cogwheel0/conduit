@@ -618,17 +618,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     }
 
     try {
-      List<Model> models;
-      final modelsAsync = container.read(modelsProvider);
-      if (modelsAsync.hasValue) {
-        models = modelsAsync.value!;
-      } else {
-        models = await container.read(modelsProvider.future);
-      }
-      if (models.isEmpty) {
-        return false;
-      }
-      container.read(selectedModelProvider.notifier).set(models.first);
+      final model = await modelForUnpickedSend(container.read);
+      if (model == null) return false;
+      container.read(selectedModelProvider.notifier).set(model);
       return true;
     } catch (_) {
       return false;

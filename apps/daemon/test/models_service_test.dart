@@ -18,6 +18,10 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show libreChatCatalog;
+import 'package:conduit_core/features/librechat/providers/librechat_model_providers.dart'
+    show libreChatModelCatalogProvider;
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
     show terminalAgentModelFromJson;
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
@@ -35,11 +39,15 @@ import 'package:conduit_core/models/model_controls.dart'
     show ModelControlChoices;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show primaryAccountKindProvider;
 import 'package:conduit_core/providers/primary_account_providers.dart'
     show PrimaryAccountKind, PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/settings_service.dart'
+    show AppSettings, AppSettingsNotifier, appSettingsProvider;
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart' hide ReviewerMode;
 import 'package:conduitd/conduitd.dart';
@@ -92,6 +100,30 @@ final class _OnDevices extends Models {
       'service': 'garage_lab',
     }),
     const core.Model(id: 'first-model', name: 'First model'),
+  ];
+}
+
+/// App settings naming [id] as the default model.
+final class _DefaultModel extends AppSettingsNotifier {
+  _DefaultModel(this.id);
+
+  final String id;
+
+  @override
+  AppSettings build() => AppSettings(defaultModel: id);
+}
+
+/// [first], then LibreChat's models once its catalog arrives: listed
+/// meanwhile without waiting for it, as the core's list is.
+final class _BesideLibreChat extends Models {
+  _BesideLibreChat(this.first);
+
+  final List<core.Model> first;
+
+  @override
+  Future<List<core.Model>> build() async => [
+    ...first,
+    ...?ref.watch(libreChatModelCatalogProvider).value,
   ];
 }
 
@@ -1512,6 +1544,82 @@ void main() {
 
     expect(list.models, hasLength(2));
     expect(list.selectedId, isNull);
+  });
+
+  test('with LibreChat in charge and nothing chosen, a turn takes '
+      "LibreChat's first model, once its catalog arrives", () async {
+    final libreChatModels = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'Sample': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'Sample': <String>['sample-model'],
+      },
+    );
+    final catalog = Completer<List<core.Model>>();
+    final container = ProviderContainer(
+      overrides: [
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        libreChatModelCatalogProvider.overrideWith((ref) => catalog.future),
+        // Listed meanwhile: usable, but not LibreChat's.
+        modelsProvider.overrideWith(() => _BesideLibreChat(const [_cached])),
+        defaultModelProvider.overrideWith(
+          (ref) async => throw StateError('settings unavailable'),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(modelsProvider, (_, _) {});
+    await container.read(modelsProvider.future);
+
+    // Asked while the catalog is still on its way, as mobile's send waits
+    // for it.
+    final picking = ModelsService(container).modelFor(null);
+    await pumpEventQueue();
+    catalog.complete(libreChatModels);
+    check(await picking).equals(libreChatModels.single.id);
+  });
+
+  test('with LibreChat in charge, a default that names one of its models '
+      'wins once the catalog arrives', () async {
+    final libreChatModels = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'Sample': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'Sample': <String>['sample-model', 'chosen-model'],
+      },
+    );
+    final chosen = libreChatModels.last;
+    final catalog = Completer<List<core.Model>>();
+    final container = ProviderContainer(
+      overrides: [
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        openWebUiAccountAvailableProvider.overrideWithValue(false),
+        appSettingsProvider.overrideWith(() => _DefaultModel(chosen.id)),
+        libreChatModelCatalogProvider.overrideWith((ref) => catalog.future),
+        modelsProvider.overrideWith(() => _BesideLibreChat(const [_cached])),
+        defaultModelProvider.overrideWith(
+          (ref) async => throw StateError('settings unavailable'),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(modelsProvider, (_, _) {});
+    await container.read(modelsProvider.future);
+
+    final picking = ModelsService(container).modelFor(null);
+    await pumpEventQueue();
+    catalog.complete(libreChatModels);
+    check(await picking).equals(chosen.id);
   });
 
   test(

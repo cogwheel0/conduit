@@ -15,6 +15,10 @@ import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show terminalDisplayFileProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart'
+    show selectedToolIdsProvider;
+import 'package:conduit_core/providers/app_providers.dart'
+    show modelsProvider, selectedModelProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:conduitd/src/chat_prompts_service.dart';
@@ -38,15 +42,41 @@ void main() {
   late UiRequestsService ui;
   late ChatPromptsService prompts;
   late String model;
+  late String otherModel;
   final windows = <String, List<EventEnvelope>>{};
   final previousLinger = TurnsService.lingerAfterTurn;
 
   List<EventEnvelope> window(String id) =>
       windows.putIfAbsent(id, () => <EventEnvelope>[]);
 
+  final hearing =
+      <(String, bool Function(EventEnvelope), Completer<EventEnvelope>)>[];
+
   void open(String id) {
     window(id);
-    events.attach(id, (envelope) => window(id).add(envelope));
+    events.attach(id, (envelope) {
+      window(id).add(envelope);
+      hearing.removeWhere((waiter) {
+        final (windowId, test, heard) = waiter;
+        if (windowId != id || !test(envelope)) return false;
+        heard.complete(envelope);
+        return true;
+      });
+    });
+  }
+
+  /// The first event [windowId] heard since its [from]th, or hears next,
+  /// that [test] takes.
+  Future<EventEnvelope> heard(
+    String windowId,
+    bool Function(EventEnvelope) test, {
+    int from = 0,
+  }) {
+    final already = window(windowId).skip(from).where(test).firstOrNull;
+    if (already != null) return Future<EventEnvelope>.value(already);
+    final heard = Completer<EventEnvelope>();
+    hearing.add((windowId, test, heard));
+    return heard.future;
   }
 
   Iterable<EventEnvelope> of(String windowId, String event) =>
@@ -85,10 +115,14 @@ void main() {
         name: 'Scripted',
         kind: DirectKind.openai,
         baseUrl: provider.baseUrl,
-        manualModelIds: const <String>['scripted-model'],
+        manualModelIds: const <String>['scripted-model', 'other-model'],
       ),
     );
     model = DirectModelId.encode(saved.connections.single.id, 'scripted-model');
+    otherModel = DirectModelId.encode(
+      saved.connections.single.id,
+      'other-model',
+    );
     events = EventBus();
     ui = UiRequestsService(events);
     prompts = ChatPromptsService(events);
@@ -369,6 +403,61 @@ void main() {
     // The first answer is still reachable, as another version: a direct
     // chat keeps it on the answer's versions, as mobile does.
     expect(answer.versions, isNotEmpty);
+  });
+
+  test('regenerate and edit run on the model selected now, keeping the '
+      "chat's tools", () async {
+    open('selected');
+    // Over once `turn.finished` says so: the chat takes another turn then.
+    // A direct chat's regenerated answer keeps its id, so only what was
+    // heard since [from] counts.
+    Future<void> answered(String messageId, int from) => heard(
+      'selected',
+      (envelope) =>
+          envelope.event == ConduitEvents.turnFinished &&
+          envelope.payload['messageId'] == messageId,
+      from: from,
+    );
+    int heardSoFar() => window('selected').length;
+    final firstAsked = provider.asked('pick again');
+    final first = await turns.send(
+      SendTurn(model: model, text: 'pick again', toolIds: ['sample-tool']),
+    );
+    subscribeWindow(events, turns, 'selected', <String>[first.chatId]);
+    expect((await firstAsked)['model'], 'scripted-model');
+    await answered(first.assistantMessageId, 0);
+    // Kept open, as a window keeps the chat it shows: the tools are the
+    // chat's, not the turn's.
+    await turns.holdScope(first.chatId);
+    addTearDown(() => turns.releaseScope(first.chatId));
+    final listed = await runtime.container.read(modelsProvider.future);
+    final selection = runtime.container.read(selectedModelProvider.notifier);
+    final previous = runtime.container.read(selectedModelProvider);
+    selection.set(listed.firstWhere((m) => m.id == otherModel));
+    addTearDown(() => selection.set(previous));
+
+    final regenerateAsked = provider.asked('pick again');
+    final beforeRegenerate = heardSoFar();
+    final again = await turns.regenerate(
+      RegenerateTurn(chatId: first.chatId, messageId: first.assistantMessageId),
+    );
+    final scope = turns.scopeOf(first.chatId)!;
+    expect(scope.read(selectedToolIdsProvider), <String>['sample-tool']);
+    expect((await regenerateAsked)['model'], 'other-model');
+    await answered(again.assistantMessageId, beforeRegenerate);
+
+    final editAsked = provider.asked('pick once more');
+    final beforeEdit = heardSoFar();
+    final edited = await turns.edit(
+      EditTurn(
+        chatId: first.chatId,
+        messageId: first.userMessageId,
+        text: 'pick once more',
+      ),
+    );
+    expect(scope.read(selectedToolIdsProvider), <String>['sample-tool']);
+    expect((await editAsked)['model'], 'other-model');
+    await answered(edited.assistantMessageId, beforeEdit);
   });
 
   test('regenerate and edit refuse what they cannot act on', () async {

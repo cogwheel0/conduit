@@ -49,29 +49,38 @@ String _modelBackendForDiagnostics(Model? model) {
   return 'openwebui';
 }
 
-/// The model a send takes when none is picked: the first listed, once the
-/// models load. With LibreChat in charge, the first of LibreChat's once its
-/// catalog arrives: the others listed meanwhile (Direct, Hermes) are not the
-/// user's choice. Null when there is none to take.
+/// The model a send takes when none is picked, once the models load (see
+/// [unpickedSendModelAmong]). With LibreChat in charge, it waits for
+/// LibreChat's catalog. Null when there is none to take.
 Future<Model?> modelForUnpickedSend(
   T Function<T>(ProviderListenable<T> provider) read,
 ) async {
-  if (read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+  final primary = read(primaryAccountKindProvider);
+  if (primary == PrimaryAccountKind.libreChat) {
     try {
       await read(libreChatModelCatalogProvider.future);
     } catch (_) {
       // A refresh that failed keeps the models it last listed: one of
       // those is taken, when there are any.
     }
-    final models = await read(modelsProvider.future);
-    return models.where(isLibreChatModel).firstOrNull;
+    return unpickedSendModelAmong(await read(modelsProvider.future), primary);
   }
   final listed = read(modelsProvider);
   final models = listed.hasValue
       ? listed.value!
       : await read(modelsProvider.future);
-  return models.firstOrNull;
+  return unpickedSendModelAmong(models, primary);
 }
+
+/// Among [models], the one a send takes when none is picked: the first. With
+/// LibreChat in charge ([primary]), the first of LibreChat's: the others
+/// listed meanwhile (Direct, Hermes) are not the user's choice.
+Model? unpickedSendModelAmong(
+  Iterable<Model> models,
+  PrimaryAccountKind primary,
+) => primary == PrimaryAccountKind.libreChat
+    ? models.where(isLibreChatModel).firstOrNull
+    : models.firstOrNull;
 
 @Riverpod(keepAlive: true)
 class Models extends _$Models {

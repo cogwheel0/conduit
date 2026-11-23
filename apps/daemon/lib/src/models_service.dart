@@ -38,6 +38,10 @@ import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/persistence/account_scoped_preferences.dart'
     show currentPreferenceAccountId;
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show primaryAccountKindProvider;
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountKind;
 import 'package:conduit_core/services/settings_service.dart'
     show appSettingsProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -455,10 +459,15 @@ final class ModelsService {
     // actually use is worse than showing none. The list only reports what
     // the terminal offers: it never decides the selection (the window keeps
     // each chat's own pick), so nothing is added to it for the selection.
-    final current = await currentModel(_container);
     if (chatId == null) {
       await _checkNewChat(account, temporary: query.temporary);
     }
+    // Read after the waits above, so a selection made meanwhile is the one
+    // answered; an agent selected for another chat is never this one's.
+    final current = await currentModel(_container);
+    final fallback = current != null && isTerminalAgentModel(current)
+        ? await _regularDefault(models)
+        : current;
     // Checked right before the answer is put together, after its last
     // wait: the account it was asked for, and the terminal its agents came
     // from, are still the ones in charge.
@@ -476,9 +485,7 @@ final class ModelsService {
     final agentPick = pick != null && isTerminalAgentModel(pick);
     final selected = pick != null && !(agentPick && query.temporary)
         ? pick
-        : current != null && isTerminalAgentModel(current)
-        ? _regularDefault(models)
-        : current;
+        : fallback;
     final selectedId = selected?.id;
     final found2 = _container.read(selectedTerminalIdProvider) == terminal
         ? found.agents
@@ -937,7 +944,8 @@ final class ModelsService {
     if (current != null && !isTerminalAgentModel(current)) return current.id;
     final models = await _models();
     account.require('the model in use is read');
-    final regular = _regularDefault(models);
+    final regular = await _regularDefault(models);
+    account.require('the model in use is read');
     if (regular == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
@@ -948,17 +956,34 @@ final class ModelsService {
   }
 
   /// The account's default model among [models]' regular ones, else the
-  /// first of them: for a chat with no pick while the account's selection is
-  /// another chat's coding agent (or none). Never a coding agent.
-  core.Model? _regularDefault(List<core.Model> models) {
+  /// one the core takes with none picked: for a chat with no pick while the
+  /// account's selection is another chat's coding agent (or none). Never a
+  /// coding agent.
+  Future<core.Model?> _regularDefault(List<core.Model> models) async {
     String? id;
     try {
       id = _defaultModelId();
     } on Object {
-      // No default to read: the first model.
+      // No default to read: the core's choice.
     }
-    final regular = models.where((m) => !isTerminalAgentModel(m));
-    return regular.where((m) => m.id == id).firstOrNull ?? regular.firstOrNull;
+    final primary = _container.read(primaryAccountKindProvider);
+    core.Model? among(List<core.Model> models) {
+      final regular = models.where((m) => !isTerminalAgentModel(m));
+      return regular.where((m) => m.id == id).firstOrNull ??
+          unpickedSendModelAmong(regular, primary);
+    }
+
+    final now = among(models);
+    if (now != null || primary != PrimaryAccountKind.libreChat) return now;
+    // LibreChat's catalog may still be on its way (the list does not wait
+    // for it): a send waits for it, as mobile's does, then takes the same
+    // order from the list that has it (the default first).
+    try {
+      await modelForUnpickedSend(_container.read);
+      return among(await _models());
+    } on Object {
+      return null;
+    }
   }
 
   /// [agent] for the next turns, on its own terminal (picking an agent

@@ -104,8 +104,9 @@ abstract class RegenerateTurn with _$RegenerateTurn {
     required String chatId,
     required String messageId,
 
-    /// Null keeps the model the conversation is already using. Passing one
-    /// is how "try this again with a better model" works.
+    /// Null runs on the model the chat has selected now, as a send that
+    /// names none does. Passing one is how "try this again with a better
+    /// model" works.
     String? model,
 
     /// Retry Without Reasoning Effort: the reasoning effort the chat saved
