@@ -99,8 +99,8 @@ bundle ([Apple Development test builds](#apple-development-test-builds)).
 
 ### Windows and Linux (phase 1, dev builds only)
 
-Conduit Desktop builds and runs from a checkout on Windows and Linux too,
-with no package yet:
+Conduit Desktop builds and runs from a checkout on Windows and Linux too
+(packages: [Build the Windows and Linux packages locally](#build-the-windows-and-linux-packages-locally)):
 
 ```sh
 crates/app/run.sh                            # Linux: the binary itself, no bundle
@@ -374,6 +374,98 @@ identities refuse it.
 
 Without `CONDUIT_SIGN_IDENTITY` the bundle is signed ad hoc: it runs on the
 Mac that built it, and Gatekeeper (`spctl`) rejects it anywhere else.
+
+## Build the Windows and Linux packages locally
+
+Windows gets a per-user installer (Inno Setup) and Linux a `.deb` and an
+`.rpm` (nfpm), all x64 and unsigned for now. CI builds them as a rehearsal
+on the same paths as the Mac bundle (`Windows installer (rehearsal)`,
+`Linux packages (rehearsal)`), keeps them as workflow artifacts (never a
+release), and installs them on fresh runners (`Windows install smoke`,
+`Linux install smoke`). They don't update themselves yet.
+
+```powershell
+desktop\packaging\windows\build.ps1                  # version 0.0.0
+desktop\packaging\windows\build.ps1 -Version 1.2.0
+desktop\packaging\windows\smoke.ps1 -Installer desktop\target\windows\Conduit-1.2.0\Conduit-1.2.0-windows-x64-setup.exe
+```
+
+```sh
+desktop/packaging/linux/package.sh                   # version 0.0.0
+desktop/packaging/linux/package.sh --version 1.2.0
+desktop/packaging/linux/smoke.sh desktop/target/linux/Conduit-1.2.0/conduit-desktop_1.2.0-1_amd64.deb
+```
+
+Each builds the app in release mode without the test harness
+(`CONDUIT_VERSION` set) and conduitd with `dart build cli`, stages the
+install folder, the app with `conduitd/bin/conduitd[.exe]` and its SQLite
+beside it (what `paths::packaged_daemon_for` looks for, so the installed
+app runs in the production flavour) and the model logo catalog, checks it
+(`packaging/winlinux.py layout`: complete, no test harness, and on Windows
+no DLL of a C/C++ runtime Windows lacks), then packages it. Output goes to
+`desktop/target/windows/Conduit-<version>/` and
+`desktop/target/linux/Conduit-<version>/`, with the staged folder in
+`stage/`; a second run moves the previous folder aside. `-SkipRust`,
+`-SkipDaemon` / `--skip-rust`, `--skip-daemon` reuse earlier builds. The
+version follows the Mac's rule (`X.Y.Z`; see
+[Versions and build numbers](#versions-and-build-numbers)); Windows' file
+version is `X.Y.Z.0`.
+
+**Windows** (`build.ps1`, PowerShell 7.4; Rust with MSVC, Flutter/Dart and
+Python 3): the app is linked with the C runtime in (`+crt-static`), so it
+needs no Visual C++ Redistributable. `ISCC` names an Inno Setup compiler to
+use; without it the script downloads the Inno Setup that
+`packaging/windows/tools.env` pins, checks its SHA-256 and installs it into
+`desktop/target/inno/<version>/`. `conduit.iss` installs, per user with no
+administrator, into `%LOCALAPPDATA%\Programs\Conduit`:
+
+- the app with `conduitd\` beside it, a Start menu entry (and a desktop
+  one if chosen);
+- under `HKCU\Software\Classes`: `conduit://`, and Open With for the
+  Mac's document types (`OpenWithProgids`, `Applications\conduit-desktop.exe\SupportedTypes`),
+  never as their default app;
+- Windows' Restart Manager closes a running Conduit and its conduitd
+  before files are replaced;
+- uninstalling removes all of that and keeps the user's data
+  (`%LOCALAPPDATA%\Conduit`, the key in Credential Manager).
+
+Its AppId (`AppGuid` in `conduit.iss`) must never change. The wizard's text
+is Inno Setup's own, in its translations of the app's languages (Chinese
+has none and gets English).
+
+**Linux** (`package.sh`, on Linux x86_64: Rust, Flutter/Dart, python3,
+`readelf` and `dpkg-shlibdeps` from dpkg-dev, and the build libraries
+above): nfpm is `NFPM`, or the version `packaging/linux/tools.env` pins,
+downloaded into `desktop/target/nfpm/<version>/` and checked. The packages
+install `/usr/lib/conduit/` (the app with `conduitd/` beside it),
+`/usr/bin/conduit-desktop` (a link), the desktop entry
+`/usr/share/applications/conduit-desktop.desktop` (`conduit://` and the
+Mac's document types as MIME types, `Exec=… %U`) and hicolor icons; removing
+them keeps the user's data. Their dependencies come from the binaries: the
+`.deb`'s from `dpkg-shlibdeps`, so build on the oldest release to support
+(CI: Ubuntu 22.04, glibc 2.35), and the `.rpm`'s as sonames and glibc
+symbol versions, which any rpm distribution resolves. The renderer loads
+Vulkan or EGL at run time (recommended, not required); the master key goes
+to the Secret Service, or the opt-in key file.
+
+`smoke.ps1` and `smoke.sh` install the package for the current user (or
+into `/usr`), check what it installed and registered, run the installed
+app's `--smoke` pass (on Linux under Xvfb with GNOME Keyring unlocked on a
+session bus of its own), check no conduitd is left, and uninstall,
+checking nothing is left but the user's data; `smoke.ps1` also installs
+over the running app. `smoke.sh --container PACKAGE` checks a package in a
+clean distribution container: its dependencies resolve every library and
+the app starts. Run them only on a machine meant for it (CI, a test VM).
+
+`packaging/winlinux_test.py` tests the helper; `winlinux-icons.sh` remakes
+`windows/conduit.ico` and `linux/icons/` from `assets/icons/icon.png` (on a
+Mac, with sips).
+
+**Unsigned installers.** Until Windows signing is set up, SmartScreen stops
+the installer on first run ("Windows protected your PC", publisher
+unknown), and Smart App Control, where it's on, blocks it outright. Release
+notes for an unsigned build say so: choose **More info**, then **Run
+anyway**, and check the download against the release's SHA-256 first.
 
 ## Privacy prompts
 
