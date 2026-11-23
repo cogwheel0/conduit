@@ -19,6 +19,8 @@ final class DaemonOpenUrlPort implements OpenExternalUrlPort {
 
   void attach(EventBus events) => _events = events;
 
+  void detach() => _events = null;
+
   @override
   Future<bool> open(Uri url) async {
     final events = _events;

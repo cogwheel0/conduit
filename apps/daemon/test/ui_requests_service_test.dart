@@ -8,7 +8,6 @@ import 'package:conduit_core/features/hermes/services/hermes_backend_service.dar
 import 'package:conduit_core/ports/ui_request_port.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
-import 'package:conduitd/src/ports/ui_requests.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 

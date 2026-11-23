@@ -284,6 +284,34 @@ void main() {
       check(server.modelIds).deepEquals(['nova-new', 'nova-new']);
     });
 
+    test(
+      'an attach still out when the service stops leaves no handle',
+      () async {
+        server.moreTerminals.add(_perModel);
+        final terminals = TerminalsService(
+          container,
+          modelFor: (chatId) async => 'nova-chat',
+        );
+        server.perModelConfigHold = Completer<void>();
+
+        final attaching = terminals.attach(
+          const TerminalAttach(
+            serverId: 'per-model',
+            scopeId: 'chat-lighthouse',
+          ),
+        );
+        await server.perModelConfigAsked.future;
+        await terminals.dispose();
+        server.perModelConfigHold!.complete();
+
+        await check(attaching).throws<RpcError>(
+          (e) => e
+              .has((e) => e.code, 'code')
+              .equals(ConduitErrorCodes.daemonUnavailable),
+        );
+      },
+    );
+
     test('is not offered where no model can run', () async {
       server.moreTerminals.add(_perModel);
       final terminals = TerminalsService(
@@ -559,6 +587,8 @@ final class _GatedServer {
   final Completer<void> settingsAsked = Completer<void>();
   Completer<void>? sessionHold;
   Completer<void>? settingsHold;
+  final Completer<void> perModelConfigAsked = Completer<void>();
+  Completer<void>? perModelConfigHold;
 
   final HttpServer _server;
   final Completer<void> refusedSocket = Completer<void>();
@@ -627,6 +657,10 @@ final class _GatedServer {
     const perModel = '/api/v1/terminals/per-model/';
     if (path.startsWith(perModel)) {
       modelIds.add(request.headers.value('x-terminal-model-id'));
+      if (path.endsWith('/api/config')) {
+        if (!perModelConfigAsked.isCompleted) perModelConfigAsked.complete();
+        await perModelConfigHold?.future;
+      }
       response.headers.contentType = ContentType.json;
       response.write(
         jsonEncode(switch (path.substring(perModel.length)) {

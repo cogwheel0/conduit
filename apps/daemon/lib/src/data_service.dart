@@ -24,7 +24,7 @@ import 'settled.dart';
 final class DataService {
   DataService(this._container, {EventBus? events}) : _events = events {
     if (events != null) {
-      _container.listen<SocketService?>(
+      _socket = _container.listen<SocketService?>(
         socketServiceProvider,
         (_, next) => _follow(next),
         fireImmediately: true,
@@ -35,6 +35,7 @@ final class DataService {
   final ProviderContainer _container;
   final EventBus? _events;
   StreamSubscription<SocketHealth>? _health;
+  ProviderSubscription<SocketService?>? _socket;
 
   /// The chats only on this computer that each window's last summary
   /// counted, with the account it counted them for: a delete all refuses to
@@ -57,7 +58,11 @@ final class DataService {
     );
   }
 
-  Future<void> dispose() async => _health?.cancel();
+  Future<void> dispose() async {
+    _socket?.close();
+    _socket = null;
+    await _health?.cancel();
+  }
 
   ChatDataControlsOwner? _owner() => captureChatDataControlsOwner(_container);
 

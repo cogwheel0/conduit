@@ -159,6 +159,15 @@ final class RecordingsService {
     }
   }
 
+  /// Closes what every window left recording, as each window's closing
+  /// would ([closeOwnedBy]): the services are going first.
+  Future<void> closeAll() async {
+    for (final id in _open.keys.toList()) {
+      final open = _open.remove(id);
+      if (open != null) await _close(id, open);
+    }
+  }
+
   Future<RecordingList> discard(RecordingRef ref) async {
     final context = await _drafts.contextFor(ref.chatId, ref.folderId);
     final store = context.store;

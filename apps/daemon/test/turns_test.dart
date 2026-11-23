@@ -21,7 +21,6 @@ import 'package:conduit_core/providers/app_providers.dart'
     show modelsProvider, selectedModelProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
-import 'package:conduitd/src/chat_prompts_service.dart';
 import 'package:test/test.dart';
 
 import 'support/runtime.dart';

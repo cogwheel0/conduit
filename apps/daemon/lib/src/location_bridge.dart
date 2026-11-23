@@ -40,6 +40,9 @@ final class WindowLocationBridge implements LocationPort {
 
   void bind(EventBus events) => _events = events;
 
+  /// Back to no window: requests fall back as before [bind].
+  void unbind() => _events = null;
+
   /// The window's answer to a command.
   void report(LocationReport report) {
     final waiting = _pending.remove(report.id);

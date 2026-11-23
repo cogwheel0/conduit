@@ -299,6 +299,13 @@ final class AppleModelsBridge implements ApplePccHost {
 
   void bind(EventBus events) => _events = events;
 
+  /// Back to no window and no service: what [bind] and the service set.
+  void unbind() {
+    _events = null;
+    _onReady = null;
+    _onRecheck = null;
+  }
+
   @override
   void attach(ApplePccHostListener listener) => _listener = listener;
 

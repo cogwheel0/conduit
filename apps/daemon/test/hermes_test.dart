@@ -27,7 +27,6 @@ import 'package:conduit_core/providers/app_providers.dart'
         serverConfigsProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
-import 'package:conduitd/src/ports/ui_requests.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_hermes_server.dart';
