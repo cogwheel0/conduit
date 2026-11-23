@@ -12,6 +12,10 @@
 //      package:web. If it can reach dio, drift or conduit_core, then "logic
 //      lives in the core" stops being enforceable by review alone.
 //
+// The protocol's services serve any host, so they stay off Flutter, as the
+// core does, and never reach back into the desktop daemon that hosts them
+// (`packages/conduit_services`).
+//
 // The third keeps the iOS feature bridges portable between hosts:
 //
 //   3. Swift in ios/Runner is either host-agnostic, and depends on the host
@@ -181,6 +185,16 @@ void main() {
   final violations = <String>[];
 
   violations.addAll(_scanForTransitiveFlutter('packages/conduit_core/lib'));
+  violations.addAll(
+    _scanForTransitiveFlutter('packages/conduit_services/lib'),
+  );
+  violations.addAll(
+    _scan(
+      Directory('packages/conduit_services'),
+      const <String>['package:conduitd/'],
+      'serves any host, so it must not depend on the desktop daemon',
+    ),
+  );
 
   for (final path in _webSafePackages) {
     violations.addAll(

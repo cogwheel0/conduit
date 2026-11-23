@@ -71,7 +71,7 @@ or `desktop/`: those run from the repository root.
 ### Run the dev app
 
 ```sh
-(cd ../apps/daemon && dart build cli)        # conduitd, again after core, daemon or protocol changes
+(cd ../apps/daemon && dart build cli)        # conduitd, again after core, services, daemon or protocol changes
 crates/app/run.sh                            # build and run through a .app wrapper
 crates/app/run.sh --shots /tmp/shots         # the smoke pass: screenshots, then quit
 crates/app/run.sh --build-only               # build the .app, don't run it
@@ -184,8 +184,9 @@ cargo test --workspace --locked
 Some tests open real windows (the AccessKit walks of the gallery, the chat
 view and the shell windows, and the web views' media policy); set
 `CONDUIT_SKIP_UI_TESTS=1` on a machine without a logged-in session. On the
-Dart side, `conduitd` and the protocol have their own suites (`dart test` in
-`apps/daemon` and `packages/conduit_protocol`), and
+Dart side, `conduitd`, the services it hosts and the protocol have their own
+suites (`dart test` in `apps/daemon`, `packages/conduit_services` and
+`packages/conduit_protocol`), and
 `dart run tool/generate_rust.dart --check` in `packages/conduit_protocol`
 fails when `desktop/crates/protocol/src/generated.rs` is stale.
 `dart run tool/check_changed.dart`, from the repository root, runs the fast
@@ -201,8 +202,8 @@ runners are few, so pull requests run less:
   release bundle (and with it the notices check) only when it changes
   what goes into the bundle or how it is made: `desktop/packaging/`,
   `desktop/vendor/`, a `Cargo.toml`, `Cargo.lock`, the toolchain, the
-  whisper library (`apps/daemon/native/`), the daemon's `pubspec.yaml`,
-  `pubspec.lock`, or the desktop workflows.
+  whisper library (`apps/daemon/native/`), the daemon's or the services'
+  `pubspec.yaml`, `pubspec.lock`, or the desktop workflows.
 - A pull request into another pull request's branch (a stacked one) skips
   the macOS jobs: Workspace, the bundle, **Desktop daemon (macOS build +
   smoke)** and **Push Swift core**. They run once it is retargeted onto

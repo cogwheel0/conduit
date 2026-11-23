@@ -13,6 +13,9 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/services/chat_backend_readiness.dart';
+import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
+import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -711,6 +714,8 @@ void main() {
     bind({
       required bool accept,
       required String connectionIdentity,
+      bool activeAnswers = true,
+      bool otherAnswers = false,
     }) async {
       final asked = <String>[];
       late _SwitchableHermesConfig config;
@@ -739,7 +744,13 @@ void main() {
             asked.add(name);
             return accept;
           }),
-          hermesApiServiceProvider.overrideWithValue(service),
+          // Switched to the other saved connection, that one answers when
+          // [otherAnswers]; until then, the active one when [activeAnswers].
+          hermesApiServiceProvider.overrideWith(
+            (ref) => (ref.watch(_switchedProvider) ? otherAnswers : activeAnswers)
+                ? service
+                : null,
+          ),
           selectedModelProvider.overrideWith(_SelectedHermesModel.new),
           reviewerModeProvider.overrideWithValue(false),
           webSearchEnabledProvider.overrideWith(_NoWebSearch.new),
@@ -748,6 +759,8 @@ void main() {
         ],
       );
       container.read(hermesConfigProvider);
+      config.onSwitch ??= () =>
+          container.read(_switchedProvider.notifier).state = true;
       final history = _assistant(
         'bound-assistant',
         metadata: <String, dynamic>{
@@ -813,6 +826,166 @@ void main() {
       check(bound.service.sessionIds).isEmpty();
     });
 
+    // The saved connection that owns the chat's session may answer where the
+    // active one cannot: the switch is offered before the send is refused.
+    test('a send is offered the switch though the active connection cannot '
+        'answer', () async {
+      final bound = await bind(
+        accept: true,
+        connectionIdentity: otherIdentity,
+        activeAnswers: false,
+      );
+      addTearDown(bound.container.dispose);
+
+      try {
+        await durableSend(bound.container, 'for the bound chat', null);
+      } on Object {
+        // What the send meets after the switch is not this test's question.
+      }
+
+      check(bound.asked).deepEquals(<String>['Other agent']);
+      check(bound.config.switchedTo).deepEquals(<String>[otherId]);
+    });
+
+    // Declined, the send stays on the active connection: one that cannot
+    // answer refuses it before anything is written.
+    test('a declined switch on a connection that cannot answer writes '
+        'nothing', () async {
+      final bound = await bind(
+        accept: false,
+        connectionIdentity: otherIdentity,
+        activeAnswers: false,
+      );
+      addTearDown(bound.container.dispose);
+      final before = bound.container.read(chatMessagesProvider);
+
+      await check(
+        durableSend(bound.container, 'for the bound chat', null),
+      ).throws<ChatBackendNotReadyException>();
+
+      check(bound.asked).deepEquals(<String>['Other agent']);
+      check(bound.config.switchedTo).isEmpty();
+      check(bound.container.read(chatMessagesProvider)).deepEquals(before);
+    });
+
+    // A regenerate in an Open WebUI chat runs through that chat, whatever
+    // the composer holds: it is offered no Hermes connection, and is asked
+    // of the chat's server.
+    test('a regenerate is asked of the chat\'s own server', () async {
+      final bound = await bind(
+        accept: true,
+        connectionIdentity: otherIdentity,
+        activeAnswers: false,
+      );
+      addTearDown(bound.container.dispose);
+      final shown = [
+        ChatMessage(
+          id: 'bound-question',
+          role: 'user',
+          content: 'Count the herons',
+          timestamp: DateTime.utc(2026, 11, 2),
+        ),
+        ...bound.container.read(chatMessagesProvider),
+      ];
+      bound.container.read(chatMessagesProvider.notifier).setMessages(shown);
+
+      await check(
+        regenerateHistoricalMessageById(bound.container, 'bound-assistant'),
+      ).throws<ChatBackendNotReadyException>(
+        (it) => it
+            .has((error) => error.reason, 'reason')
+            .equals(ChatBackendNotReady.openWebUiSignedOut),
+      );
+      check(bound.asked).isEmpty();
+      check(bound.container.read(chatMessagesProvider)).deepEquals(shown);
+    });
+
+    // An edit resends through the same offer, before the transcript is cut.
+    group('an edit', () {
+      final question = ChatMessage(
+        id: 'bound-question',
+        role: 'user',
+        content: 'Count the herons',
+        timestamp: DateTime.utc(2026, 11, 2),
+      );
+
+      test('is offered the switch and, accepted, resends on that connection',
+          () async {
+        final bound = await bind(
+          accept: true,
+          connectionIdentity: otherIdentity,
+          activeAnswers: false,
+          otherAnswers: true,
+        );
+        addTearDown(bound.container.dispose);
+        final shown = bound.container.read(chatMessagesProvider);
+        bound.container.read(chatMessagesProvider.notifier).setMessages([
+          question,
+          ...shown,
+        ]);
+
+        try {
+          await resendEditedUserMessage(
+            bound.container,
+            messageId: 'bound-question',
+            newText: 'Count the egrets',
+          );
+        } on Object {
+          // What the run meets after the resend is not this test's question.
+        }
+
+        check(bound.asked).deepEquals(<String>['Other agent']);
+        check(bound.config.switchedTo).deepEquals(<String>[otherId]);
+        check(
+          bound.container.read(chatMessagesProvider).map((m) => m.content),
+        ).contains('Count the egrets');
+      });
+
+      test('unchanged, is offered nothing and does nothing', () async {
+        final bound = await bind(
+          accept: true,
+          connectionIdentity: otherIdentity,
+          activeAnswers: false,
+        );
+        addTearDown(bound.container.dispose);
+        final shown = [question, ...bound.container.read(chatMessagesProvider)];
+        bound.container.read(chatMessagesProvider.notifier).setMessages(shown);
+
+        check(
+          await resendEditedUserMessage(
+            bound.container,
+            messageId: 'bound-question',
+            newText: question.content,
+          ),
+        ).isFalse();
+        check(bound.asked).isEmpty();
+        check(bound.container.read(chatMessagesProvider)).deepEquals(shown);
+      });
+
+      test('declined on a connection that cannot answer, leaves the '
+          'transcript as it was', () async {
+        final bound = await bind(
+          accept: false,
+          connectionIdentity: otherIdentity,
+          activeAnswers: false,
+        );
+        addTearDown(bound.container.dispose);
+        final shown = [question, ...bound.container.read(chatMessagesProvider)];
+        bound.container.read(chatMessagesProvider.notifier).setMessages(shown);
+
+        await check(
+          resendEditedUserMessage(
+            bound.container,
+            messageId: 'bound-question',
+            newText: 'Count the egrets',
+          ),
+        ).throws<ChatBackendNotReadyException>();
+
+        check(bound.asked).deepEquals(<String>['Other agent']);
+        check(bound.container.read(chatMessagesProvider)).deepEquals(shown);
+      });
+    });
+
     test('keeps the active connection when declined', () async {
       final bound = await bind(
         accept: false,
@@ -854,6 +1027,17 @@ void main() {
 
 /// The active connection is the fixed `https://hermes.example` one; [other]
 /// is a second saved connection reachable through [connectionForIdentity].
+/// Whether the test's Hermes switched connection.
+final _switchedProvider = NotifierProvider<_Switched, bool>(_Switched.new);
+
+final class _Switched extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  @override
+  set state(bool value) => super.state = value;
+}
+
 final class _SwitchableHermesConfig extends _FixedHermesConfig {
   _SwitchableHermesConfig(this.other);
 

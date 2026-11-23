@@ -8,7 +8,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import '../../apps/daemon/test/support/fake_hermes_server.dart';
+import '../../packages/conduit_services/test/support/fake_hermes_server.dart';
 
 Future<void> main(List<String> args) async {
   String? option(String name) {

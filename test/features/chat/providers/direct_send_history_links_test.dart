@@ -2956,7 +2956,7 @@ void main() {
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           selectedModelProvider.overrideWithValue(model),
           reviewerModeProvider.overrideWithValue(false),
-          isAuthenticatedProvider2.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(true),
           apiServiceProvider.overrideWithValue(api),
           socketServiceProvider.overrideWithValue(null),
           appDatabaseProvider.overrideWithValue(db),

@@ -5211,5 +5211,27 @@
   "knowledgeBaseEntire": "Intera base di conoscenza",
   "@knowledgeBaseEntire": {
     "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  },
+  "chatBackendSignInRequired": "Accedi a {backend}, poi riprova.",
+  "@chatBackendSignInRequired": {
+    "description": "Shown when a message, a regenerate or an edit is not sent because the chat's backend is signed out; the draft stays. {backend} is a product name (Open WebUI, LibreChat or Hermes) and is not translated.",
+    "placeholders": {
+      "backend": {
+        "type": "String",
+        "example": "LibreChat"
+      }
+    }
+  },
+  "chatBackendHermesNotSetUp": "Hermes Agent non è configurato. Collegalo in Impostazioni → Hermes Agent, poi riprova.",
+  "@chatBackendHermesNotSetUp": {
+    "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is not set up or is turned off; the draft stays."
+  },
+  "chatBackendModelUnavailable": "Questo modello non è più disponibile. Scegli un altro modello, poi riprova.",
+  "@chatBackendModelUnavailable": {
+    "description": "Shown when a message, a regenerate or an edit is not sent because its Direct or Apple model is no longer offered (its connection was removed or turned off); the draft stays."
+  },
+  "chatBackendHermesTurnedOff": "Hermes Agent è disattivato. Attivalo in Impostazioni → Hermes Agent, poi riprova.",
+  "@chatBackendHermesTurnedOff": {
+    "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
   }
 }

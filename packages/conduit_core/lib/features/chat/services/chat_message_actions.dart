@@ -6,8 +6,10 @@
 /// mutations live here, where they are tested without Flutter.
 library;
 
+import 'dart:async';
+
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
-import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
+import 'package:conduit_core/features/chat/services/chat_turn_gate.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 import 'package:conduit_core/features/chat/utils/message_targeting.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
@@ -60,12 +62,28 @@ enum ChatMessageDeleteOutcome {
 ///
 /// [isStillCurrent] is checked after the server round trip, before a failure
 /// is rolled back (the Flutter page passes its `mounted`).
+///
+/// The chat is held meanwhile ([chatTurnHoldsProvider]): a queued batch sent
+/// before the server answers would be lost from the transcript put back.
 Future<ChatMessageDeleteOutcome> deleteChatMessageGroup(
   dynamic ref,
   List<String> messageIds, {
   bool Function()? isStillCurrent,
-}) async {
-  if (messageIds.isEmpty) return ChatMessageDeleteOutcome.nothingToDelete;
+}) {
+  if (messageIds.isEmpty) {
+    return Future.value(ChatMessageDeleteOutcome.nothingToDelete);
+  }
+  return (ref.read(chatTurnHoldsProvider.notifier) as ChatTurnHolds).holding(
+    (ref.read(activeConversationProvider) as Conversation?)?.id,
+    () => _deleteChatMessageGroup(ref, messageIds, isStillCurrent),
+  );
+}
+
+Future<ChatMessageDeleteOutcome> _deleteChatMessageGroup(
+  dynamic ref,
+  List<String> messageIds,
+  bool Function()? isStillCurrent,
+) async {
   final latestMessages = List<ChatMessage>.from(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
     growable: false,
@@ -84,14 +102,17 @@ Future<ChatMessageDeleteOutcome> deleteChatMessageGroup(
   }
   if (removedIds.isEmpty) return ChatMessageDeleteOutcome.nothingToDelete;
 
-  final removedStreamingMessage = latestMessages
-      .where((candidate) => removedIds.contains(candidate.id))
-      .where((candidate) => candidate.isStreaming)
-      .firstOrNull;
+  final removedStreaming = [
+    for (final candidate in latestMessages)
+      if (removedIds.contains(candidate.id) && candidate.isStreaming) candidate,
+  ];
   final messagesNotifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-  if (removedStreamingMessage != null) {
-    stopActiveTransport(removedStreamingMessage, ref.read(apiServiceProvider));
+  if (removedStreaming.isNotEmpty) {
+    // Stopped as Stop stops it, the stop owed until the server takes it.
+    unawaited(
+      stopRemovedAnswer(ref, removedStreaming.first, shown: latestMessages),
+    );
     messagesNotifier.cancelActiveMessageStream();
   }
   messagesNotifier.setMessages(updatedMessages);
@@ -145,7 +166,17 @@ Future<ChatMessageDeleteOutcome> deleteChatMessageGroup(
         id,
       );
     }
-    final restoredConversation = deletedOnServer.isEmpty
+    // The answers this delete stopped come back stopped: nothing streams them.
+    final stoppedIds = {for (final message in removedStreaming) message.id};
+    if (stoppedIds.isNotEmpty) {
+      restoredMessages = [
+        for (final message in restoredMessages)
+          stoppedIds.contains(message.id)
+              ? message.copyWith(isStreaming: false)
+              : message,
+      ];
+    }
+    final restoredConversation = deletedOnServer.isEmpty && stoppedIds.isEmpty
         ? activeConversation
         : inheritNativeHermesConversationProvenance(
             activeConversation,
@@ -222,11 +253,23 @@ Future<bool> resendEditedUserMessage(
   required String newText,
 }) async {
   final text = newText.trim();
-  final messages = ref.read(chatMessagesProvider) as List<ChatMessage>;
-  final index = indexOfMessageId(messages, messageId);
-  if (index < 0 || text.isEmpty || text == messages[index].content) {
+  bool nothingToDo(List<ChatMessage> messages) {
+    final index = indexOfMessageId(messages, messageId);
+    return index < 0 || text.isEmpty || text == messages[index].content;
+  }
+
+  // An edit that changes nothing asks nothing of the backend.
+  if (nothingToDo(ref.read(chatMessagesProvider) as List<ChatMessage>)) {
     return false;
   }
+  // Before the transcript is cut: the send's own preparation (the mixed
+  // chat's connection offer, then the answering backend), so a refusal
+  // leaves the transcript as it was.
+  final prepared = prepareChatTurnBackend(ref);
+  if (prepared != null) await prepared;
+  final messages = ref.read(chatMessagesProvider) as List<ChatMessage>;
+  if (nothingToDo(messages)) return false;
+  final index = indexOfMessageId(messages, messageId);
   final original = messages[index];
   // One turn at a time in a LibreChat chat: refused before the transcript
   // changes, so nothing it shows goes and the edit can be sent once the
@@ -248,6 +291,10 @@ Future<bool> resendEditedUserMessage(
       );
       return true;
     }
+    // Nothing could send it: refused before the transcript is cut.
+    if (ref.read(selectedModelProvider) == null) {
+      throw StateError('No model is selected to send the edit with.');
+    }
     final keep = truncateMessagesAfterId(
       messages,
       messageId,
@@ -264,6 +311,7 @@ Future<bool> resendEditedUserMessage(
           : editedMessageAttachmentIds(original),
       toolIds: toolIds.isNotEmpty ? toolIds : null,
       onAssistantPlaceholderCreated: (handle) => pendingSend = handle,
+      backendPrepared: true,
     );
     return true;
   } catch (error) {

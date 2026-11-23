@@ -10,10 +10,9 @@ import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/ports/worker_port.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
-import 'package:conduitd/src/core_runtime.dart';
+import 'package:conduit_services/conduit_services.dart';
 import 'package:conduitd/src/ports/database_opener.dart';
 import 'package:conduitd/src/ports/secure_store.dart';
-import 'package:conduitd/src/ports/worker.dart';
 import 'package:test/test.dart';
 
 import 'support/runtime.dart';

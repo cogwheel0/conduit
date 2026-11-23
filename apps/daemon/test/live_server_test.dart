@@ -22,9 +22,9 @@ import 'package:shelf_web_socket/shelf_web_socket.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'support/fake_terminal_server.dart';
-import 'support/local_owui.dart';
+import '../../../packages/conduit_services/test/support/local_owui.dart';
 import 'support/runtime.dart';
-import 'support/window.dart';
+import '../../../packages/conduit_services/test/support/window.dart';
 
 /// Drives the daemon against a local Open WebUI with synthetic data.
 ///

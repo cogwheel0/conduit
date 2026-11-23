@@ -15,10 +15,10 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/local_librechat.dart';
-import 'support/local_owui.dart';
+import '../../../packages/conduit_services/test/support/local_owui.dart';
 import 'support/null_sink.dart';
 import 'support/runtime.dart';
-import 'support/window.dart';
+import '../../../packages/conduit_services/test/support/window.dart';
 
 /// Drives the daemon's LibreChat support against the fake LibreChat server
 /// (`tool/local_librechat/librechat.sh start`), with its invented accounts.
