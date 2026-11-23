@@ -223,17 +223,27 @@ try {
   Expect ($running.HasExited) 'the app the update replaced still runs'
   Expect (@($oldDaemons | Where-Object { -not $_.HasExited }).Count -eq 0) 'its conduitd still runs after the update replaced it'
   $family = @{ [int]$setup.Id = $true }
+  # Trace events may arrive out of order, so a start whose parent isn't
+  # known yet waits here and is matched once that parent joins.
+  $unmatched = [System.Collections.Generic.List[object]]::new()
   $deadline = [DateTime]::UtcNow.AddMinutes(2)
   while (-not $relaunched -and [DateTime]::UtcNow -lt $deadline) {
     $null = Wait-Event -SourceIdentifier UpdateStarts -Timeout 5
     foreach ($queued in @(Get-Event -SourceIdentifier UpdateStarts -ErrorAction SilentlyContinue)) {
-      $started = $queued.SourceEventArgs.NewEvent
-      if ($family.ContainsKey([int]$started.ParentProcessID)) {
-        $family[[int]$started.ProcessID] = $true
-        if ($started.ProcessName -eq 'conduit-desktop.exe') { $relaunched = [int]$started.ProcessID }
-      }
+      $unmatched.Add($queued.SourceEventArgs.NewEvent)
       Remove-Event -EventIdentifier $queued.EventIdentifier
     }
+    do {
+      $joined = $false
+      foreach ($started in @($unmatched)) {
+        if ($family.ContainsKey([int]$started.ParentProcessID)) {
+          $family[[int]$started.ProcessID] = $true
+          if ($started.ProcessName -eq 'conduit-desktop.exe') { $relaunched = [int]$started.ProcessID }
+          $null = $unmatched.Remove($started)
+          $joined = $true
+        }
+      }
+    } while ($joined -and -not $relaunched)
   }
 } finally {
   Unregister-Event -SourceIdentifier UpdateStarts
