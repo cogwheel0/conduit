@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/database/app_database.dart' show AppDatabase;
+import 'package:conduit_core/database/database_provider.dart'
+    show appDatabaseProvider;
 import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/ports.dart';
@@ -8,11 +11,13 @@ import 'package:conduit_core/services/settings_service.dart'
     show AppSettingsHostDefaults;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
-import 'package:conduit_services/src/ports/worker.dart';
 import 'package:drift/drift.dart'
     show ApplyInterceptor, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:test/test.dart' show addTearDown;
+
+import 'fake_owui_auth_server.dart';
 
 /// The core as the service tests host it, with nothing of the desktop's:
 /// preferences and credentials in memory, Hive and the account databases
@@ -32,46 +37,54 @@ Future<CoreRuntime> startTestCore(
   await PreferencesStore.ensureInitialized();
 
   Hive.init('${dataDir.path}/hive');
-  final preferences = await Hive.openBox<dynamic>(HiveBoxNames.preferences);
-  final caches = await Hive.openBox<dynamic>(HiveBoxNames.caches);
-  final attachmentQueue = await Hive.openBox<dynamic>(
-    HiveBoxNames.attachmentQueue,
-  );
-  final metadata = await Hive.openBox<dynamic>(HiveBoxNames.metadata);
-  final boxes = <Box<dynamic>>[preferences, caches, attachmentQueue, metadata];
-
   final connectivity = TestConnectivity();
-  return CoreRuntime.start(
-    host: CoreHostBindings(
-      secureStore: InMemorySecureKeyValueStore(),
-      hiveBoxes: HiveBoxes(
-        preferences: preferences,
-        caches: caches,
-        attachmentQueue: attachmentQueue,
-        metadata: metadata,
+  final boxes = <Box<dynamic>>[];
+  // Releases what was acquired: the runtime's own close, or a later step
+  // that throws.
+  Future<void> close() async {
+    await connectivity.dispose();
+    for (final box in boxes) {
+      await box.close();
+    }
+  }
+
+  Future<Box<dynamic>> open(String name) async {
+    final box = await Hive.openBox<dynamic>(name);
+    boxes.add(box);
+    return box;
+  }
+
+  try {
+    return await CoreRuntime.start(
+      host: CoreHostBindings(
+        secureStore: InMemorySecureKeyValueStore(),
+        hiveBoxes: HiveBoxes(
+          preferences: await open(HiveBoxNames.preferences),
+          caches: await open(HiveBoxNames.caches),
+          attachmentQueue: await open(HiveBoxNames.attachmentQueue),
+          metadata: await open(HiveBoxNames.metadata),
+        ),
+        databaseOpener: _TestDatabases(
+          Directory('${dataDir.path}/db'),
+          interceptDatabase,
+        ),
+        worker: const DaemonWorkerPort(),
+        connectivity: connectivity,
+        reportNetwork: connectivity.report,
+        close: close,
       ),
-      databaseOpener: _TestDatabases(
-        Directory('${dataDir.path}/db'),
-        interceptDatabase,
+      policy: const CoreHostPolicy(
+        settingsDefaults: AppSettingsHostDefaults(
+          sendOnEnter: true,
+          notificationsEnabled: true,
+        ),
+        readAloudLiveDeviceSpeech: true,
       ),
-      worker: const DaemonWorkerPort(),
-      connectivity: connectivity,
-      reportNetwork: connectivity.report,
-      close: () async {
-        await connectivity.dispose();
-        for (final box in boxes) {
-          await box.close();
-        }
-      },
-    ),
-    policy: const CoreHostPolicy(
-      settingsDefaults: AppSettingsHostDefaults(
-        sendOnEnter: true,
-        notificationsEnabled: true,
-      ),
-      readAloudLiveDeviceSpeech: true,
-    ),
-  );
+    );
+  } on Object {
+    await close();
+    rethrow;
+  }
 }
 
 /// Online until the test reports otherwise ([report]).
@@ -148,3 +161,35 @@ const DaemonPaths testDaemonPaths = DaemonPaths(
   logs: '/conduit-test/logs',
   staging: '/conduit-test/staging',
 );
+
+/// The Open WebUI account database of [runtime], once it is signed in to a
+/// fake server and the database is open.
+Future<AppDatabase> signedInOpenWebUiDatabase(CoreRuntime runtime) async {
+  final owui = await FakeOwuiAuthServer.start(
+    users: const {
+      'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
+    },
+  );
+  addTearDown(owui.close);
+  final accounts = AccountsService(runtime.container, events: EventBus());
+  addTearDown(accounts.dispose);
+  final auth = AuthService(runtime.container);
+  addTearDown(auth.dispose);
+  await accounts.add(
+    AddAccount(server: ServerDraft(name: 'Lab', url: owui.url), force: true),
+  );
+  await auth.loginWithPassword(
+    const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
+  );
+  final opened = Completer<AppDatabase>();
+  final watch = runtime.container.listen<AppDatabase?>(appDatabaseProvider, (
+    _,
+    database,
+  ) {
+    if (database != null && !opened.isCompleted) opened.complete(database);
+  }, fireImmediately: true);
+  addTearDown(watch.close);
+  final database = await opened.future;
+  await database.customSelect('SELECT 1').get();
+  return database;
+}

@@ -3,12 +3,11 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:conduit_services/conduit_services.dart';
 import 'package:path/path.dart' as p;
 
 import 'daemon_paths.dart';
 import 'log.dart';
-import 'redact.dart';
-import 'system_service.dart';
 
 /// `system.exportDiagnostics` on the desktop: the daemon's logs and a
 /// snapshot of its configuration with every credential left out, zipped

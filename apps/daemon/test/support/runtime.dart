@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduitd/conduitd.dart';
 
-export 'core.dart' show testDaemonPaths;
+export '../../../../packages/conduit_services/test/support/core.dart'
+    show testDaemonPaths;
 
 /// The core as the tests host it, over a data directory of the test's own,
 /// with the desktop's stores and policy.

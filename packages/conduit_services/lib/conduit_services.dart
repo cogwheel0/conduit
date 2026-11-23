@@ -69,3 +69,5 @@ export 'src/valves_service.dart';
 export 'src/web_search_service.dart';
 export 'src/webhooks_service.dart';
 export 'src/window_ports.dart';
+export 'src/ports/worker.dart';
+export 'src/settled.dart';

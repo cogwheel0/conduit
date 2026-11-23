@@ -31,7 +31,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:web_socket_channel/io.dart';
 
-import '../test/support/local_owui.dart';
+import '../../../packages/conduit_services/test/support/local_owui.dart';
 
 Future<void> main(List<String> args) async {
   if (args.length != 1) {

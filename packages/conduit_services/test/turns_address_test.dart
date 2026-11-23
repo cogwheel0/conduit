@@ -19,7 +19,6 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
-import 'package:conduit_services/src/settled.dart' show readSettled;
 import 'package:test/test.dart';
 
 import 'support/fake_librechat_chat.dart';

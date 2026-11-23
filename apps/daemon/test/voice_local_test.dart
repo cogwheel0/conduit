@@ -2,10 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:conduit_protocol/conduit_protocol.dart';
-import 'package:conduitd/src/core_runtime.dart';
-import 'package:conduitd/src/event_bus.dart';
+import 'package:conduit_services/conduit_services.dart';
 import 'package:conduitd/src/local_whisper.dart';
-import 'package:conduitd/src/voice_service.dart';
 import 'package:test/test.dart';
 
 import 'support/runtime.dart';

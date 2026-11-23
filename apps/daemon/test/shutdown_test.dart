@@ -14,7 +14,7 @@ import 'package:web_socket_channel/io.dart';
 
 import 'support/null_sink.dart';
 import 'support/runtime.dart';
-import 'support/scripted_openai.dart';
+import '../../../packages/conduit_services/test/support/scripted_openai.dart';
 
 const String _token = 'cJkVQ1mEo3nT7pZs9YbXwF2gH5LdRaUvNi0KqMtBxCe';
 final String _masterKey = base64.encode(List<int>.filled(32, 7));
