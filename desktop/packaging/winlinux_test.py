@@ -354,6 +354,7 @@ class Modes(unittest.TestCase):
     """A package built under any umask installs files every user can read
     and run: nfpm keeps the staged modes."""
 
+    @unittest.skipIf(os.name == "nt", "Windows has no POSIX modes or umask")
     def test_the_staged_tree_is_readable_by_everyone_whatever_the_umask(self):
         tree = Tree(self)
         old = os.umask(0o077)
