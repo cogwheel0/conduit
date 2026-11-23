@@ -15,8 +15,9 @@ library only, so it runs on every build and test machine.
                                    paths::packaged_daemon_for expects, its
                                    SQLite and the model logo catalog; no test
                                    harness in the app; on Windows, no PE that
-                                   needs a C/C++ runtime DLL Windows lacks and
-                                   the app doesn't ship
+                                   needs a C/C++ runtime DLL Windows lacks
+                                   unless it sits beside the executable of
+                                   the process that loads that PE
   winlinux.py rpm-requires DIR     the rpm requirements of the ELF files under
                                    DIR (sonames and glibc symbol versions, as
                                    rpmbuild finds them), from readelf
@@ -221,21 +222,25 @@ def layout_problems(root, os_name):
     if app.is_file() and _has_marker(app):
         problems.append(f"{app.name} was built with the test harness (the `harness` feature): never shipped")
     if windows:
-        files = [p for p in root.rglob("*") if p.is_file()]
-        shipped = {p.name.lower() for p in files}
-        for path in sorted(files):
+        for path in sorted(p for p in root.rglob("*") if p.is_file()):
             if path.suffix.lower() not in (".exe", ".dll"):
                 continue
+            rel = path.relative_to(root).as_posix()
             try:
                 imports = pe_imports(path.read_bytes())
             except ValueError as e:
-                problems.append(f"{path.relative_to(root).as_posix()}: {e}")
+                problems.append(f"{rel}: {e}")
                 continue
+            # Windows resolves a DLL beside the executable of the process
+            # that loads it, then in the system: everything under conduitd\
+            # runs in conduitd.exe's process, the rest in the app's.
+            folder = daemon.parent if rel.startswith("conduitd/") else root
+            beside = {p.name.lower() for p in folder.iterdir() if p.is_file()} if folder.is_dir() else set()
             for dll in imports:
-                if _RUNTIME_DLL.match(dll) and dll.lower() not in shipped:
+                if _RUNTIME_DLL.match(dll) and dll.lower() not in beside:
                     problems.append(
-                        f"{path.relative_to(root).as_posix()} needs {dll}, which Windows doesn't "
-                        "come with and the app doesn't ship"
+                        f"{rel} needs {dll}, which Windows doesn't come with and isn't in "
+                        f"{folder.relative_to(root).as_posix()}/ beside the process's executable"
                     )
     return problems
 

@@ -227,9 +227,28 @@ class Layout(unittest.TestCase):
         problems = winlinux.layout_problems(tree.root, "windows")
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("VCRUNTIME140.dll", problems[0])
-        # Shipped with the app, it is found.
-        tree.file("conduitd/lib/vcruntime140.dll", pe(["KERNEL32.dll"]))
+        # Beside conduitd.exe, the process that loads it, it is found.
+        tree.file("conduitd/bin/vcruntime140.dll", pe(["KERNEL32.dll"]))
         self.assertEqual(winlinux.layout_problems(tree.root, "windows"), [])
+
+    def test_a_runtime_dll_the_importing_process_cant_see(self):
+        # Windows looks beside the process's executable (then the system),
+        # never in another folder of the install: not beside the importing
+        # DLL itself, nor beside the other process's executable.
+        for importer, elsewhere in (
+            ("conduit-desktop.exe", "conduitd/lib/vcruntime140.dll"),
+            ("conduit-desktop.exe", "conduitd/bin/vcruntime140.dll"),
+            ("conduitd/bin/conduitd.exe", "vcruntime140.dll"),
+            ("conduitd/lib/sqlite3.dll", "conduitd/lib/vcruntime140.dll"),
+        ):
+            tree = Tree(self).windows()
+            tree.file(importer, pe(["KERNEL32.dll", "VCRUNTIME140.dll"]))
+            tree.file(elsewhere, pe(["KERNEL32.dll"]))
+            problems = winlinux.layout_problems(tree.root, "windows")
+            self.assertTrue(
+                any(p.startswith(importer) and "VCRUNTIME140.dll" in p for p in problems),
+                f"{importer} with the DLL at {elsewhere}: {problems}",
+            )
 
 
 READELF_APP = """
