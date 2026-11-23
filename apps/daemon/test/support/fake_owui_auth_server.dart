@@ -662,9 +662,14 @@ final class FakeOwuiChats {
         (data) {
           // A Socket.IO CONNECT to the default namespace, with its auth.
           if (data is String && (data == '40' || data.startsWith('40{'))) {
-            socket.add(
-              '40${jsonEncode(<String, dynamic>{'sid': 'socket-$session'})}',
-            );
+            try {
+              socket.add(
+                '40${jsonEncode(<String, dynamic>{'sid': 'socket-$session'})}',
+              );
+            } on StateError {
+              // The server closed this socket while the connect was on its
+              // way: it gets no answer.
+            }
           }
         },
         onDone: () {
