@@ -2226,9 +2226,11 @@ impl ChatPane {
             owner: _,
         } = content;
         if fresh {
-            let text = text.as_deref().unwrap_or_default();
-            self.composer
-                .update(cx, |c, cx| c.set_text(text, window, cx));
+            // Emptied as its request came in: only its own text goes in.
+            if let Some(text) = &text {
+                self.composer
+                    .update(cx, |c, cx| c.set_text(text, window, cx));
+            }
         } else if let Some(text) = &text {
             // Given as a prefill is: after the new chat's draft, once read.
             let ticket = self.composer_store.read(cx).ticket();
@@ -4149,6 +4151,33 @@ mod tests {
             pane.read_with(vcx, |p, cx| {
                 !p.composer_store.read(cx).attachments.is_empty()
             })
+        }
+
+        /// A fresh request (Send Image) over a new chat's unsent words: the
+        /// draft starts over at once, words and all, so Send has nothing to
+        /// send while the request's own content is on its way.
+        #[gpui_kit::test]
+        fn a_fresh_request_leaves_nothing_to_send_until_its_content_lands(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| {
+                    c.offline = false;
+                    c.set_text("Unsent words", window, cx);
+                })
+            });
+            vcx.run_until_parked();
+            let can_send = |vcx: &mut VisualTestContext| {
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).can_send(cx))
+            };
+            assert!(can_send(vcx), "the draft's words could be sent");
+            let _ticket = open_with_request(&stores, &pane, true, vcx);
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                ""
+            );
+            assert!(!can_send(vcx), "Send could go out with the old words alone");
         }
 
         /// Another account takes over while the files are looked at: its

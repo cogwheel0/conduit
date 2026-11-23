@@ -1778,12 +1778,13 @@ impl ChatComposer {
         self.render_prompt(prompt, at, values, window, cx);
     }
 
-    /// A fresh composition, even in the new chat already shown (the same
-    /// draft, so no draft switch): the last composition's prompt form, panel
-    /// and menu go, a prompt still being rendered for it, a send still out
-    /// and its dictation land nowhere, and what applied to the last message
-    /// is cleared. Its text follows with [`Self::set_text`], which replaces a
-    /// draft read still on its way ([`ComposerStore::draft_changed`]).
+    /// A fresh, empty composition, even in the new chat already shown (the
+    /// same draft, so no draft switch): the message box empties, the last
+    /// composition's prompt form, panel and menu go, a prompt still being
+    /// rendered for it, a send still out and its dictation land nowhere, and
+    /// what applied to the last message is cleared. Its own text follows
+    /// with [`Self::set_text`], which replaces a draft read still on its way
+    /// ([`ComposerStore::draft_changed`]).
     pub fn start_over(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // The draft starts over: a send still out from the last composition
         // gives nothing back to this one.
@@ -1796,6 +1797,7 @@ impl ChatComposer {
         // later words and its cancel write nothing.
         self.dictation_base = None;
         self.cancel_dictation(window, cx);
+        self.set_text("", window, cx);
         cx.notify();
     }
 
@@ -5210,10 +5212,7 @@ mod tests {
             c.render_prompt(prompt, 0, BTreeMap::new(), window, cx);
         });
         // A picture arrives from Shortcuts: no text of its own.
-        view.update_in(cx, |c, window, cx| {
-            c.start_over(window, cx);
-            c.set_text("", window, cx);
-        });
+        view.update_in(cx, |c, window, cx| c.start_over(window, cx));
         render.release();
         read.release();
         cx.run_until_parked();
