@@ -1656,20 +1656,19 @@ void main() {
       );
       s.api.stopError = StateError('stop refused');
       s.queue.enqueue('after the deleted answer');
+      // The delete sends its stop as it takes the answer out.
       await deleteChatMessageGroup(s.container, ['a0']);
-      await s.until(() => s.api.stoppedChats.isNotEmpty);
       check(s.api.stoppedChats).deepEquals(['local:a']);
 
       // Owed under the server id once the chat has it: asked again there.
       remapStoppedChat(s);
-      await s.until(() => s.active?.admissionFailed == true);
+      await s.reaches(() => s.active?.admissionFailed == true);
       check(s.api.stoppedChats.last).equals('server-a');
       check(await s.sentUserRows('server-a')).isEmpty();
 
       s.api.stopError = null;
       s.queue.retryAdmission();
-      await s.until(() => s.active == null);
-      await s.settle();
+      await s.reaches(() => s.active == null);
 
       check(s.api.stoppedChats.last).equals('server-a');
       check((await s.sentUserRows('server-a')).single.content)
