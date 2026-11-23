@@ -1262,7 +1262,7 @@ impl KeyFile {
 impl MasterKeyStore for KeyFile {
     fn load(&self) -> Result<Option<String>, SecretError> {
         use std::io::Read as _;
-        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+        use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
         let failed =
             |e: std::io::Error| SecretError::Store(format!("{}: {e}", self.path.display()));
         check_folders_above(&self.path)?;
@@ -1285,11 +1285,10 @@ impl MasterKeyStore for KeyFile {
         if !metadata.is_file() {
             return Err(self.not_a_key_file("not a regular file"));
         }
-        if metadata.permissions().mode() & 0o077 != 0 {
-            return Err(SecretError::Store(format!(
-                "{} can be read by other users",
-                self.path.display()
-            )));
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let me = unsafe { libc::geteuid() };
+        if let Some(why) = key_file_refused(metadata.uid(), metadata.mode(), me) {
+            return Err(SecretError::Store(format!("{} {why}", self.path.display())));
         }
         let mut key = String::new();
         file.read_to_string(&mut key).map_err(failed)?;
@@ -1340,6 +1339,17 @@ impl MasterKeyStore for KeyFile {
             Err(e) => Err(failed(e)),
         }
     }
+}
+
+/// Why a key file (owned by `owner`, with `mode`) is no key for user `me`,
+/// if it isn't: another user's, who could have made it first to have their
+/// key used, or one others can read.
+#[cfg(unix)]
+fn key_file_refused(owner: u32, mode: u32, me: u32) -> Option<&'static str> {
+    if owner != me {
+        return Some("belongs to another user");
+    }
+    (mode & 0o077 != 0).then_some("can be read by other users")
 }
 
 /// Makes the folders missing on the way to `dir` (only their owner can open
@@ -2143,6 +2153,26 @@ mod tests {
         assert!(matches!(made, Err(SecretError::Store(_))), "{made:?}");
         assert!(matches!(loaded, Err(SecretError::Store(_))), "{loaded:?}");
         assert_eq!(load_or_create_master_key(&store), Ok(key));
+    }
+
+    /// A key file is this user's alone: another user's is refused whatever
+    /// its mode (they could have made it first, to have their key used), as
+    /// is one others can read. No test can make another user's file, so the
+    /// decision is tested on its own.
+    #[cfg(unix)]
+    #[test]
+    fn only_this_users_own_key_file_is_read() {
+        let (me, other) = (501, 502);
+        assert_eq!(key_file_refused(me, 0o100600, me), None);
+        assert!(
+            key_file_refused(other, 0o100600, me).is_some(),
+            "another user's"
+        );
+        assert!(
+            key_file_refused(me, 0o100644, me).is_some(),
+            "others can read it"
+        );
+        assert!(key_file_refused(other, 0o100644, me).is_some());
     }
 
     /// A key file others can read (copied, restored from a backup, chmod
