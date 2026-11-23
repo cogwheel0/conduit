@@ -180,7 +180,8 @@ fn winsparkle_lang(locale: &str) -> String {
 mod tests {
     use super::*;
 
-    const KEY: &str = "Q4N+2Kk6Swns5S8OfmzyuBPcEmR4hcdnyPrGOCUXmT4=";
+    /// A made-up key: 32 bytes, base64.
+    const KEY: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
     const FEED: &str = "https://example.org/releases/download/feeds/appcast-windows.xml";
 
     #[test]
@@ -261,7 +262,7 @@ mod tests {
         for bad in [
             "not base64!",
             "AAAA",
-            "Q4N+2Kk6Swns5S8OfmzyuBPcEmR4hcdnyPrGOCUXmT4",
+            "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
             &KEY.repeat(2),
         ] {
             assert_eq!(
