@@ -16,7 +16,8 @@
 //!   the seeded group, then Anyone with the Link), back to Share Chat;
 //!   update, delete;
 //! * Generate Title, Mark as Unread (the sidebar's dot, gone on opening),
-//!   and Save Chat for a temporary chat.
+//!   Regenerate and Edit with no model named running on the model picked
+//!   now, and Save Chat for a temporary chat.
 //!
 //! Every chat this pass makes is deleted at the end.
 
@@ -149,9 +150,10 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     };
     pass &= ok("models.list answered", wait_models(cx).await);
     let model = inputs.model();
+    let first = model.clone();
     in_pane(cx, move |p, _, cx| {
         p.composer_store
-            .update(cx, |c, cx| c.select_model(&model, cx))
+            .update(cx, |c, cx| c.select_model(&first, cx))
     });
     let two = wait_until(cx, Duration::from_secs(20), |cx| {
         pane(cx).is_some_and(|p| {
@@ -213,6 +215,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= export(&chat_id, dir, cx).await;
     pass &= share(&chat_id, inputs, &rpc, dir, cx).await;
     pass &= title_and_unread(&chat_id, main, dir, cx).await;
+    pass &= selected_now(&model, &mut made, cx).await;
     pass &= save_temporary(&mut made, main, dir, cx).await;
 
     // ── Clean up ───────────────────────────────────────────────────────
@@ -352,6 +355,88 @@ async fn versions(chat_id: &str, main: AnyWindowHandle, dir: &Path, cx: &mut Asy
     })
     .await;
     pass &= ok("choosing a branch there makes it the chat's", chosen);
+    pass
+}
+
+/// The model the open composer shows.
+fn shown_model(cx: &mut App) -> Option<String> {
+    let pane = pane(cx)?;
+    let composer = pane.read(cx).composer_store.read(cx);
+    composer.selected_model().map(|m| m.id.clone())
+}
+
+/// Picks `id` in the open composer, as the model picker does, and waits for
+/// it to show.
+async fn pick(id: &str, cx: &mut AsyncApp) -> bool {
+    let want = id.to_string();
+    let chosen = want.clone();
+    in_pane(cx, move |p, _, cx| {
+        p.composer_store
+            .update(cx, |c, cx| c.select_model(&chosen, cx))
+    });
+    wait_until(cx, Duration::from_secs(20), move |cx| {
+        shown_model(cx).as_deref() == Some(want.as_str())
+    })
+    .await
+}
+
+/// Regenerate and Edit in place, naming no model, run on the model the
+/// composer shows now, as on the phone, not on the one that wrote the
+/// answer.
+async fn selected_now(model: &str, made: &mut Vec<String>, cx: &mut AsyncApp) -> bool {
+    new_chat(false, cx).await;
+    let mut pass = ok("the first model is picked", pick(model, cx).await);
+    send("Reply with exactly the word: gamma", cx).await;
+    let answered = wait_answer(cx, Duration::from_secs(60)).await
+        && cx.update(|cx| last_answer(cx).is_some_and(|i| i.text.trim() == "gamma"));
+    pass &= ok("the first model answered", answered);
+    let stored = wait_until(cx, Duration::from_secs(30), |cx| {
+        !open_id(cx).starts_with("local:")
+            && chat_store(cx).is_some_and(|s| s.read(cx).abilities().branch)
+    })
+    .await;
+    pass &= ok("the chat is stored", stored);
+    made.push(cx.update(open_id));
+    pass &= ok(
+        "the second model is picked in the chat",
+        pick(MODEL_B, cx).await,
+    );
+    let Some(answer) = cx.update(last_answer) else {
+        return ok("an answer to regenerate", false);
+    };
+    pass &= act(&answer, RowCommand::Regenerate(None), cx).await;
+    let regenerated = wait_until(cx, Duration::from_secs(60), |cx| {
+        last_answer(cx)
+            .is_some_and(|i| !i.streaming && i.text.starts_with("B:") && i.version == Some((2, 2)))
+            && chat_store(cx).is_some_and(|s| s.read(cx).live.is_none())
+    })
+    .await;
+    pass &= ok(
+        "Regenerate ran on the model picked now (B:, 2 / 2)",
+        regenerated,
+    );
+    // Back to the first model: the answer under the question is B's now,
+    // and the edit runs on the model picked, not on that answer's.
+    pass &= ok("the first model is picked again", pick(model, cx).await);
+    let Some(question) = cx.update(last_question) else {
+        return ok("a question to edit", false);
+    };
+    if let Some(store) = cx.update(chat_store) {
+        store.update(cx, |s, cx| {
+            s.edit(
+                &question.key,
+                "Reply with exactly the word: omega".into(),
+                cx,
+            )
+        });
+    }
+    let edited = wait_until(cx, Duration::from_secs(60), |cx| {
+        last_question(cx).is_some_and(|q| q.text.contains("omega"))
+            && last_answer(cx).is_some_and(|i| !i.streaming && i.text.trim() == "omega")
+            && chat_store(cx).is_some_and(|s| s.read(cx).live.is_none())
+    })
+    .await;
+    pass &= ok("Edit in place ran on the model picked now (not B:)", edited);
     pass
 }
 
