@@ -240,9 +240,15 @@ final class TerminalsService {
     final cwd = supported
         ? await _guard(() => service.getCwd(server, sessionScopeId: scope))
         : null;
-    // Attached under another account than the one now in use: the cleanup
-    // for that change has run, so this handle would outlive it.
+    // Attached under another account than the one now in use, or after the
+    // service stopped: the cleanup has run, so this handle would outlive it.
     _requireSession(session);
+    if (_disposed) {
+      throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the terminals stopped',
+      );
+    }
     final handle = _newKey();
     _handles[handle] = _Handle(server, scope, features);
     return TerminalAttached(
@@ -665,7 +671,10 @@ final class TerminalsService {
     return TerminalPreview(url: preview.entryUrl, scripts: scripts);
   }
 
+  bool _disposed = false;
+
   Future<void> dispose() async {
+    _disposed = true;
     _accountWatch.close();
     await _closeHandles();
     _systemClient?.$2.close();
