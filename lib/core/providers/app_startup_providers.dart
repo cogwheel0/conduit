@@ -265,7 +265,7 @@ void _resetUserScopedProviders(Ref ref) {
     // Before the core's loading flag: a selection still loading would set it
     // again.
     ref.invalidate(conversationSelectionProvider);
-    resetOpenWebUiAccountState(ref, keepLocalModel: true);
+    resetOpenWebUiAccountState(ref);
     ref.invalidate(channelSocketHandlerProvider);
     // Rebind the socket listener to the next session. Posted notifications
     // and the router's dedup memory stay: both are keyed by account, and a

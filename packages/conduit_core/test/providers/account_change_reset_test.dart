@@ -51,7 +51,7 @@ void main() {
     c.read(isLoadingConversationProvider.notifier).set(true);
     c.read(selectedModelProvider.notifier).set(const Model(id: 'm', name: 'M'));
 
-    resetOpenWebUiAccountState(c, keepLocalModel: true);
+    resetOpenWebUiAccountState(c);
 
     check(c.read(activeConversationProvider)).equals(onDevice);
     check(c.read(pendingFolderIdProvider)).isNull();
@@ -65,20 +65,18 @@ void main() {
         .read(activeConversationProvider.notifier)
         .set(_chat('server-chat', ChatStorageKind.openWebUi));
 
-    resetOpenWebUiAccountState(c, keepLocalModel: true);
+    resetOpenWebUiAccountState(c);
 
     check(c.read(activeConversationProvider)).isNull();
   });
 
-  test('a Hermes model survives only when the host keeps local models', () {
-    for (final keep in <bool>[true, false]) {
-      final c = container();
-      final hermes = hermesSyntheticModel();
-      c.read(selectedModelProvider.notifier).set(hermes);
+  test('a Hermes model picked before an account change survives it', () {
+    final c = container();
+    final hermes = hermesSyntheticModel();
+    c.read(selectedModelProvider.notifier).set(hermes);
 
-      resetOpenWebUiAccountState(c, keepLocalModel: keep);
+    resetOpenWebUiAccountState(c);
 
-      check(c.read(selectedModelProvider)).equals(keep ? hermes : null);
-    }
+    check(c.read(selectedModelProvider)).equals(hermes);
   });
 }

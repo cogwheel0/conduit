@@ -10,6 +10,8 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show defaultModelProvider;
 import 'package:conduit_core/providers/storage_providers.dart'
     show optimizedStorageServiceProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -290,6 +292,42 @@ void main() {
     provider.release('busy');
     await direct.remove(saved.connections.single.id);
     await accounts.switchTo(AccountRef(accountId: adaAccount));
+  });
+
+  test('a Direct model picked stays New Chat\'s across a change of account; '
+      'an Open WebUI one stays with its account', () async {
+    owui.models = const <String>['harbor-model', 'cove-model'];
+    addTearDown(() => owui.models = const <String>[]);
+    final direct = DirectService(runtime.container);
+    final saved = await direct.save(
+      DirectConnectionEdit(
+        name: 'Bench',
+        kind: DirectKind.openai,
+        baseUrl: provider.baseUrl,
+        manualModelIds: const <String>['bench-model'],
+      ),
+    );
+    final connection = saved.connections.singleWhere((c) => c.name == 'Bench');
+    addTearDown(() => direct.remove(connection.id));
+    final directModel = DirectModelId.encode(connection.id, 'bench-model');
+    final models = ModelsService(runtime.container);
+
+    /// New Chat's model under [accountId], once the change to it has
+    /// settled: the account's default is restored as it changes.
+    Future<String?> newChatUnder(String accountId) async {
+      final switched = await accounts.switchTo(AccountRef(accountId: accountId));
+      expect(switched.outcome, AccountChangeOutcome.done);
+      await pumpEventQueue();
+      await runtime.container.read(defaultModelProvider.future);
+      return (await models.list()).selectedId;
+    }
+
+    // Ada picks the Direct model for New Chat; Bob's New Chat keeps it.
+    await models.select(directModel);
+    expect(await newChatUnder(bobAccount), directModel);
+    // Bob picks one of the server's: Ada's New Chat does not take it.
+    await models.select('cove-model');
+    expect(await newChatUnder(adaAccount), isNot('cove-model'));
   });
 
   test('signing in again as a saved user folds into that account', () async {

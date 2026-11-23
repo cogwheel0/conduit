@@ -129,11 +129,10 @@ final class AccountsService {
   }
 
   /// What the departing account owned goes when the active account changes,
-  /// through the reset the phone uses too. A Direct or Hermes model picked
-  /// before goes as well: the Mac has always cleared it.
+  /// through the reset the phone uses too.
   void _resetUserScoped() {
     try {
-      resetOpenWebUiAccountState(_container, keepLocalModel: false);
+      resetOpenWebUiAccountState(_container);
     } on Object catch (error, stackTrace) {
       DebugLogger.error(
         'account-change-reset-failed',

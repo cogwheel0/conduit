@@ -866,7 +866,14 @@ final class ModelsService {
     _picked(
       temporary && chatId == null
           ? () {}
-          : () => _container.read(selectedModelProvider.notifier).set(model),
+          : () {
+              _container.read(selectedModelProvider.notifier).set(model);
+              // Chosen by hand, as mobile's picker marks it: the default
+              // restored when the account changes leaves it alone.
+              _container
+                  .read(isManualModelSelectionProvider.notifier)
+                  .set(true);
+            },
       account,
       _slotOf(chatId, temporary: temporary),
       model,

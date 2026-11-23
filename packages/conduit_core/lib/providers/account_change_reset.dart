@@ -16,18 +16,16 @@ import 'package:riverpod/misc.dart' show ProviderOrFamily;
 
 /// Drops the keep-alive state that holds the previous Open WebUI account's
 /// data or selections, when the active account changes. An open on-device
-/// or Hermes chat survives: it belongs to no account.
-///
-/// [keepLocalModel] keeps a Direct or Hermes model picked before the change.
+/// or Hermes chat survives, and so does a Direct or Hermes model picked
+/// before the change: they belong to no account.
 ///
 /// [ref] is the host's reader: a `Ref` in the app, the container in
 /// `conduitd`. Providers only a host has (its sockets' listeners, a screen's
 /// selection) stay that host's to reset.
-void resetOpenWebUiAccountState(dynamic ref, {required bool keepLocalModel}) {
+void resetOpenWebUiAccountState(dynamic ref) {
   final active = ref.read(activeConversationProvider) as Conversation?;
   final selectedModel = ref.read(selectedModelProvider) as Model?;
   final keepModel =
-      keepLocalModel &&
       selectedModel != null &&
       (isLocallyMintedDirectModel(selectedModel) ||
           isHermesModel(selectedModel));
@@ -38,7 +36,9 @@ void resetOpenWebUiAccountState(dynamic ref, {required bool keepLocalModel}) {
     foldersProvider,
     modelsProvider,
     if (!keepModel) selectedModelProvider,
-    isManualModelSelectionProvider,
+    // Kept with the model: the account's default, restored as the account
+    // changes, leaves a model chosen by hand alone.
+    if (!keepModel) isManualModelSelectionProvider,
     defaultModelProvider,
     imageModelsProvider,
     currentUserProvider,
