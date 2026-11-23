@@ -1,7 +1,8 @@
 # cargo-about's configuration for the bundle's THIRD_PARTY_NOTICES.md (see
 # notices.sh). Only what ships: the conduit-desktop binary's normal
-# dependencies on Apple Silicon, without build and dev dependencies and
-# without our own unpublished crates.
+# dependencies on Apple Silicon (notices.sh --target names another target
+# for the Windows and Linux packages), without build and dev dependencies
+# and without our own unpublished crates.
 accepted = [
     "0BSD",
     "Apache-2.0",

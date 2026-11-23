@@ -9,7 +9,16 @@ for each build rather than committed:
 desktop/packaging/notices/notices.sh                 # desktop/target/notices/THIRD_PARTY_NOTICES.md
 desktop/packaging/notices/notices.sh --out FILE      # somewhere else
 desktop/packaging/notices/notices.sh --check         # generate to a temporary folder only
+desktop/packaging/notices/notices.sh --target x86_64-pc-windows-msvc --out FILE
+desktop/packaging/notices/notices.sh --target x86_64-unknown-linux-gnu --out FILE
 ```
+
+`--target` makes the Windows installer's and the Linux packages' notices:
+the crates cargo builds into the app for that target, and the components
+those packages bundle (no Sparkle, no whisper library). Any target's can be
+made on a Mac or Linux; CI makes both on Linux (`Third-party notices
+(Windows, Linux)`) and the package jobs ship them: in the Windows install
+folder, and as `/usr/share/doc/conduit-desktop/THIRD_PARTY_NOTICES.md`.
 
 `packaging/macos/bundle.sh build` runs it for every bundle, and CI runs
 `--check` (`.github/workflows/desktop.yml`). Each run fails unless the
