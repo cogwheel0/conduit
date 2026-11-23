@@ -1507,6 +1507,14 @@ void main() {
           const SetReasoningEffort(modelId: 'hidden-model', effort: 'high'),
         )).modelId,
       ).equals('hidden-model');
+      // Listed for its chat, it can be picked there too (a picker with no
+      // other model to lay out offers it).
+      check(
+        (await models.select(
+          'hidden-model',
+          chatId: 'hidden-chat',
+        )).selectedId,
+      ).equals('hidden-model');
     });
 
     test('a lookup past the list that a refresh overtakes is not kept',
@@ -1621,6 +1629,8 @@ void main() {
         ('chat', 'selection', 'retired-chat', 'preferred-model'),
         ('chat', 'list', 'retired-chat', 'retired-model'),
         ('chat', 'account', 'retired-chat', null),
+        // The chat's pick, on a model the server takes away meanwhile.
+        ('chat', 'unlist pick', 'plain-chat', 'first-model'),
         ('hidden', 'pick', 'hidden-chat', 'preferred-model'),
         ('hidden', 'selection', 'retired-chat', 'preferred-model'),
         ('hidden', 'list', 'retired-chat', 'retired-model'),
@@ -1642,12 +1652,22 @@ void main() {
           container.read(selectedTerminalIdProvider.notifier).set('north');
           await models.select(_northAgent);
         }
+        if (change == 'unlist pick') {
+          _Growing.extra = const <core.Model>[
+            core.Model(id: 'gone-model', name: 'Gone'),
+          ];
+          container.invalidate(modelsProvider);
+          await container.read(modelsProvider.future);
+          await models.select('gone-model', chatId: chatId);
+        }
         final Future<void> asked;
         switch (wait) {
           case 'chat':
             _chatHeld = Completer<void>();
             _chatAsked = Completer<void>();
             asked = _chatAsked.future;
+            // Read afresh, not from a pick's earlier answer.
+            container.invalidate(loadConversationProvider(chatId!));
           case 'hidden':
             api.hiddenHeld = Completer<void>();
             asked = api.hiddenAskedOnce.future;
@@ -1678,6 +1698,10 @@ void main() {
               container.invalidate(modelsProvider);
               await container.read(modelsProvider.future);
             }
+          case 'unlist pick':
+            _Growing.extra = const <core.Model>[];
+            container.invalidate(modelsProvider);
+            await container.read(modelsProvider.future);
           case 'terminal':
             container.read(selectedTerminalIdProvider.notifier).set('south');
           case 'terminals off':

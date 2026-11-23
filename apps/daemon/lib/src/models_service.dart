@@ -892,8 +892,9 @@ final class ModelsService {
       _picked(() => _selectAgent(agent), account, chatId, agent);
       return _answerPick(chatId, account, temporary: temporary);
     }
-    final models = await _models();
-    final model = models.where((candidate) => candidate.id == id).firstOrNull;
+    // A listed model, or one the server hides from the picker but still
+    // offers ([_model]): a chat on it lists it, so it can be picked there.
+    final model = await _model(id);
     if (model == null) {
       throw RpcError(
         code: ConduitErrorCodes.notFound,
