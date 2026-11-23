@@ -19,7 +19,9 @@
 //!   Regenerate and Edit with no model named running on the model picked
 //!   now, and Save Chat for a temporary chat;
 //! * a chat with no pick (conduitd started again) opening on the model it
-//!   was saved with, a pick made in it winning after switching back.
+//!   was saved with, a pick made in it winning after switching back, and
+//!   one saved on a workspace model hidden since showing and answering on
+//!   it while the picker leaves it out.
 //!
 //! Every chat this pass makes is deleted at the end.
 
@@ -28,13 +30,14 @@ use std::time::Duration;
 
 use conduit_protocol::{
     AccessAudience, AccessEdit, AccessRef, AccessResourceKind, AppSettingsPatch, ChatExportFormat,
-    ChatRef, ShareAudience, methods,
+    ChatRef, ShareAudience, WorkspaceDetail, WorkspaceKind, WorkspaceRef, WorkspaceSave, methods,
 };
 use gpui_kit::{AsyncApp, Entity, point, px};
 
 use super::chat::{chat_store, in_pane, pane, send, sign_in, wait_answer, wait_models};
 use super::*;
 use crate::stores::chat::{ChatStore, Role as MessageRole, RowItem};
+use crate::stores::composer::{PickerRow, picker_rows};
 use crate::views::chat::actions::{RowCommand, RowContext};
 
 /// The second fake model, as the seed names it.
@@ -1084,6 +1087,10 @@ async fn saved_model(model: &str, made: &mut Vec<String>, cx: &mut AsyncApp) -> 
     pass &= ok("the chat is stored", stored);
     let chat = cx.update(open_id);
     made.push(chat.clone());
+    // A chat on a model the server hides once it has answered there: a
+    // workspace model over the second one.
+    let (hidden_ok, hidden_chat) = hidden_model_chat(made, cx).await;
+    pass &= hidden_ok;
     // New Chat on the first model, so the account's is not the chat's.
     new_chat(false, cx).await;
     pass &= ok("New Chat is on the first model", pick(model, cx).await);
@@ -1131,5 +1138,118 @@ async fn saved_model(model: &str, made: &mut Vec<String>, cx: &mut AsyncApp) -> 
         "the pick made in it still shows after switching away and back",
         kept,
     );
+    if let Some(hidden_chat) = hidden_chat {
+        pass &= hidden_model_reopened(&hidden_chat, cx).await;
+    }
+    // Asked again: conduitd started again above.
+    let rpc = cx.update(|cx| cx.global::<AppState>().stores.connection.read(cx).rpc());
+    let deleted = rpc
+        .call::<methods::WorkspaceDelete>(&WorkspaceRef {
+            kind: WorkspaceKind::Models,
+            id: HIDDEN_MODEL.into(),
+        })
+        .await
+        .is_ok();
+    pass &= ok("the workspace model is deleted", deleted);
+    pass
+}
+
+/// The workspace model [`saved_model`] hides once a chat has answered on it.
+const HIDDEN_MODEL: &str = "e2e-hidden-b";
+
+/// A workspace model over the second model, a chat answered on it, then
+/// the model hidden from the picker: whether all went, and the chat.
+async fn hidden_model_chat(made: &mut Vec<String>, cx: &mut AsyncApp) -> (bool, Option<String>) {
+    let rpc = cx.update(|cx| cx.global::<AppState>().stores.connection.read(cx).rpc());
+    let detail: Option<WorkspaceDetail> = serde_json::from_value(serde_json::json!({
+        "kind": "models",
+        "model": {"id": HIDDEN_MODEL, "name": "Hidden B", "baseModelId": MODEL_B},
+    }))
+    .ok();
+    let created = match detail {
+        Some(detail) => rpc
+            .call::<methods::WorkspaceSave>(&WorkspaceSave {
+                detail,
+                create: true,
+                metadata_only: false,
+            })
+            .await
+            .is_ok(),
+        None => false,
+    };
+    let mut pass = ok("a workspace model over the second model is made", created);
+    in_pane(cx, |p, _, cx| {
+        p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+    });
+    new_chat(false, cx).await;
+    pass &= ok(
+        "the workspace model is picked",
+        pick(HIDDEN_MODEL, cx).await,
+    );
+    send("Reply with exactly the word: mu", cx).await;
+    let answered = wait_answer(cx, Duration::from_secs(60)).await
+        && cx.update(|cx| last_answer(cx).is_some_and(|i| i.text.starts_with("B:")));
+    pass &= ok("the chat answered on the workspace model", answered);
+    let stored = wait_until(cx, Duration::from_secs(30), |cx| {
+        !open_id(cx).starts_with("local:")
+    })
+    .await;
+    pass &= ok("the chat is stored", stored);
+    let chat = cx.update(open_id);
+    made.push(chat.clone());
+    let hidden = async {
+        let mut detail = rpc
+            .call::<methods::WorkspaceGet>(&WorkspaceRef {
+                kind: WorkspaceKind::Models,
+                id: HIDDEN_MODEL.into(),
+            })
+            .await
+            .ok()?;
+        detail.model.as_mut()?.hidden = true;
+        rpc.call::<methods::WorkspaceSave>(&WorkspaceSave {
+            detail,
+            create: false,
+            metadata_only: false,
+        })
+        .await
+        .ok()
+    }
+    .await
+    .is_some();
+    pass &= ok("the server hides it from the picker", hidden);
+    (pass, stored.then_some(chat))
+}
+
+/// [`hidden_model_chat`]'s chat, opened with no pick: the composer shows
+/// the hidden model it was saved with and answers with it, and the picker
+/// does not offer it, as mobile's does not.
+async fn hidden_model_reopened(chat: &str, cx: &mut AsyncApp) -> bool {
+    let mut pass = ok("the hidden model's chat opens", open_chat(chat, cx).await);
+    let shown = wait_until(cx, Duration::from_secs(30), |cx| {
+        shown_model(cx).as_deref() == Some(HIDDEN_MODEL)
+    })
+    .await;
+    pass &= ok(
+        "the composer shows the hidden model it was saved with",
+        shown,
+    );
+    let offered = cx.update(|cx| {
+        let Some(pane) = pane(cx) else {
+            return false;
+        };
+        let composer = pane.read(cx).composer_store.read(cx);
+        composer.models.as_ref().is_some_and(|list| {
+            picker_rows(list, "", true, "Agents")
+                .iter()
+                .any(|r| matches!(r, PickerRow::Model(m) if m.id == HIDDEN_MODEL))
+        })
+    });
+    pass &= ok("the picker does not offer it", !offered);
+    send("Reply with exactly the word: nu", cx).await;
+    let answered = wait_answer(cx, Duration::from_secs(60)).await
+        && cx.update(|cx| {
+            last_answer(cx).is_some_and(|i| i.text.starts_with("B:") && i.text.contains("nu"))
+        });
+    pass &= ok("and answers with it (B:)", answered);
     pass
 }
