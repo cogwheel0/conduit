@@ -113,12 +113,22 @@ if [ -n "$next_key" ]; then
   app_key_wanted="$next_key"
 fi
 mount="$(mktemp -d "${TMPDIR:-/tmp}/conduit-appcast-dmg.XXXXXX")"
-hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount" "$dmg"
+# On a hosted runner hdiutil now and then fails to attach an image, and a
+# later try succeeds. Not -quiet: it closes hdiutil's stderr, and a failure
+# would stop this script without a word.
+for try in 1 2 3; do
+  out="$(hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" 2>&1)" && break
+  [ "$try" -lt 3 ] || die "hdiutil could not attach $(basename "$dmg") (3 tries): $out"
+  warn "hdiutil could not attach $(basename "$dmg") (try $try of 3), trying again in 5 s: $out"
+  sleep 5
+done
 app_plist="$mount/Conduit.app/Contents/Info.plist"
 app_key="$(plutil -extract SUPublicEDKey raw -o - "$app_plist" 2>/dev/null || true)"
 app_version="$(plutil -extract CFBundleShortVersionString raw -o - "$app_plist" 2>/dev/null || true)"
 app_min="$(plutil -extract LSMinimumSystemVersion raw -o - "$app_plist" 2>/dev/null || true)"
-hdiutil detach -quiet "$mount"
+# -force, as Sparkle's own unarchiver detaches: a system service may still be
+# reading the new volume. Everything needed is read by now.
+out="$(hdiutil detach -force "$mount" 2>&1)" || warn "hdiutil could not detach $mount: $out"
 [ -n "$app_key" ] || die "the app in $(basename "$dmg") has no SUPublicEDKey (built without SPARKLE_PUBLIC_ED_KEY)"
 if [ "$app_key" != "$app_key_wanted" ]; then
   [ -z "$next_key" ] || die "the app in $(basename "$dmg") carries another key than --next-public-key"
@@ -166,8 +176,10 @@ args=(-o "$work/appcast.xml" --ed-key-file - --download-url-prefix "$prefix"
   --link "https://github.com/$RELEASE_REPO/releases"
   --full-release-notes-url "https://github.com/$RELEASE_REPO/releases/tag/desktop-v$version"
   --maximum-versions 0)
-log "generate_appcast: $(basename "$dmg")"
-printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | "$sparkle/bin/generate_appcast" "${args[@]}" "$work"
+# The key goes on stdin, so the command line is safe to print.
+log "generate_appcast$(printf ' %q' "${args[@]}" "$work")"
+printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | "$sparkle/bin/generate_appcast" "${args[@]}" "$work" ||
+  die "generate_appcast failed (exit $?)"
 if [ -n "$next_key" ]; then
   # generate_appcast signs an update only with the key its app carries: it
   # leaves the bridge's item unsigned, with a warning, and signs the feed.
