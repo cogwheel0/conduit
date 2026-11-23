@@ -10280,129 +10280,117 @@ void main() {
       }
     });
 
-    test('regenerating the second answer asks for ONLY that answer, in its own '
-        'column, with its own model', () async {
-      const other = Model(id: 'model-2', name: 'Model 2');
-      final (:api, :socket, :container) = await open(
-        available: const [duplicate, other],
-      );
-      final handles = await durableCompareSend(
-        container,
-        'compare these',
-        null,
-        models: const [duplicate, other],
-      );
-      final [a, b] = [for (final h in handles) h.assistantMessageId];
-      await replay(container);
-      socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
-      socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
-      check(api.requests).length.equals(1);
-
-      // The picker holds the first model; the answer being redone is the
-      // second slot's, so that model must be asked, in that column.
-      await regenerateMessage(container, 'compare these', null);
-
-      check(api.requests).length.equals(2);
-      final request = api.requests.last;
-      check(request.model).equals('model-2');
-      check(request.messageIds).isNotNull().length.equals(1);
-      check(request.messageIds!.single.modelId).equals('model-2');
-      check(request.messageIds!.single.modelIdx).equals(1);
-      final regenerated = container
-          .read(chatMessagesProvider)
-          .firstWhere((m) => m.id == request.messageIds!.single.messageId);
-      check(regenerated.modelSlot).equals(1);
-    });
-
-    /// A comparison of `model-1` and `model-2`, both answered, then the
-    /// second answer regenerated with [composer] in the composer: it is
-    /// asked of the chat's server, on that answer's model, in its column.
-    Future<void> regeneratesOnItsColumn(
-      Model composer, {
-      List<Override> overrides = const [],
-    }) async {
-      const other = Model(id: 'model-2', name: 'Model 2');
-      final (:api, :socket, :container) = await open(
-        available: const [duplicate, other],
-        modelSelectable: true,
-        overrides: overrides,
-      );
-      final handles = await durableCompareSend(
-        container,
-        'compare these',
-        null,
-        models: const [duplicate, other],
-      );
-      final [a, b] = [for (final h in handles) h.assistantMessageId];
-      await replay(container);
-      socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
-      socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
-      container.read(selectedModelProvider.notifier).set(composer);
-
-      await regenerateMessage(container, 'compare these', null);
-
-      check(api.requests).length.equals(2);
-      final request = api.requests.last;
-      check(request.model).equals('model-2');
-      check(request.messageIds!.single.modelIdx).equals(1);
-    }
-
-    test('with a LibreChat model in the composer, regenerating a compared '
-        "answer asks the chat's server on that answer's model", () async {
-      // Refused outright before: a LibreChat model continues no other chat.
-      await regeneratesOnItsColumn(
-        libreChatCatalog(
-          startupConfig: const <String, dynamic>{},
-          endpoints: const <String, dynamic>{
-            'Sample': <String, dynamic>{'order': 0},
-          },
-          models: const <String, List<String>>{
-            'Sample': <String>['sample-model'],
-          },
-        ).single,
-      );
-    });
-
-    test('with a Direct model in the composer, regenerating a compared answer '
-        "asks the chat's server on that answer's model", () async {
-      // A connection kept in the server: before, the answer was asked of the
-      // connection's own model.
-      final profile = DirectConnectionProfile(
-        id: 'kept-profile',
-        name: 'Kept in the server',
-        adapterKey: kOpenAiCompatibleAdapterKey,
-        baseUrl: 'https://provider.example.test/v1',
-        modelIdPrefix: 'kept',
-      );
-      final registry = DirectModelRegistry();
-      final kept = registry
-          .replaceProfileModels(
-            profile,
-            <DirectRemoteModel>[
-              DirectRemoteModel(id: 'provider/model', name: 'Provider model'),
-            ],
-            source: DirectModelSource.openWebUi,
-            openWebUiUrlIndex: 0,
-          )
-          .single;
-      await regeneratesOnItsColumn(
-        kept,
-        overrides: [
-          directModelRegistryProvider.overrideWithValue(registry),
-          effectiveDirectConnectionProfilesFutureProvider.overrideWith(
-            (ref) async => <DirectConnectionProfile>[profile],
+    // Whichever backend's model the composer holds, a compared answer is
+    // asked of the chat's server, on its own model, in its own column.
+    for (final (composerName, composerOf)
+        in <(String, (Model, List<Override>) Function())>[
+          ('the first model', () => (duplicate, const <Override>[])),
+          // Refused outright before: a LibreChat model continues no other
+          // chat.
+          (
+            'a LibreChat model',
+            () => (
+              libreChatCatalog(
+                startupConfig: const <String, dynamic>{},
+                endpoints: const <String, dynamic>{
+                  'Sample': <String, dynamic>{'order': 0},
+                },
+                models: const <String, List<String>>{
+                  'Sample': <String>['sample-model'],
+                },
+              ).single,
+              const <Override>[],
+            ),
           ),
-        ],
-      );
-    });
+          // A connection kept in the server: before, the answer was asked of
+          // the connection's own model.
+          (
+            'a Direct model kept in the server',
+            () {
+              final profile = DirectConnectionProfile(
+                id: 'kept-profile',
+                name: 'Kept in the server',
+                adapterKey: kOpenAiCompatibleAdapterKey,
+                baseUrl: 'https://provider.example.test/v1',
+                modelIdPrefix: 'kept',
+              );
+              final registry = DirectModelRegistry();
+              final kept = registry
+                  .replaceProfileModels(
+                    profile,
+                    <DirectRemoteModel>[
+                      DirectRemoteModel(
+                        id: 'provider/model',
+                        name: 'Provider model',
+                      ),
+                    ],
+                    source: DirectModelSource.openWebUi,
+                    openWebUiUrlIndex: 0,
+                  )
+                  .single;
+              return (
+                kept,
+                <Override>[
+                  directModelRegistryProvider.overrideWithValue(registry),
+                  effectiveDirectConnectionProfilesFutureProvider.overrideWith(
+                    (ref) async => <DirectConnectionProfile>[profile],
+                  ),
+                ],
+              );
+            },
+          ),
+        ]) {
+      test('with $composerName in the composer, regenerating the second '
+          'answer asks for ONLY that answer, in its own column, with its own '
+          'model', () async {
+        const other = Model(id: 'model-2', name: 'Model 2');
+        final (composer, overrides) = composerOf();
+        final (:api, :socket, :container) = await open(
+          available: const [duplicate, other],
+          modelSelectable: true,
+          overrides: overrides,
+        );
+        final handles = await durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: const [duplicate, other],
+        );
+        final [a, b] = [for (final h in handles) h.assistantMessageId];
+        await replay(container);
+        socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
+        socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
+        check(api.requests).length.equals(1);
+        container.read(selectedModelProvider.notifier).set(composer);
+
+        // The answer being redone is the second slot's, so that model must
+        // be asked, in that column.
+        await regenerateMessage(container, 'compare these', null);
+
+        check(api.requests).length.equals(2);
+        final request = api.requests.last;
+        check(request.model).equals('model-2');
+        check(request.messageIds).isNotNull().length.equals(1);
+        check(request.messageIds!.single.modelId).equals('model-2');
+        check(request.messageIds!.single.modelIdx).equals(1);
+        final regenerated = container
+            .read(chatMessagesProvider)
+            .firstWhere((m) => m.id == request.messageIds!.single.messageId);
+        check(regenerated.modelSlot).equals(1);
+      });
+    }
 
     /// A finished comparison of `model-1` and `model-2`, shown as the phone
     /// shows a stored one (the second column's answer kept among the
     /// first's alternatives, each with [firstFiles] and [secondFiles]), then
-    /// Regenerate on the second column's tab: the request that goes out.
+    /// Regenerate on the second column's tab, or on the first's when not
+    /// [secondTab], with [composer] in the composer: the request that goes
+    /// out.
     Future<_FanOutRequest> regenerateSecondColumnTab({
       List<Map<String, dynamic>>? firstFiles,
       List<Map<String, dynamic>>? secondFiles,
+      Model? composer = duplicate,
+      bool secondTab = true,
     }) async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
@@ -10441,9 +10429,13 @@ void main() {
           else if (message.id != b)
             message,
       ]);
-      container.read(selectedModelProvider.notifier).set(duplicate);
+      container.read(selectedModelProvider.notifier).set(composer);
 
-      await regenerateHistoricalMessageById(container, a, columnAnswerId: b);
+      await regenerateHistoricalMessageById(
+        container,
+        a,
+        columnAnswerId: secondTab ? b : null,
+      );
 
       check(api.requests).length.equals(2);
       return api.requests.last;
@@ -10454,6 +10446,23 @@ void main() {
       final request = await regenerateSecondColumnTab();
       check(request.model).equals('model-2');
       check(request.messageIds!.single.modelIdx).equals(1);
+    });
+
+    test('with no model in the composer, Regenerate on the second column\'s '
+        "tab regenerates that column on its own model", () async {
+      final second = await regenerateSecondColumnTab(composer: null);
+      check(second.model).equals('model-2');
+      check(second.messageIds!.single.modelIdx).equals(1);
+    });
+
+    test('with no model in the composer, Regenerate on the first column\'s '
+        "tab regenerates it on its own model", () async {
+      final first = await regenerateSecondColumnTab(
+        composer: null,
+        secondTab: false,
+      );
+      check(first.model).equals('model-1');
+      check(first.messageIds!.single.modelIdx).equals(0);
     });
 
     // The composer's image toggle is off in both.

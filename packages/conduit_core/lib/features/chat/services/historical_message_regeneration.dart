@@ -196,11 +196,6 @@ Future<void> regenerateHistoricalMessageById(
   String assistantMessageId, {
   String? columnAnswerId,
 }) async {
-  final selectedModel = ref.read(selectedModelProvider);
-  if (selectedModel == null) {
-    return;
-  }
-
   if (ref.read(isChatStreamingProvider)) {
     DebugLogger.log(
       'historical regenerate blocked while another message streams',
@@ -232,6 +227,17 @@ Future<void> regenerateHistoricalMessageById(
 
   final targetAssistant = target.assistantMessage;
   final targetUser = target.userMessage;
+  // Nothing in the composer: only a comparison's answer, which runs on its
+  // own column's model, has a model to regenerate with.
+  if (ref.read(selectedModelProvider) == null &&
+      comparisonColumnModelId(
+            question: targetUser,
+            answer: targetAssistant,
+            answerId: columnAnswerId,
+          ) ==
+          null) {
+    return;
+  }
   final truncatedMessages = truncateMessagesAfterId(
     originalMessages,
     assistantMessageId,

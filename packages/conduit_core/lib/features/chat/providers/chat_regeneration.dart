@@ -920,14 +920,19 @@ Future<void> forgetReplacedHermesStoredContent(
 /// own model (or the one picked in the chat since that turn was sent,
 /// [picked]), as [_comparisonRegenerationTarget] keeps it; null for an
 /// answer of a single-model turn, which runs on the model selected now.
+///
+/// [answerId] names another column's answer kept among [answer]'s
+/// alternatives, as [_comparisonRegenerationTarget] takes it.
 String? comparisonColumnModelId({
   required ChatMessage question,
   required ChatMessage answer,
   ChatModelPick? picked,
-}) => _comparisonRegenerationTarget(<ChatMessage>[
-  question,
-  answer,
-], picked: picked)?.modelId;
+  String? answerId,
+}) => _comparisonRegenerationTarget(
+  <ChatMessage>[question, answer],
+  picked: picked,
+  answerId: answerId,
+)?.modelId;
 
 /// The listed model of [id], else one known by its id alone: a comparison's
 /// column model the list no longer holds is still asked by its id.
