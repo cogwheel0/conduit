@@ -196,16 +196,10 @@ class DaemonServer {
       events: events,
       system: _system,
       ports: ProtocolHostPorts(
-        uiRequests: core.uiRequests,
-        handoff: core.handoff,
-        openUrl: core.openUrl,
-        calls: core.calls,
-        apple: core.apple,
-        location: core.location,
-        paths: core.directories,
-        dashboardCookies: core.dashboardCookies,
+        window: core.window,
+        paths: directories,
         localTranscriber: WhisperTranscriber(
-          Directory(p.join(core.directories.paths.userData, 'whisper')),
+          Directory(p.join(directories.paths.userData, 'whisper')),
         ),
       ),
     );

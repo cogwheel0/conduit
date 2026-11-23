@@ -177,11 +177,14 @@ Future<int> _run(List<String> args) async {
   try {
     server.attachCore(
       await CoreRuntime.start(
-        config: config,
-        directories: directories,
-        log: log,
+        host: await openDesktopCoreHost(
+          config: config,
+          directories: directories,
+        ),
+        policy: desktopCorePolicy,
       ),
     );
+    log.info('core runtime ready');
   } on SecureStoreCorruptException catch (error) {
     // The one startup failure that must not degrade quietly: continuing with
     // an empty store would show onboarding to a signed-in user and look like

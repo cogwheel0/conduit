@@ -178,7 +178,6 @@ final class _Bench {
       temporary,
       config: config,
       directories: directories,
-      log: log,
     );
     final owui =
         await FakeOwuiAuthServer.start(

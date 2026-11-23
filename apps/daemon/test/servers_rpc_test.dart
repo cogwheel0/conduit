@@ -94,12 +94,7 @@ void main() {
       ),
     );
     server.attachCore(
-      await startTestRuntime(
-        tempDir,
-        config: config,
-        directories: directories,
-        log: log,
-      ),
+      await startTestRuntime(tempDir, config: config, directories: directories),
     );
     earlyHandshake = await early;
   });

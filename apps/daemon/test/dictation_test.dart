@@ -288,14 +288,7 @@ void main() {
         daemonVersion: '0.0.0-test',
         requestStop: (_) {},
       ),
-      ports: ProtocolHostPorts(
-        uiRequests: runtime.uiRequests,
-        handoff: runtime.handoff,
-        openUrl: runtime.openUrl,
-        calls: runtime.calls,
-        apple: runtime.apple,
-        location: runtime.location,
-      ),
+      ports: ProtocolHostPorts(window: runtime.window),
     )..attach(runtime.container);
     const target = RecordingTarget(folderId: 'disposed-folder');
     final id = (await services.recordings.begin(

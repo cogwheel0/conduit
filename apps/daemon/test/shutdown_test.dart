@@ -49,12 +49,7 @@ void main() {
     );
     final port = await server.start();
     server.attachCore(
-      await startTestRuntime(
-        tempDir,
-        config: config,
-        directories: directories,
-        log: log,
-      ),
+      await startTestRuntime(tempDir, config: config, directories: directories),
     );
     provider = await ScriptedOpenAi.start();
 

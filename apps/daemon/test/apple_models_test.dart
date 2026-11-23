@@ -38,7 +38,9 @@ void main() {
     await PreferencesStore.ensureInitialized();
     bus = EventBus();
     bridge = AppleModelsBridge(timeout: const Duration(seconds: 2));
-    container = ProviderContainer(overrides: appleModelsOverrides(bridge));
+    container = ProviderContainer(
+      overrides: appleModelsOverrides(bridge, offerPrivateCloudCompute: false),
+    );
     bridge.bind(bus);
     apple = AppleModelsService(container, bridge: bridge);
     window = _Window(bus, apple);
