@@ -881,13 +881,19 @@ Future<void> forgetReplacedHermesStoredContent(
 /// wrote the answer: so once the user picked a model ([picked]) after the turn
 /// was sent, that model answers in the column. A single-model turn returns
 /// null and regenerates with the picker's model as before.
+///
+/// [answerId] names the answer shown when it is one of the last message's
+/// stored alternatives (another column's answer): that column is the one
+/// regenerated.
 ({String modelId, int slot})? _comparisonRegenerationTarget(
   List<ChatMessage> messages, {
   ChatModelPick? picked,
+  String? answerId,
 }) {
   if (messages.isEmpty || messages.last.role != 'assistant') return null;
   final tail = messages.last;
-  final modelId = tail.model?.trim() ?? '';
+  final shown = tail.versions.where((v) => v.id == answerId).firstOrNull;
+  final modelId = (shown == null ? tail.model : shown.model)?.trim() ?? '';
   if (modelId.isEmpty) return null;
   for (var index = messages.length - 2; index >= 0; index--) {
     final candidate = messages[index];
@@ -901,7 +907,7 @@ Future<void> forgetReplacedHermesStoredContent(
           picked != null && picked.promptIds.contains(candidate.id);
       return (
         modelId: pickedSince ? picked.modelId : modelId,
-        slot: tail.modelSlot,
+        slot: shown == null ? tail.modelSlot : shown.modelIdx ?? 0,
       );
     }
     return null;
@@ -949,6 +955,7 @@ Future<void> regenerateMessage(
   String? hermesOriginalUserContent,
   String? hermesPreviousUserContent,
   bool hermesPromptNeverSent = false,
+  String? comparisonAnswerId,
 }) async {
   final conversationAtRegenerationStart =
       ref.read(activeConversationProvider) as Conversation?;
@@ -983,6 +990,7 @@ Future<void> regenerateMessage(
               pick,
             _ => null,
           },
+          answerId: comparisonAnswerId,
         );
   final selectedModelCandidate = comparisonTarget == null
       ? ref.read(selectedModelProvider) as Model?

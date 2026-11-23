@@ -3748,6 +3748,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // replacement.
       onRegenerate: () =>
           _regenerateMessage(groupIds.isEmpty ? messageId : groupIds.first),
+      onRegenerateColumn: (answerId) =>
+          _regenerateMessage(messageId, columnAnswerId: answerId),
       allowsRegenerate:
           !rowRef.watch(activeChatUsesTerminalAgentProvider) &&
           !isTerminalAgentModelId(latestMessage.model),
@@ -3888,9 +3890,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
-  void _regenerateMessage(String assistantMessageId) async {
+  void _regenerateMessage(
+    String assistantMessageId, {
+    String? columnAnswerId,
+  }) async {
     try {
-      await regenerateHistoricalMessageById(ref, assistantMessageId);
+      await regenerateHistoricalMessageById(
+        ref,
+        assistantMessageId,
+        columnAnswerId: columnAnswerId,
+      );
     } catch (e) {
       DebugLogger.log('Regenerate failed: $e', scope: 'chat/page');
     }

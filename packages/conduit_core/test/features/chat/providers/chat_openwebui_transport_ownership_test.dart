@@ -53,6 +53,7 @@ import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.d
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
+import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -10388,6 +10389,54 @@ void main() {
           ),
         ],
       );
+    });
+
+    test("Regenerate on the second column's tab regenerates that column, "
+        'though the first column is the message shown', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        modelSelectable: true,
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      final [a, b] = [for (final h in handles) h.assistantMessageId];
+      await replay(container);
+      socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
+      socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
+      // As a stored comparison is shown: the second column's answer kept
+      // among the first's alternatives, reached by its tab.
+      final shown = container.read(chatMessagesProvider);
+      final second = shown.singleWhere((m) => m.id == b);
+      container.read(chatMessagesProvider.notifier).setMessages([
+        for (final message in shown)
+          if (message.id == a)
+            message.copyWith(
+              versions: [
+                ChatMessageVersion(
+                  id: b,
+                  content: second.content,
+                  timestamp: second.timestamp,
+                  model: second.model,
+                  modelIdx: 1,
+                ),
+              ],
+            )
+          else if (message.id != b)
+            message,
+      ]);
+      container.read(selectedModelProvider.notifier).set(duplicate);
+
+      await regenerateHistoricalMessageById(container, a, columnAnswerId: b);
+
+      check(api.requests).length.equals(2);
+      final request = api.requests.last;
+      check(request.model).equals('model-2');
+      check(request.messageIds!.single.modelIdx).equals(1);
     });
 
     test('once another model is picked, regenerating a compared answer asks '

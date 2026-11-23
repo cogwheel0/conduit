@@ -188,10 +188,14 @@ bool historicalRegenerationStateMatchesForTesting({
   return true;
 }
 
+/// [columnAnswerId]: in a comparison, the answer shown when it is another
+/// column's, kept among [assistantMessageId]'s alternatives; that column is
+/// the one regenerated.
 Future<void> regenerateHistoricalMessageById(
   dynamic ref,
-  String assistantMessageId,
-) async {
+  String assistantMessageId, {
+  String? columnAnswerId,
+}) async {
   final selectedModel = ref.read(selectedModelProvider);
   if (selectedModel == null) {
     return;
@@ -282,6 +286,7 @@ Future<void> regenerateHistoricalMessageById(
           forceImageGeneration: isImageRegeneration,
           ownsPreparationState: () =>
               mutation.ownsCurrentState(ref, mutationRegistry),
+          comparisonAnswerId: columnAnswerId,
         );
       },
     );

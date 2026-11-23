@@ -159,6 +159,10 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
 
+  /// Regenerates another column of a comparison, named by the answer its tab
+  /// shows; [onRegenerate] regenerates the column of the message itself.
+  final ValueChanged<String>? onRegenerateColumn;
+
   /// Whether the reply may be regenerated (or retried) at all. False in a
   /// coding agent's chat, where only a new message continues it: the action
   /// is then not offered, rather than offered and refused.
@@ -193,6 +197,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.suppressStreamingHaptics = false,
     this.onCopy,
     this.onRegenerate,
+    this.onRegenerateColumn,
     this.allowsRegenerate = true,
     this.onDelete,
     this.onLike,
@@ -686,6 +691,22 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return [for (final slot in group.slots) ...slot.answers]
         .where((a) => a.messageId == activeId)
         .firstOrNull;
+  }
+
+  /// Regenerate for the answer shown: its own column's, when a comparison's
+  /// tab shows another column than the message's.
+  VoidCallback? get _regenerate {
+    final group = _comparisonGroup;
+    final shown = group == null || !group.isComparison
+        ? null
+        : _shownAnswer(group);
+    final column = widget.onRegenerateColumn;
+    if (shown == null ||
+        column == null ||
+        shown.slot == group!.displayedSlot.index) {
+      return widget.onRegenerate;
+    }
+    return () => column(shown.messageId);
   }
 
   /// The finished answers of this turn a merge may read: the shown answer
@@ -2738,7 +2759,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       );
       return;
     }
-    widget.onRegenerate?.call();
+    _regenerate?.call();
   }
 
   List<_AssistantFooterAction> _buildFooterActions() {
@@ -2791,7 +2812,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         widget.isStreaming && _responseCompleted;
     final bool canRegenerate =
         widget.allowsRegenerate &&
-        widget.onRegenerate != null &&
+        _regenerate != null &&
         (!isChatStreaming || currentStreamingMessageCompleted);
     final bool canRetryWithoutEffort =
         isErrorMessage &&
@@ -2896,7 +2917,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           id: isErrorMessage ? 'retry' : 'regenerate',
           icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
           label: isErrorMessage ? l10n.retry : l10n.regenerate,
-          onTap: canRegenerate ? widget.onRegenerate : null,
+          onTap: canRegenerate ? _regenerate : null,
           sfSymbol: 'arrow.clockwise',
         ),
       if (canRetryWithoutEffort)
