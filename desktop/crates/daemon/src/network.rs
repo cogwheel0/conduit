@@ -123,6 +123,27 @@ async fn follow_readings<E>(
     Ok(())
 }
 
+/// The end of one portal subscription: one that failed reports online, the
+/// fallback, every time, since the last reading it gave may have been
+/// offline. `told` only keeps a run of failures to one log line; a reading
+/// ([`follow_readings`]) or a subscription that ended well resets it.
+#[cfg_attr(not(target_os = "linux"), cfg(test))]
+fn subscription_ended<E: std::fmt::Display>(
+    ended: Result<(), E>,
+    report: &impl Fn(bool),
+    told: &std::cell::Cell<bool>,
+) {
+    match ended {
+        Ok(()) => told.set(false),
+        Err(e) => {
+            if !told.replace(true) {
+                log::info!("network portal: {e}; reading as online until it answers");
+            }
+            report(true);
+        }
+    }
+}
+
 impl Drop for NetworkMonitor {
     fn drop(&mut self) {
         self.stop.stop();
@@ -196,29 +217,25 @@ mod linux_monitor {
             .name("conduit-network".into())
             .spawn(move || {
                 let mut backoff = Duration::from_secs(1);
-                let mut said_online = false;
+                let told = std::cell::Cell::new(false);
+                let reading = |online: bool| {
+                    told.set(false);
+                    report(online);
+                };
                 while !stop.is_stopped() {
-                    let followed = block_on(or(async { Some(follow(&report).await) }, async {
+                    let followed = block_on(or(async { Some(follow(&reading).await) }, async {
                         stop.stopped().await;
                         None
                     }));
-                    match followed {
-                        None => break,
-                        Some(Ok(())) => {
-                            backoff = Duration::from_secs(1);
-                            said_online = false;
-                        }
-                        Some(Err(e)) => {
-                            // With no portal the computer reads as online,
-                            // so a missing portal never stops the app (nor
-                            // leaves the last state it gave standing).
-                            if !said_online {
-                                log::info!("network portal: {e}; reading as online");
-                                report(true);
-                                said_online = true;
-                            }
-                        }
+                    let Some(ended) = followed else {
+                        break;
+                    };
+                    if ended.is_ok() {
+                        backoff = Duration::from_secs(1);
                     }
+                    // With no portal the computer reads as online, so a
+                    // missing portal never stops the app.
+                    super::subscription_ended(ended, &report, &told);
                     block_on(or(stop.stopped(), async {
                         async_io::Timer::after(backoff).await;
                     }));
@@ -269,6 +286,28 @@ mod tests {
         .await;
         assert_eq!(ended, Err("the portal went"));
         assert_eq!(*reported.borrow(), [false], "nothing reported for it");
+    }
+
+    /// A subscription fails (online), the next reads offline and then fails
+    /// a reading: the fallback reports online again, whatever was said
+    /// before, so the app never stays offline with the network back.
+    #[tokio::test]
+    async fn every_failed_subscription_falls_back_to_online() {
+        let told = std::cell::Cell::new(false);
+        let reported = std::cell::RefCell::new(Vec::new());
+        let report = |online: bool| reported.borrow_mut().push(online);
+        let failed = follow_readings(
+            async || false,
+            async || Err::<bool, _>("no portal"),
+            &report,
+        )
+        .await;
+        subscription_ended(failed, &report, &told);
+        let mut readings = vec![Err("the portal went"), Ok(false)];
+        let failed =
+            follow_readings(async || true, async || readings.pop().unwrap(), &report).await;
+        subscription_ended(failed, &report, &told);
+        assert_eq!(*reported.borrow(), [true, false, true]);
     }
 
     /// Dropping the monitor wakes its worker's wait (on the portal, or
