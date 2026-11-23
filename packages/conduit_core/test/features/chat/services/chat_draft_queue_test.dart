@@ -13,6 +13,8 @@ import 'package:conduit_core/features/chat/providers/attached_files_provider.dar
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
+import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
+import 'package:conduit_core/features/chat/services/chat_turn_gate.dart';
 import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
     show kDirectTransport;
@@ -38,6 +40,7 @@ import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -124,6 +127,21 @@ class _Api extends ApiService {
   final Map<String, Object> stopErrorsByChat = {};
   Completer<void>? stopGate;
   Completer<void>? settingsGate;
+
+  /// A message delete waits for [deleteGate], then fails with [deleteError].
+  Completer<void>? deleteGate;
+  Object? deleteError;
+
+  @override
+  Future<void> deleteConversationMessage(
+    String conversationId,
+    String messageId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    await deleteGate?.future;
+    final error = deleteError;
+    if (error != null) throw error;
+  }
 
   /// What the server's task registry lists for the chat. A title or tag task
   /// shows up here after the answer itself is done.
@@ -333,6 +351,7 @@ class _Session {
     bool online = true,
     Model? model,
     ChatDraftQueueAdmissionWait? admissionWait,
+    List<Override> overrides = const <Override>[],
   }) async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -383,6 +402,14 @@ class _Session {
         attachedFilesProvider.overrideWith(_Tray.new),
         if (admissionWait != null)
           chatDraftQueueAdmissionWaitProvider.overrideWithValue(admissionWait),
+        // A hold is looked at again each turn of the event loop, not on a
+        // timer.
+        chatTurnGateSettingsProvider.overrideWithValue(
+          ChatTurnGateSettings.atOnce.withClock(
+            pause: (_) => Future<void>(() {}),
+          ),
+        ),
+        ...overrides,
       ],
     );
     addTearDown(container.dispose);
@@ -488,6 +515,14 @@ class _Session {
       ((jsonDecode(row.payload) as Map)['files'] as List)
           .map((file) => (file as Map)['id'] as String)
           .toList();
+}
+
+/// A comparison merge running until [end].
+class _Merging extends ComparisonMergeController {
+  @override
+  String? build() => 'c0';
+
+  void end() => state = null;
 }
 
 void main() {
@@ -2043,6 +2078,102 @@ void main() {
 
       check((await s.sentUserRows()).single.content).equals('mine');
       check(await s.completions()).length.equals(1);
+    });
+  });
+
+  // A delete, a merge or a Save Chat rewrites the transcript; one the server
+  // refuses puts back the transcript it started from, without a batch sent
+  // meanwhile. The batch goes once it is done.
+  group('a batch and the chat\'s own rewrites', () {
+    test('a delete still on the server holds the batch, which survives its '
+        'refusal', () async {
+      final s = await _Session.start();
+      // A file still uploading keeps the batch back past its answer's end.
+      s.attach([_file('slow.txt', status: FileUploadStatus.uploading)]);
+      s.queue.enqueue('queued');
+      s.finishResponse();
+      await pumpEventQueue();
+
+      s.api
+        ..deleteGate = Completer<void>()
+        ..deleteError = StateError('the server kept the message');
+      final deleting = deleteChatMessageGroup(s.container, ['a0']);
+      // The upload finishes while the server still has the delete.
+      s.container
+          .read(queuedDraftAttachmentsProvider.notifier)
+          .replaceUpload(s.parked.single.upload, _file('slow.txt'));
+      await pumpEventQueue();
+      check(await s.sentUserRows()).isEmpty();
+
+      s.api.deleteGate!.complete();
+      check(await deleting).equals(ChatMessageDeleteOutcome.persistFailed);
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['queued']);
+      check(s.container.read(chatMessagesProvider).map((m) => m.content))
+          .contains('queued');
+    });
+
+    test('a delete begun while the host held the batch sends it once the '
+        'delete is done', () async {
+      final hold = Completer<void>();
+      var waits = 0;
+      final s = await _Session.start(
+        admissionWait: () => ++waits == 1 ? hold.future : null,
+      );
+      addTearDown(() {
+        if (!hold.isCompleted) hold.complete();
+      });
+      s.queue.enqueue('queued');
+      s.finishResponse();
+      await s.reaches(() => s.active?.phase == ChatDraftQueuePhase.admitting);
+
+      s.api
+        ..deleteGate = Completer<void>()
+        ..deleteError = StateError('the server kept the message');
+      final deleting = deleteChatMessageGroup(s.container, ['a0']);
+      hold.complete();
+      await pumpEventQueue();
+      check(await s.sentUserRows()).isEmpty();
+
+      s.api.deleteGate!.complete();
+      await deleting;
+      await s.reaches(() => s.active == null);
+      check(s.container.read(chatMessagesProvider).map((m) => m.content))
+          .contains('queued');
+      check(await s.completions()).length.equals(1);
+    });
+
+    test('a merge running holds the batch until it ends', () async {
+      final s = await _Session.start(
+        overrides: [comparisonMergeProvider.overrideWith(_Merging.new)],
+      );
+      s.queue.enqueue('queued');
+
+      s.finishResponse();
+      await pumpEventQueue();
+      check(await s.sentUserRows()).isEmpty();
+
+      (s.container.read(comparisonMergeProvider.notifier) as _Merging).end();
+      await s.reaches(() => s.active == null);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['queued']);
+    });
+
+    // The phone's batch goes in the moment its answer ends, as before.
+    test('with nothing held there is nothing to wait for', () async {
+      final s = await _Session.start();
+      final wait = s.container.read(chatDraftQueueAdmissionWaitProvider);
+      check(wait()).isNull();
+
+      final deleting = Completer<void>();
+      final held = s.container
+          .read(chatTurnHoldsProvider.notifier)
+          .holding(() => deleting.future);
+      check(wait()).isNotNull();
+      deleting.complete();
+      await held;
+      check(wait()).isNull();
     });
   });
 }

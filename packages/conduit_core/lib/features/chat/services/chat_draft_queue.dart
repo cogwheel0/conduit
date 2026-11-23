@@ -23,6 +23,7 @@ import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/services/chat_turn_gate.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -354,6 +355,8 @@ List<Override> chatSessionScopedDraftQueueOverrides() => <Override>[
   chatDraftQueueOfferProvider.overrideWith(_chatDraftQueueOffer),
   activeChatDraftQueueProvider.overrideWith(_activeChatDraftQueue),
   chatDraftQueueProvider.overrideWith(ChatDraftQueueController.new),
+  chatDraftQueueAdmissionWaitProvider.overrideWith(_turnGateAdmissionWait),
+  chatTurnHoldsProvider.overrideWith(ChatTurnHolds.new),
 ];
 
 /// How a queue hands its batch over: the same durable send every ordinary
@@ -382,15 +385,18 @@ final chatDraftQueueSendProvider = Provider<ChatDraftQueueSend>(
 typedef ChatDraftQueueAdmissionWait = Future<void>? Function();
 
 /// What a batch waits for before it is admitted: it runs after the batch's
-/// answer has ended and before the batch is admitted. Nothing everywhere
-/// mobile runs, so the batch goes the moment its answer ends. The composer is
-/// free meanwhile, as while a Stop waits on the server: a message sent then
-/// goes first, and the batch follows that answer. A wait that fails admits
-/// nothing, and the drafts stay.
+/// answer has ended and before the batch is admitted, and is the chat's turn
+/// gate ([untilChatQuietForTurn]) as the host's [chatTurnGateSettingsProvider]
+/// tunes it. On the phone that is a delete, merge or Save Chat still out, and
+/// otherwise nothing, so the batch goes the moment its answer ends. The
+/// composer is free meanwhile, as while a Stop waits on the server: a message
+/// sent then goes first, and the batch follows that answer. A wait that fails
+/// admits nothing, and the drafts stay.
 final chatDraftQueueAdmissionWaitProvider =
-    Provider<ChatDraftQueueAdmissionWait>((_) => _noAdmissionWait);
+    Provider<ChatDraftQueueAdmissionWait>(_turnGateAdmissionWait);
 
-Future<void>? _noAdmissionWait() => null;
+ChatDraftQueueAdmissionWait _turnGateAdmissionWait(Ref ref) =>
+    () => untilChatQuietForTurn(ref);
 
 Future<void> _durableQueueSend(
   dynamic ref,
@@ -893,6 +899,12 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
       if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
       final refusedAfter = await settleOwedStops();
       if (refusedAfter != null) return refusedAfter;
+    }
+    // A delete, merge or Save Chat begun while the host waited rewrites the
+    // transcript the batch would join: the batch goes once it is done.
+    if (chatTurnHeldByCore(ref)) {
+      await whileChatHeldByCore(ref);
+      if (!ref.mounted) return ChatDraftSendNowOutcome.changed;
     }
     // Waiting on the server (or the host) leaves the composer free, so another
     // answer may have started meanwhile. A turn is not sent over it: the drafts

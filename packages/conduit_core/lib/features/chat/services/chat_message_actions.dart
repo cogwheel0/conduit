@@ -8,6 +8,7 @@ library;
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
+import 'package:conduit_core/features/chat/services/chat_turn_gate.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 import 'package:conduit_core/features/chat/utils/message_targeting.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
@@ -60,12 +61,27 @@ enum ChatMessageDeleteOutcome {
 ///
 /// [isStillCurrent] is checked after the server round trip, before a failure
 /// is rolled back (the Flutter page passes its `mounted`).
+///
+/// The chat is held meanwhile ([chatTurnHoldsProvider]): a queued batch sent
+/// before the server answers would be lost from the transcript put back.
 Future<ChatMessageDeleteOutcome> deleteChatMessageGroup(
   dynamic ref,
   List<String> messageIds, {
   bool Function()? isStillCurrent,
-}) async {
-  if (messageIds.isEmpty) return ChatMessageDeleteOutcome.nothingToDelete;
+}) {
+  if (messageIds.isEmpty) {
+    return Future.value(ChatMessageDeleteOutcome.nothingToDelete);
+  }
+  return (ref.read(chatTurnHoldsProvider.notifier) as ChatTurnHolds).holding(
+    () => _deleteChatMessageGroup(ref, messageIds, isStillCurrent),
+  );
+}
+
+Future<ChatMessageDeleteOutcome> _deleteChatMessageGroup(
+  dynamic ref,
+  List<String> messageIds,
+  bool Function()? isStillCurrent,
+) async {
   final latestMessages = List<ChatMessage>.from(
     ref.read(chatMessagesProvider) as List<ChatMessage>,
     growable: false,
