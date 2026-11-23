@@ -347,9 +347,34 @@ pub(crate) fn install_main_for_test(
 /// from here.
 #[cfg(not(target_os = "macos"))]
 fn refuse_launch(paths: &AppPaths, why: &str) -> ! {
-    eprintln!("conduit-desktop: {why}");
     note_refused_launch(&paths.logs, std::time::SystemTime::now(), why);
-    std::process::exit(1);
+    end_launch(1, why);
+}
+
+/// Ends a launch that can't go on, saying why on stderr with `code`.
+fn end_launch(code: i32, why: &str) -> ! {
+    #[cfg(windows)]
+    attach_parent_console();
+    eprintln!("conduit-desktop: {why}");
+    std::process::exit(code);
+}
+
+/// A Windows release build has no console (main.rs): a message for the
+/// command line goes to the console of what started the app, a terminal,
+/// unless stderr was redirected. Only on the way out: a GUI program attached
+/// to a console would also end with a Ctrl+C typed there later.
+#[cfg(windows)]
+fn attach_parent_console() {
+    use ::windows::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE,
+    };
+    // SAFETY: reads this process's standard handle, then attaches to its
+    // parent's console, which fails harmlessly when there is none.
+    unsafe {
+        if GetStdHandle(STD_ERROR_HANDLE).is_err() {
+            let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
 }
 
 /// Where a refused launch is noted, beside the app's rotating log.
@@ -411,9 +436,13 @@ fn as_text(args: &[std::ffi::OsString]) -> Vec<String> {
 /// and also when this user's app holds the profile but doesn't take the
 /// launch, or when what holds it can't be identified (two apps on one
 /// profile would share its data). Only a holder known to be another user's,
-/// or a failure before any holder was found, leaves this launch on its own.
+/// or a failure before any holder was found, leaves this launch on its own:
+/// why, for the log, which isn't open yet.
 #[cfg(not(target_os = "macos"))]
-fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::instance::Listener> {
+fn claim_instance(
+    paths: &AppPaths,
+    urls: &[String],
+) -> Result<conduit_daemon::instance::Listener, String> {
     use conduit_daemon::instance::{Claim, claim};
     // Every launch names the profile the same way, made or not.
     let _ = std::fs::create_dir_all(&paths.user_data);
@@ -422,7 +451,7 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
         .canonicalize()
         .unwrap_or_else(|_| paths.user_data.clone());
     match claim(&paths.flavor.keychain_service(), &profile, urls) {
-        Ok(Claim::First(listener)) => Some(listener),
+        Ok(Claim::First(listener)) => Ok(listener),
         Ok(Claim::Forwarded) => {
             log::info!(
                 "handed this launch ({} to open) to the running app",
@@ -449,10 +478,7 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
             );
             refuse_launch(paths, &why);
         }
-        Err(e) => {
-            eprintln!("conduit-desktop: single instance: {e}; this launch runs on its own");
-            None
-        }
+        Err(e) => Err(format!("single instance: {e}; this launch runs on its own")),
     }
 }
 
@@ -490,20 +516,20 @@ pub fn run() {
     // starting normally, so a script can never drive a real profile.
     #[cfg(not(feature = "harness"))]
     if let Some(flag) = scripted::harness_flag(&args) {
-        eprintln!("conduit-desktop: {flag} needs a build with the `harness` feature");
-        std::process::exit(64);
+        end_launch(
+            64,
+            &format!("{flag} needs a build with the `harness` feature"),
+        );
     }
     // An E2E pass runs inside the smoke pass (`--shots <dir>`): alone it
     // would open the app normally and report nothing.
     if scripted::options(&args).any(|a| a == "--e2e") && arg(&args, "--shots").is_none() {
-        eprintln!("conduit-desktop: --e2e runs with --shots <dir>");
-        std::process::exit(64);
+        end_launch(64, "--e2e runs with --shots <dir>");
     }
     // A harness flag this OS doesn't run ends the launch before anything
     // opens.
     if let Some(flag) = unsupported_flag(paths::Os::CURRENT, &args) {
-        eprintln!("conduit-desktop: {flag} runs only on macOS");
-        std::process::exit(64);
+        end_launch(64, &format!("{flag} runs only on macOS"));
     }
     // The smoke wrapper launches through `open`, which starts apps in `/`.
     if let Some((i, _)) = scripted::option_positions(&args).find(|(_, a)| *a == "--cwd")
@@ -543,10 +569,7 @@ pub fn run() {
     // key, and a shared one (the temporary folder) is never used instead.
     let mut app_paths = match AppPaths::for_flavor(flavor) {
         Ok(paths) => paths,
-        Err(e) => {
-            eprintln!("conduit-desktop: {e}");
-            std::process::exit(1);
-        }
+        Err(e) => end_launch(1, &e.to_string()),
     };
     // A scripted run gets its own profile, logs and Keychain item.
     let scripted_run = is_scripted(&args);
@@ -561,10 +584,7 @@ pub fn run() {
         let fresh = named.is_none();
         match harness_profile(named, ordinary.as_deref(), &scratch) {
             Ok(user_data) => app_paths.user_data = user_data,
-            Err(e) => {
-                eprintln!("conduit-desktop: {e}");
-                std::process::exit(64);
-            }
+            Err(e) => end_launch(64, &e),
         }
         if fresh && std::env::var_os("CONDUIT_LOGS").is_none() {
             app_paths.logs = scratch.join("logs");
@@ -580,7 +600,7 @@ pub fn run() {
         match launch_urls(&args_os, &std::env::current_dir().unwrap_or_default()) {
             Some(urls) => {
                 let instance = claim_instance(&app_paths, &urls);
-                (urls, instance)
+                (urls, Some(instance))
             }
             None => (vec![], None),
         };
@@ -589,6 +609,15 @@ pub fn run() {
         "Conduit Desktop {VERSION} ({flavor:?}), userData {}",
         app_paths.user_data.display()
     );
+    #[cfg(not(target_os = "macos"))]
+    let instance = match instance {
+        Some(Ok(listener)) => Some(listener),
+        Some(Err(why)) => {
+            log::warn!("{why}");
+            None
+        }
+        None => None,
+    };
     let shots = arg(&args, "--shots").map(PathBuf::from);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let probe = arg(&args, "--probe").map(PathBuf::from);
