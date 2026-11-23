@@ -28,22 +28,17 @@ import 'folder_settings_service.dart';
 import 'handoff_service.dart';
 import 'hermes_admin_service.dart';
 import 'hermes_cards_service.dart';
-import 'hermes_dashboard_cookies.dart';
 import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
 import 'integrations_service.dart';
 import 'librechat_service.dart';
 import 'local_transcriber.dart';
-import 'location_bridge.dart';
 import 'mcp_apps_service.dart';
 import 'mcp_service.dart';
 import 'memories_service.dart';
 import 'models_service.dart';
 import 'notes_service.dart';
 import 'notifications_service.dart';
-import 'ports/handoff.dart';
-import 'ports/open_url.dart';
-import 'ports/ui_requests.dart';
 import 'profile_service.dart';
 import 'prompts_service.dart';
 import 'queued_completions_service.dart';
@@ -62,37 +57,25 @@ import 'valves_service.dart';
 import 'voice_service.dart';
 import 'web_search_service.dart';
 import 'webhooks_service.dart';
+import 'window_ports.dart';
 import 'workspace_service.dart';
 
 /// What the protocol's services need from their host besides the
 /// container.
-///
-/// The window-backed ports are the ones the container's overrides were
-/// built with: the services attach them to the windows once they exist.
 final class ProtocolHostPorts {
   const ProtocolHostPorts({
-    required this.uiRequests,
-    required this.handoff,
-    required this.openUrl,
-    required this.calls,
-    required this.apple,
-    required this.location,
+    required this.window,
     this.paths,
-    this.dashboardCookies,
     this.localTranscriber,
     this.chatScopeOverrides,
   });
 
-  final DaemonUiRequestPort uiRequests;
-  final DaemonHandoffPort handoff;
-  final DaemonOpenUrlPort openUrl;
-  final CallPorts calls;
-  final AppleModelsBridge apple;
-  final WindowLocationBridge location;
+  /// The ports the windows answer; the container must hold the overrides
+  /// they made ([WindowPorts.overrides]).
+  final WindowPorts window;
 
   /// Where a note's recordings wait for their upload; none without it.
   final PathsPort? paths;
-  final DaemonHermesDashboardCookies? dashboardCookies;
 
   /// Transcription on this device; none without it.
   final LocalTranscriber? localTranscriber;
@@ -158,7 +141,7 @@ final class ProtocolServices {
       container,
       events: events,
       hermes: hermes,
-      dashboardCookies: ports.dashboardCookies,
+      dashboardCookies: ports.window.dashboardCookies,
     );
     _chats = ChatsService(
       container,
@@ -171,7 +154,7 @@ final class ProtocolServices {
     _uiRequests = UiRequestsService(events);
     // The core's own prompts, raised from any chat's turn, reach the windows
     // through the same broker.
-    ports.uiRequests.attach(uiRequests);
+    ports.window.uiRequests.attach(uiRequests);
     _chatPrompts = ChatPromptsService(events);
     _turns = TurnsService(
       container,
@@ -186,7 +169,7 @@ final class ProtocolServices {
     );
     // A Hermes model switch is asked as the question of the chat holding
     // its session.
-    ports.uiRequests.hermesChatOf = turns.hermesChatOf;
+    ports.window.uiRequests.hermesChatOf = turns.hermesChatOf;
     // The list's unread dots and a chat's abilities read the turns.
     chats.turns = turns;
     // Changing the address in use asks first while one of them answers.
@@ -206,7 +189,7 @@ final class ProtocolServices {
       events,
       claims: (chatId) => turns.hasScope(chatId) || events.watches(chatId),
     );
-    ports.handoff.attach(handoff);
+    ports.window.handoff.attach(handoff);
     _drafts = DraftsService(container, temporary: temporary);
     _mcpApps = McpAppsService(container, events, uiRequests: uiRequests);
     _accounts = AccountsService(container, events: events, turns: turns);
@@ -269,14 +252,14 @@ final class ProtocolServices {
       container,
       events: events,
       turns: turns,
-      ports: ports.calls,
+      ports: ports.window.calls,
       speech: speech,
     );
     // Apple's on-device model: the chat runs here, the model in the window.
-    ports.apple.bind(events);
+    ports.window.apple.bind(events);
     // `{{USER_LOCATION}}`: the window asks the device's location services.
-    ports.location.bind(events);
-    _apple = AppleModelsService(container, bridge: ports.apple);
+    ports.window.location.bind(events);
+    _apple = AppleModelsService(container, bridge: ports.window.apple);
     voice.speechOfChat = (chatId) async =>
         SpeechService.speechForModel(container, await chats.modelOf(chatId));
     // What the active account can use: answered by `system.capabilities`
@@ -294,7 +277,7 @@ final class ProtocolServices {
     // use, not what the last one could.
     system.capabilities = _capabilities!.current;
     // An MCP sign-in opens the provider's page through a window.
-    ports.openUrl.attach(events);
+    ports.window.openUrl.attach(events);
     _core = _buildCore(transports: true);
     _attached = true;
   }
@@ -454,7 +437,7 @@ final class ProtocolServices {
     speech: transports ? _speech : null,
     calls: transports ? _calls : null,
     apple: _apple,
-    location: _ports.location,
+    location: _ports.window.location,
     handoff: _handoff,
     calendar: _calendar,
     automations: _automations,
@@ -514,17 +497,17 @@ final class ProtocolServices {
     _hermesCards?.dispose();
     _hermesRooms?.dispose();
     _hermesAdmin?.dispose();
-    _ports.uiRequests.hermesChatOf = null;
-    if (_uiRequests != null) _ports.uiRequests.detach();
+    _ports.window.uiRequests.hermesChatOf = null;
+    if (_uiRequests != null) _ports.window.uiRequests.detach();
     _chats?.dispose();
-    _ports.handoff.detach();
+    _ports.window.handoff.detach();
     // The window ports the host keeps reach none of this aggregate's
     // windows once it is gone.
     if (_apple != null) {
-      _ports.apple.unbind();
-      _ports.location.unbind();
+      _ports.window.apple.unbind();
+      _ports.window.location.unbind();
     }
-    if (_attached) _ports.openUrl.detach();
+    if (_attached) _ports.window.openUrl.detach();
     _calendar?.dispose();
     _automations?.dispose();
     _capabilities?.dispose();

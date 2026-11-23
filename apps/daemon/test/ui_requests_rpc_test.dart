@@ -50,12 +50,7 @@ void main() {
     );
     port = await server.start();
     server.attachCore(
-      await startTestRuntime(
-        tempDir,
-        config: config,
-        directories: directories,
-        log: log,
-      ),
+      await startTestRuntime(tempDir, config: config, directories: directories),
     );
 
     final socket = IOWebSocketChannel.connect(

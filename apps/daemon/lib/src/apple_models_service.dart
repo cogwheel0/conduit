@@ -36,8 +36,11 @@ final class AppleOnDeviceAnswers extends Notifier<bool> {
 
 /// The core overrides that run Apple's models through the window: the
 /// bridge as the adapter's host, the adapter registered, on-device offered
-/// while the engine says it answers, and Private Cloud Compute never (this
-/// build has no entitlement for it: FoundationModels traps without one).
+/// while the engine says it answers, and Private Cloud Compute never: the
+/// window's engine serves only the on-device model ([AppleModelsBridge]
+/// answers that PCC is unsupported). A host that serves PCC brings its own
+/// bridge, and must hold its entitlement: FoundationModels traps without
+/// one.
 List<Override> appleModelsOverrides(AppleModelsBridge bridge) => <Override>[
   applePccHostProvider.overrideWithValue(bridge),
   hostDirectProviderAdaptersProvider.overrideWith(

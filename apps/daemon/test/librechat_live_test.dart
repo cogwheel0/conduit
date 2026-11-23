@@ -59,7 +59,7 @@ void main() {
         final log = logPath == null
             ? DaemonLog(level: 'error', sink: NullSink())
             : DaemonLog(level: 'debug', sink: File(logPath).openWrite());
-        runtime = await startTestRuntime(temporary, config: config, log: log);
+        runtime = await startTestRuntime(temporary, config: config);
         if (logPath != null) DebugLogger.sink = DaemonLogSink(log);
         events = EventBus();
         uiRequests = UiRequestsService(events);

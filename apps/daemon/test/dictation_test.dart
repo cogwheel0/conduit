@@ -288,15 +288,11 @@ void main() {
         daemonVersion: '0.0.0-test',
         requestStop: (_) {},
       ),
-      ports: ProtocolHostPorts(
-        uiRequests: runtime.uiRequests,
-        handoff: runtime.handoff,
-        openUrl: runtime.openUrl,
-        calls: runtime.calls,
-        apple: runtime.apple,
-        location: runtime.location,
-      ),
-    )..attach(runtime.container);
+      ports: ProtocolHostPorts(window: runtime.window),
+    );
+    addTearDown(services.dispose);
+    addTearDown(services.closeTransports);
+    services.attach(runtime.container);
     const target = RecordingTarget(folderId: 'disposed-folder');
     final id = (await services.recordings.begin(
       target,
@@ -315,6 +311,34 @@ void main() {
       throwsA(isA<RpcError>()),
     );
     await recordings.discard(RecordingRef(id: id, folderId: 'disposed-folder'));
+  });
+
+  test('a recording still starting when everything closes is not left '
+      'open', () async {
+    final closing = RecordingsService(drafts: drafts, dictation: dictation);
+    final starting = closing.begin(
+      const RecordingTarget(folderId: 'starting-folder'),
+      sessionId: 'quitting',
+    );
+    final refused = expectLater(
+      starting,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.daemonUnavailable,
+        ),
+      ),
+    );
+    await closing.closeAll();
+
+    await refused;
+    expect(
+      (await recordings.list(
+        const RecordingTarget(folderId: 'starting-folder'),
+      )).recordings,
+      isEmpty,
+    );
   });
 
   test('a temporary chat keeps no recordings', () async {
