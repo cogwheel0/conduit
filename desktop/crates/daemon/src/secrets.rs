@@ -1450,8 +1450,94 @@ fn check_folders<'a>(
                 path.display()
             )));
         }
+        // With a POSIX ACL the group bits are its mask, so a group-writable
+        // folder may let a named user or group write too. Linux only: the
+        // Mac (and other systems) keep the mode rule above.
+        #[cfg(target_os = "linux")]
+        if mode & 0o020 != 0 && mode & 0o1000 == 0 {
+            let acl = access_acl(folder)
+                .map_err(|e| SecretError::Store(format!("{}: {e}", folder.display())))?;
+            if acl.is_some_and(|acl| acl_lets_others_write(&acl, me, own_group)) {
+                return Err(SecretError::Store(format!(
+                    "{}'s access list lets other users change it, so it can't hold the key file {}",
+                    folder.display(),
+                    path.display()
+                )));
+            }
+        }
     }
     Ok(())
+}
+
+/// A folder's access ACL, as the kernel keeps it (`system.posix_acl_access`,
+/// read without following a link); `None` when it has none, or its
+/// filesystem has no ACLs.
+#[cfg(target_os = "linux")]
+fn access_acl(folder: &std::path::Path) -> std::io::Result<Option<Vec<u8>>> {
+    use std::os::unix::ffi::OsStrExt as _;
+    let path = std::ffi::CString::new(folder.as_os_str().as_bytes())?;
+    let mut value = vec![0u8; 256];
+    loop {
+        // SAFETY: NUL-terminated path and name; `value` is writable for the
+        // length given.
+        let read = unsafe {
+            libc::lgetxattr(
+                path.as_ptr(),
+                c"system.posix_acl_access".as_ptr(),
+                value.as_mut_ptr().cast(),
+                value.len(),
+            )
+        };
+        if let Ok(read) = usize::try_from(read) {
+            value.truncate(read);
+            return Ok(Some(value));
+        }
+        let e = std::io::Error::last_os_error();
+        match e.raw_os_error() {
+            Some(libc::ENODATA | libc::ENOTSUP) => return Ok(None),
+            Some(libc::ERANGE) if value.len() < 1 << 16 => value.resize(value.len() * 4, 0),
+            _ => return Err(e),
+        }
+    }
+}
+
+/// Whether an access ACL (the `system.posix_acl_access` value: a version,
+/// then 8-byte tag, permission and id entries) lets someone write who is
+/// neither `me` nor `own_group`: a named user or group entry with write,
+/// while the mask lets it through. A value that can't be read refuses.
+#[cfg_attr(not(target_os = "linux"), cfg(test))]
+fn acl_lets_others_write(acl: &[u8], me: u32, own_group: Option<u32>) -> bool {
+    const VERSION: u32 = 2;
+    const USER: u16 = 0x02;
+    const GROUP: u16 = 0x08;
+    const MASK: u16 = 0x10;
+    const WRITE: u16 = 0x02;
+    let (Some(version), Some(rest)) = (acl.get(..4), acl.get(4..)) else {
+        return true;
+    };
+    let (entries, partial) = rest.as_chunks::<8>();
+    if version != VERSION.to_le_bytes() || !partial.is_empty() {
+        return true;
+    }
+    let entries: Vec<(u16, u16, u32)> = entries
+        .iter()
+        .map(|e| {
+            (
+                u16::from_le_bytes([e[0], e[1]]),
+                u16::from_le_bytes([e[2], e[3]]),
+                u32::from_le_bytes([e[4], e[5], e[6], e[7]]),
+            )
+        })
+        .collect();
+    let mask_writes = entries
+        .iter()
+        .find(|(tag, ..)| *tag == MASK)
+        .is_none_or(|(_, perm, _)| perm & WRITE != 0);
+    mask_writes
+        && entries.iter().any(|&(tag, perm, id)| {
+            perm & WRITE != 0
+                && ((tag == USER && id != me) || (tag == GROUP && Some(id) != own_group))
+        })
 }
 
 /// Why a folder (owned by `owner` and `group`, with `mode`) is no place
@@ -2076,6 +2162,68 @@ mod tests {
         // As root too, a folder anyone can write to is refused.
         assert_eq!(untrusted(0, 0, 0o40755, false, 0, Some(0)), None);
         assert!(untrusted(0, 0, 0o40777, false, 0, Some(0)).is_some());
+    }
+
+    /// A folder's ACL may name another user or group with write: then it
+    /// is refused, unless its mask takes write away. Entries for the user
+    /// or their private group, and a minimal ACL, are fine; a value that
+    /// can't be read refuses.
+    #[test]
+    fn an_access_list_that_lets_others_write_is_refused() {
+        const OWNER: u16 = 0x01;
+        const USER: u16 = 0x02;
+        const OWN_GROUP: u16 = 0x04;
+        const GROUP: u16 = 0x08;
+        const MASK: u16 = 0x10;
+        const OTHER: u16 = 0x20;
+        let acl = |entries: &[(u16, u16, u32)]| {
+            let mut value = 2u32.to_le_bytes().to_vec();
+            for &(tag, perm, id) in entries {
+                value.extend(tag.to_le_bytes());
+                value.extend(perm.to_le_bytes());
+                value.extend(id.to_le_bytes());
+            }
+            value
+        };
+        let (me, mine) = (501, Some(1501));
+        let with = |named: (u16, u16, u32), mask: u16| {
+            acl(&[
+                (OWNER, 7, u32::MAX),
+                named,
+                (OWN_GROUP, 7, u32::MAX),
+                (MASK, mask, u32::MAX),
+                (OTHER, 5, u32::MAX),
+            ])
+        };
+        assert!(acl_lets_others_write(&with((USER, 7, 502), 7), me, mine));
+        assert!(acl_lets_others_write(&with((GROUP, 6, 100), 7), me, mine));
+        assert!(
+            !acl_lets_others_write(&with((USER, 7, 502), 5), me, mine),
+            "the mask"
+        );
+        assert!(
+            !acl_lets_others_write(&with((USER, 5, 502), 7), me, mine),
+            "read only"
+        );
+        assert!(!acl_lets_others_write(&with((USER, 7, me), 7), me, mine));
+        assert!(!acl_lets_others_write(&with((GROUP, 7, 1501), 7), me, mine));
+        assert!(!acl_lets_others_write(
+            &acl(&[
+                (OWNER, 7, u32::MAX),
+                (OWN_GROUP, 7, u32::MAX),
+                (OTHER, 5, u32::MAX)
+            ]),
+            me,
+            mine
+        ));
+        assert!(
+            acl_lets_others_write(&[1, 0, 0, 0], me, mine),
+            "another version"
+        );
+        assert!(
+            acl_lets_others_write(&acl(&[(USER, 7, 502)])[..10], me, mine),
+            "cut short"
+        );
     }
 
     /// A group may write above the key file only if it is the user's
