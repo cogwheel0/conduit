@@ -14,12 +14,17 @@
 //! removed; the server is renamed; Add Account on This Server starts a
 //! sign-in on it; and Add Account lists Hermes Agent and Model Provider,
 //! each opening its editor. The sheet and editor are shot in light and dark.
+//! Last, a Direct model picked before the second user signs in on the
+//! server is still the composer's under that account; the account and the
+//! connection are removed after.
 
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use conduit_protocol::{ServerAddresses, ServerRef, methods};
+use conduit_protocol::{
+    DirectApiMode, DirectConnectionEdit, DirectKind, DirectRef, ServerAddresses, ServerRef, methods,
+};
 use gpui_kit::{AnyWindowHandle, AsyncApp, Entity};
 
 use super::*;
@@ -510,6 +515,235 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         return ok("Settings › Accounts opened again", false);
     };
     pass &= add_account_kinds(settings, dir, cx).await;
+    pass &= direct_model_across_accounts(inputs, &url, &account_id, &server_id, cx).await;
+    pass
+}
+
+/// The model the open composer shows.
+fn shown_model(cx: &mut App) -> Option<String> {
+    let pane = super::chat::pane(cx)?;
+    let composer = pane.read(cx).composer_store.read(cx);
+    composer.selected_model().map(|m| m.id.clone())
+}
+
+/// New Chat, with `model` picked in it as the model picker does.
+async fn new_chat_on(model: &str, cx: &mut AsyncApp) -> bool {
+    let nav = cx.update(|cx| cx.global::<AppState>().stores.navigation.clone());
+    nav.update(cx, |n, cx| n.new_chat(false, cx));
+    settle(cx, 400).await;
+    let want = model.to_string();
+    let chosen = want.clone();
+    super::chat::in_pane(cx, move |p, _, cx| {
+        p.composer_store
+            .update(cx, |c, cx| c.select_model(&chosen, cx))
+    });
+    wait_until(cx, Duration::from_secs(20), move |cx| {
+        shown_model(cx).as_deref() == Some(want.as_str())
+    })
+    .await
+}
+
+/// A Direct model picked before the active Open WebUI account changes is
+/// still the composer's under the next one, as on the phone: it belongs to
+/// no account. Checked while the second account is active, the only place
+/// it shows: each account keeps its own picks, so the first account's comes
+/// back on the way back whatever the change kept.
+async fn direct_model_across_accounts(
+    inputs: &E2eInputs,
+    url: &str,
+    account_id: &str,
+    server_id: &str,
+    cx: &mut AsyncApp,
+) -> bool {
+    let (Some(openai), Some(second), Some(second_password)) = (
+        inputs.get("FAKE_OPENAI_URL"),
+        inputs.get("OWUI_SECOND_EMAIL"),
+        inputs.get("OWUI_SECOND_PASSWORD"),
+    ) else {
+        return ok("FAKE_OPENAI_URL and the second user in the env file", false);
+    };
+    const PROVIDER: &str = "Bench provider";
+    const MODEL: &str = "bench-direct";
+    let rpc = cx.update(|cx| cx.global::<AppState>().stores.connection.read(cx).rpc());
+    let saved = rpc
+        .call::<methods::DirectSave>(&DirectConnectionEdit {
+            id: None,
+            name: PROVIDER.into(),
+            kind: DirectKind::Openai,
+            base_url: openai,
+            api_mode: DirectApiMode::Chat,
+            api_version: None,
+            api_key_header: false,
+            model_id_prefix: None,
+            enabled: true,
+            open_web_ui: false,
+            api_key: None,
+            custom_headers: None,
+            manual_model_ids: vec![MODEL.into()],
+            allow_self_signed_certificates: false,
+            tags: vec![],
+            certificate_pem: None,
+            certificate_label: None,
+            private_key_pem: None,
+            private_key_label: None,
+            private_key_password: None,
+        })
+        .await
+        .ok()
+        .and_then(|l| l.connections.into_iter().find(|c| c.name == PROVIDER));
+    let mut pass = ok(
+        "the fake model is saved as a Direct connection",
+        saved.is_some(),
+    );
+    let Some(connection) = saved else {
+        return pass;
+    };
+    super::chat::in_pane(cx, |p, _, cx| {
+        p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+    });
+    let direct = |cx: &mut App| -> Option<String> {
+        let pane = super::chat::pane(cx)?;
+        let composer = pane.read(cx).composer_store.read(cx);
+        composer
+            .models
+            .as_ref()?
+            .models
+            .iter()
+            .find(|m| m.connection.as_deref() == Some(PROVIDER) && m.name.contains(MODEL))
+            .map(|m| m.id.clone())
+    };
+    wait_until(cx, Duration::from_secs(30), |cx| direct(cx).is_some()).await;
+    let Some(model) = cx.update(direct) else {
+        return ok("the picker offers the Direct model", false);
+    };
+    pass &= ok(
+        "New Chat is on the Direct model",
+        new_chat_on(&model, cx).await,
+    );
+
+    // The second user signs in on the same server.
+    let add = cx.update(|cx| {
+        let accounts = cx.global::<AppState>().stores.accounts.clone();
+        accounts.update(cx, |a, cx| {
+            a.change(
+                crate::stores::accounts::AccountChange::AddOnServer {
+                    server_id: server_id.to_string(),
+                    server: Box::new(conduit_protocol::ServerDraft {
+                        id: None,
+                        name: "Lab server".into(),
+                        url: url.to_string(),
+                        allow_self_signed_certificates: false,
+                        mtls_certificate_chain_pem: None,
+                        mtls_certificate_label: None,
+                        mtls_private_key_pem: None,
+                        mtls_private_key_label: None,
+                        mtls_private_key_password: None,
+                        clear_mutual_tls: false,
+                        custom_headers: None,
+                    }),
+                },
+                true,
+                cx,
+            )
+        })
+    });
+    let _ = add.await;
+    pass &= wait_route(cx, Route::SignIn, Duration::from_secs(30)).await;
+    sign_in_password(&second, &second_password, cx).await;
+    pass &= wait_route(cx, Route::Main, Duration::from_secs(60)).await;
+    let first = account_id.to_string();
+    let signed_in = wait_until(cx, Duration::from_secs(30), move |cx| {
+        let s = cx.global::<AppState>().stores.accounts.read(cx);
+        s.list.as_ref().is_some_and(|l| !l.adding_account)
+            && s.active()
+                .is_some_and(|a| a.server_id == server_id && a.id != first)
+    })
+    .await;
+    pass &= ok("the second user is the active account", signed_in);
+    let other = cx.update(|cx| {
+        let s = cx.global::<AppState>().stores.accounts.read(cx);
+        s.active().map(|a| a.id.clone())
+    });
+    let want = model.clone();
+    let kept = wait_until(cx, Duration::from_secs(30), move |cx| {
+        shown_model(cx).as_deref() == Some(want.as_str())
+    })
+    .await;
+    pass &= ok(
+        &format!(
+            "under the second account the composer still shows the Direct model ({:?})",
+            cx.update(shown_model)
+        ),
+        kept,
+    );
+
+    // Back to the first account, and leave the profile as it was. Not
+    // forced: nothing is answering, and a forced switch needs the account
+    // it was asked over.
+    let switch = cx.update(|cx| {
+        let accounts = cx.global::<AppState>().stores.accounts.clone();
+        accounts.update(cx, |a, cx| {
+            a.change(
+                crate::stores::accounts::AccountChange::Switch {
+                    account_id: account_id.to_string(),
+                },
+                false,
+                cx,
+            )
+        })
+    });
+    let switched = switch.await;
+    pass &= ok(
+        &format!("the switch back is taken ({:?})", switched.as_ref().err()),
+        switched.is_ok(),
+    );
+    let first = account_id.to_string();
+    let back = wait_until(cx, Duration::from_secs(60), move |cx| {
+        cx.global::<AppState>()
+            .stores
+            .accounts
+            .read(cx)
+            .active()
+            .is_some_and(|a| a.id == first)
+            && current_route(cx) == Route::Main
+    })
+    .await;
+    pass &= ok("the first account is active again", back);
+    if let Some(other) = other.filter(|id| id != account_id) {
+        let remove = cx.update(|cx| {
+            let accounts = cx.global::<AppState>().stores.accounts.clone();
+            accounts.update(cx, |a, cx| {
+                a.change(
+                    crate::stores::accounts::AccountChange::Remove {
+                        account_id: other.clone(),
+                    },
+                    true,
+                    cx,
+                )
+            })
+        });
+        let _ = remove.await;
+        let gone = wait_until(cx, Duration::from_secs(30), move |cx| {
+            !cx.global::<AppState>()
+                .stores
+                .accounts
+                .read(cx)
+                .accounts()
+                .iter()
+                .any(|a| a.id == other)
+        })
+        .await;
+        pass &= ok("the second account is removed", gone);
+    }
+    pass &= ok(
+        "New Chat is back on the server's model",
+        new_chat_on(&inputs.model(), cx).await,
+    );
+    let removed = rpc
+        .call::<methods::DirectRemove>(&DirectRef { id: connection.id })
+        .await
+        .is_ok_and(|l| !l.connections.iter().any(|c| c.name == PROVIDER));
+    pass &= ok("the Direct connection is removed", removed);
     pass
 }
 
