@@ -93,8 +93,10 @@ pub struct NewChatContent {
     /// Send Image and widget Clipboard reset it); else the text goes in and
     /// an unsent draft is kept, as New Chat keeps it.
     pub fresh: bool,
-    /// Files, uploaded as the composer's Attach Files uploads them.
-    pub paths: Vec<std::path::PathBuf>,
+    /// Files a plan accepted off the UI thread, each with the size it found:
+    /// uploaded as the composer's Attach Files uploads them, with no look at
+    /// the disk here.
+    pub paths: Vec<(std::path::PathBuf, u64)>,
     /// Pictures, attached as a paste attaches them.
     pub images: Vec<gpui_kit::Image>,
     /// A web page's text or a video's transcript.
@@ -2238,7 +2240,7 @@ impl ChatPane {
         }
         if !paths.is_empty() {
             self.composer_store
-                .update(cx, |c, cx| c.add_paths(&paths, cx));
+                .update(cx, |c, cx| c.add_checked_files(&paths, cx));
         }
         for image in &images {
             self.composer_store
@@ -4177,7 +4179,7 @@ mod tests {
             let file = dir.join(name);
             let _ = std::fs::write(&file, b"Packing list");
             crate::views::chat_pane::NewChatContent {
-                paths: vec![file],
+                paths: vec![(file, 12)],
                 ..crate::views::chat_pane::NewChatContent::default()
             }
         }

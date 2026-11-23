@@ -15,8 +15,8 @@ pub const MAX_FILES: usize = 10;
 /// What [`plan`] makes of the paths.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OpenFilesPlan {
-    /// Attached, in the order given.
-    pub accepted: Vec<PathBuf>,
+    /// Attached, in the order given, each with the size it had then.
+    pub accepted: Vec<(PathBuf, u64)>,
     /// Regular files past the first [`MAX_FILES`].
     pub too_many: usize,
     /// Names of files over [`MAX_BYTES`].
@@ -59,7 +59,7 @@ pub fn plan(paths: &[PathBuf], size_of: impl Fn(&Path) -> Option<u64>) -> OpenFi
             None => out.skipped.push(path.clone()),
             Some(len) if len > MAX_BYTES => out.too_large.push(display_name(path)),
             Some(_) if out.accepted.len() >= MAX_FILES => out.too_many += 1,
-            Some(_) => out.accepted.push(path.clone()),
+            Some(len) => out.accepted.push((path.clone(), len)),
         }
     }
     out
@@ -93,7 +93,7 @@ mod tests {
             &[p("notes.md"), p("photo.png"), p("missing.txt"), p("folder")],
             fake,
         );
-        assert_eq!(plan.accepted, vec![p("notes.md"), p("photo.png")]);
+        assert_eq!(plan.accepted, vec![(p("notes.md"), 4), (p("photo.png"), 4)]);
         assert_eq!(plan.skipped, vec![p("missing.txt"), p("folder")]);
         assert_eq!((plan.too_many, plan.too_large.len()), (0, 0));
     }
@@ -106,17 +106,17 @@ mod tests {
         let plan = plan(&paths, fake);
         assert_eq!(plan.accepted.len(), MAX_FILES);
         // 256 MB exactly is allowed; one byte more is not.
-        assert!(plan.accepted.contains(&p("edge.pdf")));
+        assert!(plan.accepted.contains(&(p("edge.pdf"), MAX_BYTES)));
         assert_eq!(plan.too_large, vec!["huge.pdf".to_string()]);
         // 13 acceptable files, 10 attached.
         assert_eq!(plan.too_many, 3);
-        assert_eq!(plan.accepted[0], p("f0.txt"));
+        assert_eq!(plan.accepted[0], (p("f0.txt"), 4));
     }
 
     #[test]
     fn duplicates_count_once() {
         let plan = plan(&[p("a.md"), p("a.md"), p("b.md")], fake);
-        assert_eq!(plan.accepted, vec![p("a.md"), p("b.md")]);
+        assert_eq!(plan.accepted, vec![(p("a.md"), 4), (p("b.md"), 4)]);
     }
 
     #[test]
