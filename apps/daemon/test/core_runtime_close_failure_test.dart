@@ -45,8 +45,6 @@ void main() {
 
     await daemon.stop();
     await daemon.onStopped;
-    await daemon.stop();
-    await runtime.dispose();
 
     await expectLater(
       account.customSelect('SELECT 1').get(),
@@ -54,6 +52,10 @@ void main() {
       reason: 'the account database was left open',
     );
     expect(Hive.isBoxOpen(HiveBoxNames.preferences), isFalse);
+
+    // Asked again, both still complete.
+    await daemon.stop();
+    await runtime.dispose();
   });
 }
 
