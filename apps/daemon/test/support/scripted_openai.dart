@@ -19,11 +19,13 @@ final class ScriptedOpenAi {
   final List<List<Map<String, dynamic>>> requests =
       <List<Map<String, dynamic>>>[];
   final Map<String, Completer<void>> _holds = <String, Completer<void>>{};
-  final List<(String, Completer<void>)> _asked = <(String, Completer<void>)>[];
+  final List<(String, Completer<Map<String, dynamic>>)> _asked =
+      <(String, Completer<Map<String, dynamic>>)>[];
 
-  /// Completes once a question starting with [prefix] is asked from now on.
-  Future<void> asked(String prefix) {
-    final asked = Completer<void>();
+  /// Completes with the request once a question starting with [prefix] is
+  /// asked from now on.
+  Future<Map<String, dynamic>> asked(String prefix) {
+    final asked = Completer<Map<String, dynamic>>();
     _asked.add((prefix, asked));
     return asked.future;
   }
@@ -75,7 +77,7 @@ final class ScriptedOpenAi {
     _asked.removeWhere((waiter) {
       final (prefix, asked) = waiter;
       if (!question.startsWith(prefix)) return false;
-      asked.complete();
+      asked.complete(body);
       return true;
     });
 

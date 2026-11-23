@@ -50,9 +50,34 @@ void main() {
   List<EventEnvelope> window(String id) =>
       windows.putIfAbsent(id, () => <EventEnvelope>[]);
 
+  final hearing =
+      <(String, bool Function(EventEnvelope), Completer<EventEnvelope>)>[];
+
   void open(String id) {
     window(id);
-    events.attach(id, (envelope) => window(id).add(envelope));
+    events.attach(id, (envelope) {
+      window(id).add(envelope);
+      hearing.removeWhere((waiter) {
+        final (windowId, test, heard) = waiter;
+        if (windowId != id || !test(envelope)) return false;
+        heard.complete(envelope);
+        return true;
+      });
+    });
+  }
+
+  /// The first event [windowId] heard since its [from]th, or hears next,
+  /// that [test] takes.
+  Future<EventEnvelope> heard(
+    String windowId,
+    bool Function(EventEnvelope) test, {
+    int from = 0,
+  }) {
+    final already = window(windowId).skip(from).where(test).firstOrNull;
+    if (already != null) return Future<EventEnvelope>.value(already);
+    final heard = Completer<EventEnvelope>();
+    hearing.add((windowId, test, heard));
+    return heard.future;
   }
 
   Iterable<EventEnvelope> of(String windowId, String event) =>
@@ -392,11 +417,24 @@ void main() {
   test('regenerate and edit run on the model selected now, keeping the '
       "chat's tools", () async {
     open('selected');
+    // Over once `turn.finished` says so: the chat takes another turn then.
+    // A direct chat's regenerated answer keeps its id, so only what was
+    // heard since [from] counts.
+    Future<void> answered(String messageId, int from) => heard(
+      'selected',
+      (envelope) =>
+          envelope.event == ConduitEvents.turnFinished &&
+          envelope.payload['messageId'] == messageId,
+      from: from,
+    );
+    int heardSoFar() => window('selected').length;
+    final firstAsked = provider.asked('pick again');
     final first = await turns.send(
       SendTurn(model: model, text: 'pick again', toolIds: ['sample-tool']),
     );
     subscribeWindow(events, turns, 'selected', <String>[first.chatId]);
-    await until(() => ended('selected', first.assistantMessageId));
+    expect((await firstAsked)['model'], 'scripted-model');
+    await answered(first.assistantMessageId, 0);
     // Kept open, as a window keeps the chat it shows: the tools are the
     // chat's, not the turn's.
     await turns.holdScope(first.chatId);
@@ -406,26 +444,19 @@ void main() {
     final previous = runtime.container.read(selectedModelProvider);
     selection.set(listed.firstWhere((m) => m.id == otherModel));
     addTearDown(() => selection.set(previous));
-    // The stored answer [id]'s model, once the stored chat has it.
-    Future<String?> answerModel(String id) async {
-      final deadline = DateTime.now().add(const Duration(seconds: 20));
-      while (DateTime.now().isBefore(deadline)) {
-        final answer = (await chats.get(first.chatId))?.messages.last;
-        if (answer?.id == id) return answer!.model;
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
-      fail('the stored chat never had $id');
-    }
 
+    final regenerateAsked = provider.asked('pick again');
+    final beforeRegenerate = heardSoFar();
     final again = await turns.regenerate(
       RegenerateTurn(chatId: first.chatId, messageId: first.assistantMessageId),
     );
     final scope = turns.scopeOf(first.chatId)!;
     expect(scope.read(selectedToolIdsProvider), <String>['sample-tool']);
-    await until(() => ended('selected', again.assistantMessageId));
-    await until(() => !scope.read(isChatStreamingProvider));
-    expect(await answerModel(again.assistantMessageId), otherModel);
+    expect((await regenerateAsked)['model'], 'other-model');
+    await answered(again.assistantMessageId, beforeRegenerate);
 
+    final editAsked = provider.asked('pick once more');
+    final beforeEdit = heardSoFar();
     final edited = await turns.edit(
       EditTurn(
         chatId: first.chatId,
@@ -434,8 +465,8 @@ void main() {
       ),
     );
     expect(scope.read(selectedToolIdsProvider), <String>['sample-tool']);
-    await until(() => ended('selected', edited.assistantMessageId));
-    expect(await answerModel(edited.assistantMessageId), otherModel);
+    expect((await editAsked)['model'], 'other-model');
+    await answered(edited.assistantMessageId, beforeEdit);
   });
 
   test('regenerate and edit refuse what they cannot act on', () async {
