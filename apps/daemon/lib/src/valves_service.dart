@@ -16,6 +16,7 @@ import 'package:conduit_core/services/settings_service.dart'
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'models_service.dart' show currentModel;
 import 'settled.dart';
 
@@ -303,9 +304,14 @@ final class ValvesService {
 
   Future<core.Model?> _model(String? modelId) async {
     if (modelId == null) return currentModel(_container);
+    final account = AccountScope.capture(_container);
     try {
       // By the core's one rule: a hidden model a chat was saved with too.
-      return await modelForId(_container.read, modelId);
+      return await modelForId(
+        _container.read,
+        modelId,
+        isCurrent: () => account.isCurrent,
+      );
     } on Object {
       return null;
     }

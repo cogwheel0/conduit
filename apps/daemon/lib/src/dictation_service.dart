@@ -19,6 +19,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'models_service.dart';
 import 'settled.dart';
 import 'voice_service.dart';
@@ -188,6 +189,7 @@ final class DictationService {
   Future<Model?> _model(String? id) async {
     final wanted = id?.trim();
     if (wanted == null || wanted.isEmpty) return currentModel(_container);
+    final account = AccountScope.capture(_container);
     List<Model> models;
     try {
       models = await readSettled(_container, modelsProvider.future);
@@ -212,7 +214,11 @@ final class DictationService {
     // on it), by the core's one rule; else an Open WebUI model the list
     // has not loaded yet.
     try {
-      final usable = await modelForId(_container.read, wanted);
+      final usable = await modelForId(
+        _container.read,
+        wanted,
+        isCurrent: () => account.isCurrent,
+      );
       if (usable != null) return usable;
     } on Object {
       // The list or the server could not be read: as not loaded yet.

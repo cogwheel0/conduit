@@ -207,6 +207,7 @@ final class ComposerService {
   /// was saved with included. A coding agent that is not selected is known
   /// by its id alone. The selection when no model has that id.
   Future<Model?> _shownModel(String? id) async {
+    final account = AccountScope.capture(_container);
     final selected = _container.read(selectedModelProvider);
     if (id == null || selected?.id == id) return selected;
     final listed = _container
@@ -217,7 +218,12 @@ final class ComposerService {
     if (listed != null) return listed;
     if (isTerminalAgentModelId(id)) return Model(id: id, name: id);
     try {
-      return await modelForId(_container.read, id) ?? selected;
+      return await modelForId(
+            _container.read,
+            id,
+            isCurrent: () => account.isCurrent,
+          ) ??
+          selected;
     } on Object {
       return selected;
     }
