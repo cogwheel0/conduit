@@ -7,6 +7,8 @@ import 'dart:io';
 
 import 'package:conduit_core/database/database_provider.dart'
     show appDatabaseProvider, openWebUiCertifiedDatabaseServerProvider;
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show chatSessionRegistryProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
     show kDirectTransport;
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
@@ -316,6 +318,66 @@ void main() {
       expect(owui.chats.holdAdmission!.isCompleted, isFalse);
       expect(turns.isRunning(chatId), isFalse);
       await clock.during(held.then((_) {}, onError: (_) {}));
+    });
+
+    // The account's client changes while an answer streams, and the next
+    // read of the chat's transcript (a frame's) is what rebuilds it: the
+    // chat closes once that read is done, not underneath it.
+    test('a client change first seen by a read of a streaming chat closes '
+        'the chat after the read', () async {
+      owui.chats
+        ..seed('chat-garden', userId: 'user-ada')
+        ..holdStream = Completer<void>();
+      final garden = await clock.during(
+        turns.send(
+          const SendTurn(
+            chatId: 'chat-garden',
+            model: 'kettle-model',
+            text: 'Water the beans',
+          ),
+        ),
+      );
+      final scope = runtime.container
+          .read(chatSessionRegistryProvider)
+          .scopes
+          .single;
+
+      runtime.container.invalidate(apiServiceProvider);
+
+      expect(() => scope.messages, returnsNormally);
+      await pumpEventQueue();
+      expect(scope.isDisposed, isTrue);
+      expect(turns.isRunning(garden.chatId), isFalse);
+    });
+
+    // A temporary chat lives only in the daemon: closing its scope keeps
+    // its transcript, which the core empties as it notices the new client.
+    test('a client change keeps the transcript of a temporary chat it '
+        'closes', () async {
+      owui.chats.holdStream = Completer<void>();
+      final picnic = await clock.during(
+        turns.send(
+          const SendTurn(
+            model: 'kettle-model',
+            text: 'Plan a picnic',
+            temporary: true,
+          ),
+        ),
+      );
+      final scope = runtime.container
+          .read(chatSessionRegistryProvider)
+          .scopes
+          .single;
+
+      runtime.container.invalidate(apiServiceProvider);
+      scope.messages;
+      await pumpEventQueue();
+
+      expect(scope.isDisposed, isTrue);
+      expect(
+        turns.temporary.transcript(picnic.chatId).map((m) => m.content),
+        contains('Plan a picnic'),
+      );
     });
   });
 

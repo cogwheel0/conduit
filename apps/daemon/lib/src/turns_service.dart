@@ -3890,7 +3890,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
     if (!running && session.pending == null) _scheduleLinger(session);
   }
 
-  void _close(_ChatSession session) {
+  /// [afterRead]: closed from a provider listener ([_closeAll]), which runs
+  /// inside the read that noticed the change; what the close reads is read
+  /// now, and only the scope's container waits for that read to finish.
+  void _close(_ChatSession session, {bool afterRead = false}) {
     session.linger?.cancel();
     session.turn?.ticker?.cancel();
     for (final subscription in session.subscriptions) {
@@ -3905,7 +3908,11 @@ final class TurnsService implements ChatTurns, AddressReplies {
         temporary.replace(conversation.id, session.scope.messages);
       }
     }
-    session.scope.dispose();
+    if (afterRead) {
+      session.scope.disposeAfterRead();
+    } else {
+      session.scope.dispose();
+    }
     _sessions.remove(session);
   }
 
@@ -3958,7 +3965,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
           ),
         );
       }
-      _close(session);
+      _close(session, afterRead: true);
     }
   }
 
