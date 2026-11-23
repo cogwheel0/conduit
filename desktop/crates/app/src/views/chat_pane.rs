@@ -2176,12 +2176,12 @@ impl ChatPane {
     /// written.
     pub fn compose_new_chat(
         &mut self,
-        ticket: &Selection,
+        ticket: &crate::stores::navigation::Ticket,
         content: NewChatContent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.stores.navigation.read(cx).selection() != ticket {
+        if self.stores.navigation.read(cx).ticket() != *ticket {
             return false;
         }
         // Read under one account scope, never written for another (a switch
@@ -4042,9 +4042,7 @@ mod tests {
                 ..NewChatContent::default()
             };
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
-            let ticket = stores
-                .navigation
-                .read_with(vcx, |n, _| n.selection().clone());
+            let ticket = stores.navigation.read_with(vcx, |n, _| n.ticket());
             stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
             vcx.run_until_parked();
             let wrote = pane.update_in(vcx, |p, window, cx| {
@@ -4060,9 +4058,7 @@ mod tests {
             // Still on the new chat it opened: written.
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            let ticket = stores
-                .navigation
-                .read_with(vcx, |n, _| n.selection().clone());
+            let ticket = stores.navigation.read_with(vcx, |n, _| n.ticket());
             let wrote = pane.update_in(vcx, |p, window, cx| {
                 p.compose_new_chat(&ticket, content(), window, cx)
             });
@@ -4082,9 +4078,7 @@ mod tests {
             let (_daemon, stores, pane, vcx) = bench(cx);
             stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
             vcx.run_until_parked();
-            let ticket = stores
-                .navigation
-                .read_with(vcx, |n, _| n.selection().clone());
+            let ticket = stores.navigation.read_with(vcx, |n, _| n.ticket());
             let page = |owner: &str| NewChatContent {
                 text: Some("Summarize this page".into()),
                 fresh: true,
@@ -4126,9 +4120,7 @@ mod tests {
             let ticket = |vcx: &mut VisualTestContext| {
                 stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
                 vcx.run_until_parked();
-                stores
-                    .navigation
-                    .read_with(vcx, |n, _| n.selection().clone())
+                stores.navigation.read_with(vcx, |n, _| n.ticket())
             };
             // An account is in charge: a page read with none is refused.
             let t = ticket(vcx);

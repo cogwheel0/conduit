@@ -501,7 +501,7 @@ fn open_new_chat(
         // The new chat this request opened, taken now: what follows (another
         // link, the user choosing a chat) may select something else while
         // the files are looked at, and the content then never lands.
-        let ticket = view.stores.navigation.read(cx).selection().clone();
+        let ticket = view.stores.navigation.read(cx).ticket();
         let pane = view.chat_pane.clone();
         // Looking at the files can wait on a network share (`\\server\share`):
         // off the UI thread.
