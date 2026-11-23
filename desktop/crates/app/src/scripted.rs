@@ -1,8 +1,8 @@
 //! Whether this launch is a scripted one: an E2E or smoke pass
-//! (`--shots`, `--e2e`), the capture harness (`--capture`), a probe or a
-//! fixture. A scripted run never asks macOS for a permission: the system's
-//! prompt (microphone, speech recognition, notifications) would wait on
-//! screen for someone to answer it, for an app no one is using. A
+//! (`--shots`, `--smoke`, `--e2e`), the capture harness (`--capture`), a
+//! probe or a fixture. A scripted run never asks macOS for a permission:
+//! the system's prompt (microphone, speech recognition, notifications) would
+//! wait on screen for someone to answer it, for an app no one is using. A
 //! permission the system has not asked about yet counts as not given; the
 //! passes use stand-ins (a WAV for the microphone, a server for speech) or
 //! skip what needs the real thing.
@@ -13,9 +13,10 @@ static SCRIPTED: AtomicBool = AtomicBool::new(false);
 
 /// The app's flags that take a value: the argument after one is that value,
 /// never a flag (`--cwd --shots` names a folder called `--shots`).
-const VALUE_FLAGS: [&str; 15] = [
+const VALUE_FLAGS: [&str; 16] = [
     "--cwd",
     "--shots",
+    "--smoke",
     "--e2e",
     "--e2e-env",
     "--capture",
@@ -73,8 +74,8 @@ pub fn value(args: &[String], flag: &str) -> Option<String> {
     args.get(at + 1).cloned()
 }
 
-/// The smoke pass's flags, in every build.
-const PASS_FLAGS: [&str; 2] = ["--shots", "--smoke-reset"];
+/// The smoke passes' flags, in every build.
+const PASS_FLAGS: [&str; 3] = ["--shots", "--smoke", "--smoke-reset"];
 
 /// The test harness's flag in `args`, if any: an E2E pass (`--e2e`,
 /// `--e2e-env`), the capture (`--capture…`), a probe, or a fixture
@@ -127,6 +128,11 @@ mod tests {
             options(&["app", "--cwd", "--shots", "--hidden"]),
             ["--cwd", "--hidden"]
         );
+        assert_eq!(
+            options(&["app", "--smoke", "--hidden", "--cwd", "/x"]),
+            ["--smoke", "--cwd"],
+            "the smoke pass's file is never a flag"
+        );
     }
 
     #[test]
@@ -140,6 +146,7 @@ mod tests {
         assert!(requested(&args(&["app", "--tasks-fixture", "perf"])));
         assert!(!requested(&args(&["app"])));
         assert!(!requested(&args(&["app", "--hidden", "--cwd", "/x"])));
+        assert!(requested(&args(&["app", "--smoke", "/tmp/smoke.txt"])));
     }
 
     #[test]
@@ -159,6 +166,7 @@ mod tests {
         }
         for flag in [
             "--shots",
+            "--smoke",
             "--smoke-reset",
             "--hidden",
             "--cwd",

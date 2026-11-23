@@ -58,8 +58,9 @@ icu_calendar = "2.4"
 [target.'cfg(windows)'.dependencies]
 # The display languages and the regional format (l10n::locale); the accent
 # colour and animation effects (shell::system_look); whether a URL scheme
-# has an app to open it (shell::open_url).
-windows = { version = "0.62", features = ["Win32_Globalization", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# has an app to open it (shell::open_url); the console of what started a
+# release build, for why a launch ended (lib.rs).
+windows = { version = "0.62", features = ["Win32_Globalization", "Win32_System_Console", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The desktop portal's accent colour and Reduce Motion (shell::system_look),

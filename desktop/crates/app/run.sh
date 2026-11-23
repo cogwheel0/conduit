@@ -24,8 +24,9 @@
 #                                                  # the team's prefix
 #
 # The bundle lives in target/app/ (ignored) and is reused. A scripted run
-# (--shots, --e2e, --capture) uses the profile CONDUIT_USER_DATA names, never
-# the app's own; without one it starts on a fresh profile in $TMPDIR.
+# (--shots, --smoke, --e2e, --capture) uses the profile CONDUIT_USER_DATA
+# names, never the app's own; without one it starts on a fresh profile in
+# $TMPDIR.
 #
 # On Linux it runs the binary itself (no bundle); the app runs on XWayland
 # when the session has it, however it's started (D2: the web views embed
@@ -38,6 +39,11 @@
 #                                                  # file and xdg-mime);
 #                                                  # only on this command
 #   crates/app/run.sh --unregister-scheme [--force] # undo it
+#   crates/app/run.sh --smoke /tmp/smoke.txt       # the smoke pass: its SMOKE
+#                                                  # lines in the file, then
+#                                                  # quit (exit code 0 if it
+#                                                  # passed; --shots is the
+#                                                  # Mac's)
 #
 # Every checkout writes the same conduit-dev.desktop, so both refuse an
 # entry another checkout wrote unless --force is given; and the run passes
@@ -75,7 +81,7 @@ for arg in "$@"; do
     : # `--fixture perf comfortable`: the perf fixture's layout, a second value
   else
     case "$arg" in
-      --cwd | --shots | --e2e | --e2e-env | --capture | --capture-env | --capture-only | --probe | \
+      --cwd | --shots | --smoke | --e2e | --e2e-env | --capture | --capture-env | --capture-only | --probe | \
         --fixture | --chat-fixture | --channel-fixture | --calendar-fixture | --tasks-fixture | --workspace-fixture | --preview-route)
         value_next=1 ;;
       -* | /*) ;;

@@ -33,6 +33,10 @@ case "$FAKE_MODE" in
     i=0; while [ $i -lt 2000 ]; do echo "closing $i" >&2; i=$((i+1)); done
     echo "stdin closed" >&2
     exit 0 ;;
+  unclean)
+    echo '{"ready":true,"port":4242}'
+    while IFS= read -r rest; do :; done
+    exit 3 ;;
   lingering)
     echo '{"ready":true,"port":4242}'
     while IFS= read -r rest; do :; done
@@ -145,10 +149,10 @@ async fn writes_bootstrap_reports_ready_and_logs_stderr() {
     assert_eq!(args.trim(), format!("--user-data {}", user_data.display()));
 
     // Closing stdin is enough for a well-behaved daemon.
-    assert_eq!(sup.stop().await, StopOutcome::Graceful);
+    assert_eq!(sup.stop().await, StopOutcome::Graceful(ExitInfo::Code(0)));
     assert_eq!(
         next(&mut rx).await,
-        SupervisorEvent::Stopped(StopOutcome::Graceful)
+        SupervisorEvent::Stopped(StopOutcome::Graceful(ExitInfo::Code(0)))
     );
     let log = std::fs::read_to_string(dir.join("logs/conduitd.log")).unwrap();
     assert!(log.contains("hello from stderr"), "{log}");
@@ -304,6 +308,16 @@ unsafe extern "C" {
     fn libc_kill(pid: i32, sig: i32) -> i32;
 }
 
+/// An exit inside the stdin grace is a graceful stop whatever its code, and
+/// the stop says what the code was (the smoke pass fails on anything but 0).
+#[tokio::test]
+async fn a_graceful_stop_says_how_the_daemon_exited() {
+    let (config, _dir) = setup("unclean", "unclean");
+    let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
+    until(&mut rx, |e| matches!(e, SupervisorEvent::Ready { .. })).await;
+    assert_eq!(sup.stop().await, StopOutcome::Graceful(ExitInfo::Code(3)));
+}
+
 #[tokio::test]
 async fn an_exit_with_stderr_still_open_is_graceful_and_signals_nothing() {
     // The daemon exits as soon as stdin closes, well inside the 300 ms
@@ -312,7 +326,7 @@ async fn an_exit_with_stderr_still_open_is_graceful_and_signals_nothing() {
     let (config, dir) = setup("lingering", "lingering");
     let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
     until(&mut rx, |e| matches!(e, SupervisorEvent::Ready { .. })).await;
-    assert_eq!(sup.stop().await, StopOutcome::Graceful);
+    assert_eq!(sup.stop().await, StopOutcome::Graceful(ExitInfo::Code(0)));
     let log = std::fs::read_to_string(dir.join("logs/conduitd.log")).unwrap();
     assert!(!log.contains("SIGTERM"), "{log}");
     assert!(!log.contains("SIGKILL"), "{log}");
@@ -334,5 +348,5 @@ async fn a_stop_after_the_daemon_exited_signals_nothing_and_a_new_one_starts() {
     let (config, _) = setup("exited-fresh", "ready");
     let (fresh, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
     until(&mut rx, |e| matches!(e, SupervisorEvent::Ready { .. })).await;
-    assert_eq!(fresh.stop().await, StopOutcome::Graceful);
+    assert_eq!(fresh.stop().await, StopOutcome::Graceful(ExitInfo::Code(0)));
 }

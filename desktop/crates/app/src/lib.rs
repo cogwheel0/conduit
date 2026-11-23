@@ -7,7 +7,8 @@
 //! ([`views::settings`]), and the macOS shell extras ([`desktop`]: links,
 //! "Open with", notifications, Quick Ask, the menu-bar item, open at
 //! login), and Sparkle updates ([`updates`]). `--shots <dir>` runs the
-//! scripted smoke pass in [`smoke`].
+//! scripted smoke pass in [`smoke`]; off the Mac, `--smoke <file>` runs the
+//! capture-free one in [`smoke_pass`].
 //!
 //! The test harness is behind the `harness` feature, which dev and test
 //! builds turn on (`crates/app/run.sh`, `perf.sh`, `hc-capture.sh`, and
@@ -44,6 +45,7 @@ pub mod scripted;
 pub mod shell;
 #[cfg(target_os = "macos")]
 pub mod smoke;
+pub mod smoke_pass;
 pub mod stores;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod terminal_fixture;
@@ -115,13 +117,14 @@ fn arg(args: &[String], key: &str) -> Option<String> {
     scripted::value(args, key)
 }
 
-/// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`,
-/// or a fixture: `--fixture`, `--chat-fixture` and the rest) that drives,
-/// resets and photographs its profile, or saves settings to it (a
-/// fixture's screenshot theme): a profile of its own, never the user's.
+/// Whether `args` ask for a scripted run (`--shots`, `--smoke`, `--e2e`,
+/// `--capture`, or a fixture: `--fixture`, `--chat-fixture` and the rest)
+/// that drives, resets and photographs its profile, or saves settings to it
+/// (a fixture's screenshot theme): a profile of its own, never the user's.
 pub fn is_scripted(args: &[String]) -> bool {
     scripted::options(args).any(|a| {
         a == "--shots"
+            || a == "--smoke"
             || a.starts_with("--e2e")
             || a.starts_with("--capture")
             || (a.starts_with("--") && a.ends_with("fixture"))
@@ -289,11 +292,37 @@ fn linux_master_key(
     key
 }
 
-/// A harness flag `os` doesn't run: `--probe` drives the Mac's shell and
-/// isn't built elsewhere, where it would only open the app on its real
-/// profile without the single-instance check, beside the one already open.
+/// Why `os` doesn't run a flag in `args`, flag first, or `None`. `--probe`
+/// and `--shots` drive the Mac's shell and aren't built elsewhere, where they
+/// would only open the app (`--probe` on its real profile, without the
+/// single-instance check, beside the one already open). `--smoke` is their
+/// pass off the Mac, whose exit code only GPUI's run returning can give:
+/// AppKit ends a quitting app itself.
 pub fn unsupported_flag(os: paths::Os, args: &[String]) -> Option<&'static str> {
-    (os != paths::Os::MacOs && scripted::options(args).any(|a| a == "--probe")).then_some("--probe")
+    let mac = os == paths::Os::MacOs;
+    scripted::options(args).find_map(|a| match a {
+        "--probe" if !mac => Some("--probe runs only on macOS"),
+        "--shots" if !mac => Some(
+            "--shots runs only on macOS; on Windows and Linux the smoke pass is --smoke <file>",
+        ),
+        "--smoke" if mac => {
+            Some("--smoke runs on Windows and Linux; on the Mac the smoke pass is --shots <dir>")
+        }
+        _ => None,
+    })
+}
+
+/// The file `--smoke` writes its report to, when the launch asks for the
+/// pass. Without one (or with a flag in its place) the launch would open the
+/// app as usual, and whatever waits for the verdict would wait for good.
+pub fn smoke_file(args: &[String]) -> Result<Option<String>, &'static str> {
+    if !scripted::has(args, "--smoke") {
+        return Ok(None);
+    }
+    match arg(args, "--smoke") {
+        Some(file) if !file.starts_with('-') => Ok(Some(file)),
+        _ => Err("--smoke needs the file to write its report to: --smoke <file>"),
+    }
 }
 
 /// Whether to leave Wayland for XWayland: the session has both (`DISPLAY`
@@ -347,9 +376,34 @@ pub(crate) fn install_main_for_test(
 /// from here.
 #[cfg(not(target_os = "macos"))]
 fn refuse_launch(paths: &AppPaths, why: &str) -> ! {
-    eprintln!("conduit-desktop: {why}");
     note_refused_launch(&paths.logs, std::time::SystemTime::now(), why);
-    std::process::exit(1);
+    end_launch(1, why);
+}
+
+/// Ends a launch that can't go on, saying why on stderr with `code`.
+fn end_launch(code: i32, why: &str) -> ! {
+    #[cfg(windows)]
+    attach_parent_console();
+    eprintln!("conduit-desktop: {why}");
+    std::process::exit(code);
+}
+
+/// A Windows release build has no console (main.rs): a message for the
+/// command line goes to the console of what started the app, a terminal,
+/// unless stderr was redirected. Only on the way out: a GUI program attached
+/// to a console would also end with a Ctrl+C typed there later.
+#[cfg(windows)]
+fn attach_parent_console() {
+    use ::windows::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE,
+    };
+    // SAFETY: reads this process's standard handle, then attaches to its
+    // parent's console, which fails harmlessly when there is none.
+    unsafe {
+        if GetStdHandle(STD_ERROR_HANDLE).is_err() {
+            let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
 }
 
 /// Where a refused launch is noted, beside the app's rotating log.
@@ -411,9 +465,13 @@ fn as_text(args: &[std::ffi::OsString]) -> Vec<String> {
 /// and also when this user's app holds the profile but doesn't take the
 /// launch, or when what holds it can't be identified (two apps on one
 /// profile would share its data). Only a holder known to be another user's,
-/// or a failure before any holder was found, leaves this launch on its own.
+/// or a failure before any holder was found, leaves this launch on its own:
+/// why, for the log, which isn't open yet.
 #[cfg(not(target_os = "macos"))]
-fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::instance::Listener> {
+fn claim_instance(
+    paths: &AppPaths,
+    urls: &[String],
+) -> Result<conduit_daemon::instance::Listener, String> {
     use conduit_daemon::instance::{Claim, claim};
     // Every launch names the profile the same way, made or not.
     let _ = std::fs::create_dir_all(&paths.user_data);
@@ -422,7 +480,7 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
         .canonicalize()
         .unwrap_or_else(|_| paths.user_data.clone());
     match claim(&paths.flavor.keychain_service(), &profile, urls) {
-        Ok(Claim::First(listener)) => Some(listener),
+        Ok(Claim::First(listener)) => Ok(listener),
         Ok(Claim::Forwarded) => {
             log::info!(
                 "handed this launch ({} to open) to the running app",
@@ -449,10 +507,7 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
             );
             refuse_launch(paths, &why);
         }
-        Err(e) => {
-            eprintln!("conduit-desktop: single instance: {e}; this launch runs on its own");
-            None
-        }
+        Err(e) => Err(format!("single instance: {e}; this launch runs on its own")),
     }
 }
 
@@ -490,21 +545,23 @@ pub fn run() {
     // starting normally, so a script can never drive a real profile.
     #[cfg(not(feature = "harness"))]
     if let Some(flag) = scripted::harness_flag(&args) {
-        eprintln!("conduit-desktop: {flag} needs a build with the `harness` feature");
-        std::process::exit(64);
+        end_launch(
+            64,
+            &format!("{flag} needs a build with the `harness` feature"),
+        );
     }
     // An E2E pass runs inside the smoke pass (`--shots <dir>`): alone it
     // would open the app normally and report nothing.
     if scripted::options(&args).any(|a| a == "--e2e") && arg(&args, "--shots").is_none() {
-        eprintln!("conduit-desktop: --e2e runs with --shots <dir>");
-        std::process::exit(64);
+        end_launch(64, "--e2e runs with --shots <dir>");
     }
-    // A harness flag this OS doesn't run ends the launch before anything
-    // opens.
-    if let Some(flag) = unsupported_flag(paths::Os::CURRENT, &args) {
-        eprintln!("conduit-desktop: {flag} runs only on macOS");
-        std::process::exit(64);
+    // A pass this OS doesn't run ends the launch before anything opens.
+    if let Some(why) = unsupported_flag(paths::Os::CURRENT, &args) {
+        end_launch(64, why);
     }
+    // So does `--smoke` without its file.
+    #[cfg(not(target_os = "macos"))]
+    let smoke_path = smoke_file(&args).unwrap_or_else(|why| end_launch(64, why));
     // The smoke wrapper launches through `open`, which starts apps in `/`.
     if let Some((i, _)) = scripted::option_positions(&args).find(|(_, a)| *a == "--cwd")
         && let Some(dir) = args_os.get(i + 1)
@@ -543,10 +600,7 @@ pub fn run() {
     // key, and a shared one (the temporary folder) is never used instead.
     let mut app_paths = match AppPaths::for_flavor(flavor) {
         Ok(paths) => paths,
-        Err(e) => {
-            eprintln!("conduit-desktop: {e}");
-            std::process::exit(1);
-        }
+        Err(e) => end_launch(1, &e.to_string()),
     };
     // A scripted run gets its own profile, logs and Keychain item.
     let scripted_run = is_scripted(&args);
@@ -561,10 +615,7 @@ pub fn run() {
         let fresh = named.is_none();
         match harness_profile(named, ordinary.as_deref(), &scratch) {
             Ok(user_data) => app_paths.user_data = user_data,
-            Err(e) => {
-                eprintln!("conduit-desktop: {e}");
-                std::process::exit(64);
-            }
+            Err(e) => end_launch(64, &e),
         }
         if fresh && std::env::var_os("CONDUIT_LOGS").is_none() {
             app_paths.logs = scratch.join("logs");
@@ -580,7 +631,7 @@ pub fn run() {
         match launch_urls(&args_os, &std::env::current_dir().unwrap_or_default()) {
             Some(urls) => {
                 let instance = claim_instance(&app_paths, &urls);
-                (urls, instance)
+                (urls, Some(instance))
             }
             None => (vec![], None),
         };
@@ -589,6 +640,15 @@ pub fn run() {
         "Conduit Desktop {VERSION} ({flavor:?}), userData {}",
         app_paths.user_data.display()
     );
+    #[cfg(not(target_os = "macos"))]
+    let instance = match instance {
+        Some(Ok(listener)) => Some(listener),
+        Some(Err(why)) => {
+            log::warn!("{why}");
+            None
+        }
+        None => None,
+    };
     let shots = arg(&args, "--shots").map(PathBuf::from);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let probe = arg(&args, "--probe").map(PathBuf::from);
@@ -618,8 +678,18 @@ pub fn run() {
     let capture = capture::CaptureOptions::from_args(&args);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let scripted = shots.is_some() || capture.is_some();
-    #[cfg(not(all(target_os = "macos", feature = "harness")))]
+    #[cfg(all(target_os = "macos", not(feature = "harness")))]
     let scripted = shots.is_some();
+    // `--smoke <file>`: the pass's report, made before anything opens (a
+    // launch that can't write it ends here), and its verdict after the quit.
+    #[cfg(not(target_os = "macos"))]
+    let smoke = smoke_path.map(|path| {
+        let report = smoke_pass::SmokeReport::create(std::path::Path::new(&path))
+            .unwrap_or_else(|e| end_launch(64, &format!("--smoke {path}: {e}")));
+        std::rc::Rc::new(std::cell::RefCell::new(report))
+    });
+    #[cfg(not(target_os = "macos"))]
+    let scripted = shots.is_some() || smoke.is_some();
     // `{{USER_LOCATION}}`: a scripted run (any pass, the capture, a probe
     // or a fixture: `scripted::active`) answers with a stand-in and never
     // reaches CoreLocation (no test may raise the system's prompt).
@@ -653,6 +723,8 @@ pub fn run() {
         }
     });
     let hidden_arg = scripted::has(&args, "--hidden");
+    #[cfg(not(target_os = "macos"))]
+    let smoke_in_app = smoke.clone();
     app.run(move |cx: &mut App| {
         // The open-application Apple event is current only now.
         #[cfg(target_os = "macos")]
@@ -850,7 +922,9 @@ pub fn run() {
             }
         })
         .detach();
-        cx.on_app_quit(|cx| {
+        #[cfg(not(target_os = "macos"))]
+        let smoke_on_quit = smoke_in_app.clone();
+        cx.on_app_quit(move |cx| {
             desktop::read_shown_chats_on_quit(cx);
             if let Some(state) = cx.try_global::<AppState>() {
                 let (connection, settings, layout) = (
@@ -860,7 +934,13 @@ pub fn run() {
                 );
                 layout.read(cx).save_now();
                 settings.read(cx).save();
-                connection.update(cx, |c, _| c.shutdown());
+                let stopped = connection.update(cx, |c, _| c.shutdown());
+                #[cfg(not(target_os = "macos"))]
+                if let Some(report) = &smoke_on_quit {
+                    report.borrow_mut().daemon_stopped(stopped);
+                }
+                #[cfg(target_os = "macos")]
+                let _ = stopped;
             }
             async {}
         })
@@ -890,8 +970,18 @@ pub fn run() {
             e2e::shell::probe(path, cx);
         }
         #[cfg(not(target_os = "macos"))]
+        if let Some(report) = smoke_in_app {
+            smoke_pass::run(report, cx);
+        }
+        #[cfg(not(target_os = "macos"))]
         let _ = shots;
     });
+    // Off the Mac, GPUI's run returns once the app has quit (and stopped the
+    // daemon): the smoke pass's verdict is the exit code.
+    #[cfg(not(target_os = "macos"))]
+    if let Some(report) = smoke {
+        std::process::exit(report.borrow_mut().finish());
+    }
 }
 
 /// Follows System Settings › Keyboard Navigation (re-read whenever a window
@@ -1427,34 +1517,65 @@ mod harness_profile_tests {
         assert!(!prefer_xwayland(os(":0"), None, None), "X11 already");
     }
 
+    /// A pass or probe an OS doesn't run is refused there before anything
+    /// opens (said with the flag first): `--probe` and `--shots` drive the
+    /// Mac's shell, and `--smoke` is their pass off the Mac, whose exit code
+    /// only Windows and Linux can give (AppKit ends a quitting app itself).
     #[test]
-    fn the_probe_is_refused_off_the_mac() {
+    fn each_pass_is_refused_where_it_does_not_run() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let probe = args(&["app", "--probe", "state.json"]);
-        assert_eq!(unsupported_flag(paths::Os::Linux, &probe), Some("--probe"));
+        let refused = |os, a: &[&str]| {
+            unsupported_flag(os, &args(a)).map(|why| why.split(' ').next().unwrap().to_string())
+        };
+        let (mac, linux, windows) = (paths::Os::MacOs, paths::Os::Linux, paths::Os::Windows);
+        let probe = ["app", "--probe", "state.json"];
+        assert_eq!(refused(linux, &probe).as_deref(), Some("--probe"));
+        assert_eq!(refused(windows, &probe).as_deref(), Some("--probe"));
+        assert_eq!(refused(mac, &probe), None);
+        let shots = ["app", "--shots", "/tmp/shots"];
+        assert_eq!(refused(linux, &shots).as_deref(), Some("--shots"));
+        assert_eq!(refused(windows, &shots).as_deref(), Some("--shots"));
+        assert_eq!(refused(mac, &shots), None);
+        let smoke = ["app", "--smoke", "/tmp/smoke.txt"];
+        assert_eq!(refused(mac, &smoke).as_deref(), Some("--smoke"));
+        assert_eq!(refused(linux, &smoke), None);
+        assert_eq!(refused(windows, &smoke), None);
+        assert_eq!(refused(linux, &["app", "--hidden"]), None);
+        // A folder named `--probe` (or `--smoke`), given to `--cwd`, is a
+        // folder.
         assert_eq!(
-            unsupported_flag(paths::Os::Windows, &probe),
-            Some("--probe")
-        );
-        assert_eq!(unsupported_flag(paths::Os::MacOs, &probe), None);
-        assert_eq!(
-            unsupported_flag(paths::Os::Linux, &args(&["app", "--hidden"])),
+            refused(linux, &["app", "--cwd", "--probe", "notes.md"]),
             None
         );
-        // A folder named `--probe`, given to `--cwd`, is a folder.
+        assert_eq!(refused(mac, &["app", "--cwd", "--smoke", "notes.md"]), None);
         assert_eq!(
-            unsupported_flag(
-                paths::Os::Linux,
-                &args(&["app", "--cwd", "--probe", "notes.md"])
-            ),
-            None
-        );
-        assert_eq!(
-            unsupported_flag(
-                paths::Os::Windows,
-                &args(&["app", "--cwd", r"C:\notes", "--probe", "state.json"])
-            ),
+            refused(
+                windows,
+                &["app", "--cwd", r"C:\notes", "--probe", "state.json"]
+            )
+            .as_deref(),
             Some("--probe")
+        );
+    }
+
+    /// `--smoke` without its file is refused before anything opens, as is
+    /// another flag where the file goes: either would open the app as usual,
+    /// and whatever waits for the pass's verdict would wait for good.
+    #[test]
+    fn the_smoke_pass_needs_its_file() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(smoke_file(&args(&["app", "--smoke"])).is_err());
+        assert!(smoke_file(&args(&["app", "--smoke", "--hidden"])).is_err());
+        assert!(smoke_file(&args(&["app", "--hidden", "--smoke", "-"])).is_err());
+        assert_eq!(
+            smoke_file(&args(&["app", "--smoke", "/tmp/smoke.txt"])),
+            Ok(Some("/tmp/smoke.txt".into()))
+        );
+        assert_eq!(smoke_file(&args(&["app", "--hidden"])), Ok(None));
+        // A folder named `--smoke`, given to `--cwd`, asks for no pass.
+        assert_eq!(
+            smoke_file(&args(&["app", "--cwd", "--smoke", "notes.md"])),
+            Ok(None)
         );
     }
 
@@ -1466,6 +1587,7 @@ mod harness_profile_tests {
             &["app", "--shots", "/tmp/shots", "--e2e", "chat"][..],
             &["app", "--chat-fixture", "shots"],
             &["app", "--shots", "/tmp/shots", "--smoke-reset"],
+            &["app", "--smoke", "/tmp/smoke.txt"],
         ] {
             assert_eq!(launch_urls(&args(scripted), cwd), None, "{scripted:?}");
         }
@@ -1490,6 +1612,7 @@ mod harness_profile_tests {
         ])));
         assert!(is_scripted(&args(&["app", "--e2e", "chat"])));
         assert!(is_scripted(&args(&["app", "--capture", "/tmp/c"])));
+        assert!(is_scripted(&args(&["app", "--smoke", "/tmp/smoke.txt"])));
         // A fixture saves its own settings (the shots' theme), with or
         // without `--shots`.
         assert!(is_scripted(&args(&["app", "--chat-fixture", "shots"])));
