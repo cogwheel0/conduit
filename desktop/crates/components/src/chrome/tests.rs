@@ -439,6 +439,28 @@ fn focus_leaving_the_menu_closes_it(cx: &mut TestAppContext) {
     assert_eq!(stops.get(), 1, "Esc is the app's again");
 }
 
+/// A prompt the window draws (the app's own, off the Mac) has the keyboard:
+/// F10 doesn't open the menu behind it.
+#[gpui_kit::test]
+fn a_drawn_prompt_keeps_f10(cx: &mut TestAppContext) {
+    cx.update(|cx| cx.set_prompt_builder(gpui_kit::fallback_prompt_renderer));
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
+    let _answer = vcx.update(|window, cx| {
+        window.prompt(
+            gpui_kit::PromptLevel::Info,
+            "Synthetic question",
+            None,
+            &["OK"],
+            cx,
+        )
+    });
+    draw(vcx);
+    assert!(vcx.update(|window, _| window.has_active_prompt()));
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    assert!(!is_open(&host, vcx));
+}
+
 #[gpui_kit::test]
 fn closing_with_nothing_focused_leaves_nothing_focused(cx: &mut TestAppContext) {
     let (host, _, vcx) = open_host(ChromeStyle::Gnome, Menu::Rows, false, cx);

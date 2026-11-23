@@ -148,10 +148,10 @@ fn windows_items() -> Vec<ChromeMenuItem> {
                     "Find",
                     vec![
                         act("Find\u{2026}", FindInChat, Some("Ctrl+F")),
-                        act("Find Next", FindNext, Some("Ctrl+G")),
-                        act("Find Previous", FindPrevious, Some("Ctrl+Shift+G")),
+                        act("Find Next", FindNext, Some("F3")),
+                        act("Find Previous", FindPrevious, Some("Shift+F3")),
                         Sep,
-                        act("Search Chats", SearchChats, Some("Ctrl+Alt+F")),
+                        act("Search Chats", SearchChats, Some("Ctrl+Shift+F")),
                     ],
                 ),
             ],
@@ -159,7 +159,7 @@ fn windows_items() -> Vec<ChromeMenuItem> {
         ChromeMenuItem::submenu(
             "View",
             vec![
-                act("Hide Sidebar", ToggleSidebar, Some("Ctrl+S")),
+                act("Hide Sidebar", ToggleSidebar, Some("Ctrl+Shift+S")),
                 Sep,
                 act(
                     "Search Chats and Commands\u{2026}",
@@ -171,21 +171,25 @@ fn windows_items() -> Vec<ChromeMenuItem> {
                 act("Zoom In", ZoomIn, Some("Ctrl++")),
                 act("Zoom Out", ZoomOut, Some("Ctrl+-")),
                 Sep,
-                act("Enter Full Screen", ToggleFullScreen, Some("Ctrl+F")),
+                act("Enter Full Screen", ToggleFullScreen, Some("F11")),
             ],
         ),
         ChromeMenuItem::submenu(
             "Go",
             vec![
-                act("Back", GoBack, Some("Ctrl+[")),
-                act("Forward", GoForward, Some("Ctrl+]")),
+                act("Back", GoBack, Some("Alt+\u{2190}")),
+                act("Forward", GoForward, Some("Alt+\u{2192}")),
                 Sep,
                 act("Chats", GoChats, Some("Ctrl+1")),
                 act("Notes", GoNotes, Some("Ctrl+2")),
                 act("Workspace", GoWorkspace, Some("Ctrl+3")),
                 Sep,
-                act("Move Focus to Next Area", NextArea, None),
-                act("Move Focus to Previous Area", PreviousArea, None),
+                act("Move Focus to Next Area", NextArea, Some("F6")),
+                act(
+                    "Move Focus to Previous Area",
+                    PreviousArea,
+                    Some("Shift+F6"),
+                ),
             ],
         ),
         ChromeMenuItem::submenu(
@@ -195,11 +199,11 @@ fn windows_items() -> Vec<ChromeMenuItem> {
                 act("Rename\u{2026}", Rename, None),
                 act("Archive", Archive, None),
                 Sep,
-                act("Delete\u{2026}", Delete, None),
+                act("Delete\u{2026}", Delete, Some("Delete")),
                 Sep,
-                act("Choose Model\u{2026}", ChooseModel, None),
+                act("Choose Model\u{2026}", ChooseModel, Some("Ctrl+Shift+M")),
                 act("Regenerate", Regenerate, Some("Ctrl+R")),
-                act("Read Aloud", ReadAloud, None),
+                act("Read Aloud", ReadAloud, Some("Ctrl+Shift+R")),
             ],
         ),
         Sep,
@@ -209,7 +213,7 @@ fn windows_items() -> Vec<ChromeMenuItem> {
             "Help",
             vec![
                 act("Conduit Help", Help, None),
-                act("Keyboard Shortcuts", Shortcuts, None),
+                act("Keyboard Shortcuts", Shortcuts, Some("Ctrl+/")),
                 Sep,
                 act("Check for Updates\u{2026}", CheckForUpdates, None),
                 act("About Conduit", About, None),
@@ -249,7 +253,7 @@ fn gnome_items() -> Vec<ChromeMenuItem> {
         }),
         Sep,
         act("Preferences", OpenSettings, Some("Ctrl+,")),
-        act("Keyboard Shortcuts", Shortcuts, None),
+        act("Keyboard Shortcuts", Shortcuts, Some("Ctrl+/")),
         act("Help", Help, None),
         act("About Conduit", About, None),
     ]
@@ -265,7 +269,7 @@ fn gnome_items_with_a_submenu() -> Vec<ChromeMenuItem> {
                     "Help",
                     vec![
                         act("Conduit Help", Help, Some("F1")),
-                        act("Keyboard Shortcuts", Shortcuts, None),
+                        act("Keyboard Shortcuts", Shortcuts, Some("Ctrl+/")),
                         act("Check for Updates\u{2026}", CheckForUpdates, None),
                     ],
                 )
@@ -354,12 +358,16 @@ impl ChromeScreen {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         // The chords the app's tooltips and search field show off the Mac.
+        let toggle_sidebar = match shot.style {
+            ChromeStyle::Windows => "Ctrl+Shift+S",
+            ChromeStyle::Gnome => "F9",
+        };
         cx.set_global(ShortcutHints {
             new_chat: Some("Ctrl+N".into()),
-            toggle_sidebar: Some("Ctrl+S".into()),
+            toggle_sidebar: Some(toggle_sidebar.into()),
             settings: Some("Ctrl+,".into()),
             palette: Some("Ctrl+K".into()),
-            find: Some("Ctrl+Alt+F".into()),
+            find: Some("Ctrl+Shift+F".into()),
             ..ShortcutHints::default()
         });
         if shot.menu_open {

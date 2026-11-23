@@ -61,9 +61,10 @@ impl MainMenu {
         let menu = cx.entity().downgrade();
         // Keystrokes reach interceptors before any key binding: F10 and a
         // lone Alt open the menu, and while it is open its keys can't be
-        // taken by a binding without a context (Esc's Stop).
+        // taken by a binding without a context (Esc's Stop). A prompt the
+        // window draws keeps the keyboard, as the app's interceptors leave it.
         let intercept = cx.intercept_keystrokes(move |event, window, cx| {
-            if window.window_handle() != home {
+            if window.window_handle() != home || window.has_active_prompt() {
                 return;
             }
             let Some(menu) = menu.upgrade() else {
