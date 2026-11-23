@@ -2844,6 +2844,7 @@ void main() {
       Map<String, String> picks = const {},
       Map<String, dynamic>? chatParams,
       bool pickWritesFail = false,
+      Completer<void>? pickWritesHeld,
       VoidCallback? onRegenerate,
       ChatMessage? message,
       List<Model>? listed,
@@ -2886,7 +2887,7 @@ void main() {
             () => _PickedEfforts({
               for (final MapEntry(:key, :value) in picks.entries)
                 'openwebui:live:$key': value,
-            }, writesFail: pickWritesFail),
+            }, writesFail: pickWritesFail, writesHeld: pickWritesHeld),
           ),
           // Branching is not under test.
           chatForkAvailabilityProvider.overrideWithValue(
@@ -3047,6 +3048,38 @@ void main() {
       expect(localReasoningEffortForModel(container.read, a), 'high');
     });
 
+    testWidgets("under another column's tab, regenerates that column though "
+        'another tab is chosen while its pick is cleared', (tester) async {
+      var regenerations = 0;
+      final columns = <String>[];
+      final clearing = Completer<void>();
+      final container = await pumpFailed(
+        tester,
+        selected: plain,
+        message: comparison,
+        listed: const [a, b],
+        picks: {a.id: 'high', b.id: 'high'},
+        pickWritesHeld: clearing,
+        onRegenerate: () => regenerations += 1,
+        onRegenerateColumn: columns.add,
+      );
+      await tester.tap(find.bySemanticsLabel(RegExp('Model B')).first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(retryWithoutEffort);
+      await tester.pump();
+      // The first column's tab, chosen while B's pick is being cleared.
+      await tester.tap(find.bySemanticsLabel(RegExp('model-a')).first);
+      await tester.pump();
+      clearing.complete();
+      await tester.pumpAndSettle();
+
+      expect(columns, ['answer-b']);
+      expect(regenerations, 0);
+      expect(localReasoningEffortForModel(container.read, b), 'automatic');
+      expect(localReasoningEffortForModel(container.read, a), 'high');
+    });
+
     testWidgets("under another column's tab, after a model was picked in the "
         'chat since the turn, is decided for the picked model, which the '
         'column regenerates on', (tester) async {
@@ -3177,16 +3210,20 @@ final class _ActiveAs extends ActiveConversationNotifier {
 /// The picker's per-model picks, held in memory. With [writesFail] every
 /// write throws, as preference storage that cannot be written does.
 final class _PickedEfforts extends LocalReasoningEfforts {
-  _PickedEfforts(this.picks, {this.writesFail = false});
+  _PickedEfforts(this.picks, {this.writesFail = false, this.writesHeld});
 
   final Map<String, String> picks;
   final bool writesFail;
+
+  /// Writes wait for this while it is set.
+  final Completer<void>? writesHeld;
 
   @override
   Map<String, String> build() => picks;
 
   @override
   Future<void> set(String key, String? effort) async {
+    await writesHeld?.future;
     if (writesFail) throw StateError('Preferences are unavailable.');
     final updated = Map<String, String>.of(state)..remove(key);
     state = {...updated, key: ?effort};

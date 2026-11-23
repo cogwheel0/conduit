@@ -934,14 +934,18 @@ String? comparisonColumnModelId({
   answerId: answerId,
 )?.modelId;
 
-/// The listed model of [id], else one known by its id alone: a comparison's
-/// column model the list no longer holds is still asked by its id.
-Model _listedModel(dynamic ref, String id) {
+/// The listed model of [id], else the one in the composer when it is that
+/// one, else one known by its id alone: a comparison's column model the list
+/// no longer holds is still asked by its id. Never a direct model by its id
+/// alone, which the server would be asked for as its own: null then.
+Model? _listedModel(dynamic ref, String id) {
   final listed =
       (ref.read(modelsProvider) as AsyncValue<List<Model>>).asData?.value ??
       const <Model>[];
+  final selected = ref.read(selectedModelProvider) as Model?;
   return listed.where((model) => model.id == id).firstOrNull ??
-      Model(id: id, name: id);
+      (selected?.id == id ? selected : null) ??
+      (DirectModelId.decode(id) == null ? Model(id: id, name: id) : null);
 }
 
 /// [_comparisonRegenerationTarget], for tests.
