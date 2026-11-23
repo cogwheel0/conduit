@@ -2775,7 +2775,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // "Automatic" clears the local pick and, for a model that was sent it,
     // the chat's saved override. The retry may only start once the clears
     // are confirmed: regenerating with a swallowed persistence failure would
-    // resend the rejected value.
+    // resend the rejected value. Both are taken for the tab shown now: one
+    // chosen while the clear runs does not change which answer is retried.
+    final regenerate = _regenerate;
     final cleared = await clearReasoningEffortForRetry(
       ref,
       _modelForRegeneratedAnswer(),
@@ -2789,7 +2791,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       );
       return;
     }
-    _regenerate?.call();
+    regenerate?.call();
   }
 
   List<_AssistantFooterAction> _buildFooterActions() {

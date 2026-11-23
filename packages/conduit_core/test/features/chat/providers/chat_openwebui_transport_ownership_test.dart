@@ -10380,6 +10380,91 @@ void main() {
       });
     }
 
+    /// A finished comparison of `model-1` and `model-2`; a Direct model kept
+    /// in the server is picked in the chat since, the model list does not
+    /// hold it (yet), and [composerOf] says what the composer holds; then the
+    /// second answer is regenerated, its failure, if any, kept.
+    Future<({_FanOutApi api, Model kept, Object? failure})>
+    regeneratedAfterAPickTheListLacks(Model Function(Model kept) composerOf)
+    async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final profile = DirectConnectionProfile(
+        id: 'kept-profile',
+        name: 'Kept in the server',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://provider.example.test/v1',
+        modelIdPrefix: 'kept',
+      );
+      final registry = DirectModelRegistry();
+      final kept = registry
+          .replaceProfileModels(
+            profile,
+            <DirectRemoteModel>[
+              DirectRemoteModel(id: 'provider/model', name: 'Provider model'),
+            ],
+            source: DirectModelSource.openWebUi,
+            openWebUiUrlIndex: 0,
+          )
+          .single;
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        modelSelectable: true,
+        overrides: [
+          directModelRegistryProvider.overrideWithValue(registry),
+          effectiveDirectConnectionProfilesFutureProvider.overrideWith(
+            (ref) async => <DirectConnectionProfile>[profile],
+          ),
+        ],
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      final [a, b] = [for (final h in handles) h.assistantMessageId];
+      await replay(container);
+      socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
+      socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
+      final question = container
+          .read(chatMessagesProvider)
+          .lastWhere((message) => message.role == 'user');
+      container
+          .read(chatModelPickProvider.notifier)
+          .record(chatId: chatId, modelId: kept.id, promptIds: {question.id});
+      container.read(selectedModelProvider.notifier).set(composerOf(kept));
+      Object? failure;
+      try {
+        await regenerateMessage(container, 'compare these', null);
+      } on Object catch (error) {
+        failure = error;
+      }
+      return (api: api, kept: kept, failure: failure);
+    }
+
+    test('a Direct model picked since the turn that the list does not hold '
+        'yet is the one in the composer: the column asks it by its wire id',
+        () async {
+      final (:api, :kept, :failure) = await regeneratedAfterAPickTheListLacks(
+        (kept) => kept,
+      );
+      check(failure).isNull();
+      check(api.requests).length.equals(2);
+      final request = api.requests.last;
+      check(request.model).equals('kept.provider/model');
+      check(request.messageIds!.single.modelIdx).equals(1);
+    });
+
+    test('a Direct model picked since the turn that neither the list nor the '
+        'composer holds is never sent to the server by its direct id',
+        () async {
+      final (:api, :kept, :failure) = await regeneratedAfterAPickTheListLacks(
+        (_) => duplicate,
+      );
+      check(failure).isNotNull();
+      check(api.requests).length.equals(1);
+    });
+
     /// A finished comparison of `model-1` and `model-2`, shown as the phone
     /// shows a stored one (the second column's answer kept among the
     /// first's alternatives, each with [firstFiles] and [secondFiles]), then
