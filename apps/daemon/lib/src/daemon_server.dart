@@ -90,21 +90,30 @@ class DaemonServer {
   /// Completed by [attachCore], or with null when the daemon stops first.
   /// Only waited on after [coreStarting].
   Completer<CoreRuntime?>? _coreComing;
+
+  /// Set before they are built, so a stop also stops those an [attachCore]
+  /// that failed part-way built.
   ProtocolServices? _services;
+
+  /// The services once all are built.
+  ProtocolServices? get _built {
+    final services = _services;
+    return services != null && services.isAttached ? services : null;
+  }
 
   // What the routes and the diagnostics snapshot read: none until the core
   // attaches.
-  AccountsService? get _accounts => _services?.accounts;
-  AuthService? get _auth => _services?.auth;
-  DirectService? get _direct => _services?.direct;
-  HermesService? get _hermes => _services?.hermes;
-  FilesService? get _files => _services?.files;
-  NotesService? get _notes => _services?.notes;
-  TerminalsService? get _terminals => _services?.terminals;
-  VoiceService? get _voice => _services?.voice;
-  DictationService? get _dictation => _services?.dictation;
-  RecordingsService? get _recordings => _services?.recordings;
-  CallsService? get _calls => _services?.calls;
+  AccountsService? get _accounts => _built?.accounts;
+  AuthService? get _auth => _built?.auth;
+  DirectService? get _direct => _built?.direct;
+  HermesService? get _hermes => _built?.hermes;
+  FilesService? get _files => _built?.files;
+  NotesService? get _notes => _built?.notes;
+  TerminalsService? get _terminals => _built?.terminals;
+  VoiceService? get _voice => _built?.voice;
+  DictationService? get _dictation => _built?.dictation;
+  RecordingsService? get _recordings => _built?.recordings;
+  CallsService? get _calls => _built?.calls;
 
   /// `GET /media/{image|pdf}`: no core needed, so it answers from the start
   /// (the account's server, once there is one, is reached as it is).
@@ -127,7 +136,7 @@ class DaemonServer {
 
   /// The broker the core asks its questions through. Exposed so tests can
   /// ask one and watch it cross the RPC boundary.
-  UiRequestsService? get uiRequests => _services?.uiRequests;
+  UiRequestsService? get uiRequests => _built?.uiRequests;
 
   final EventBus events = EventBus();
   final Map<String, RpcSession> _sessions = <String, RpcSession>{};
@@ -172,8 +181,7 @@ class DaemonServer {
     _core = core;
     final coming = _coreComing;
     if (coming != null && !coming.isCompleted) coming.complete(core);
-    _services = ProtocolServices.compose(
-      core.container,
+    final services = _services = ProtocolServices(
       events: events,
       system: _system,
       ports: ProtocolHostPorts(
@@ -190,6 +198,7 @@ class DaemonServer {
         ),
       ),
     );
+    services.attach(core.container);
     _log.info('core attached');
   }
 

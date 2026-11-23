@@ -237,7 +237,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// Answers waiting in the outbox (sent while offline, or failed).
   final QueuedCompletionsService? _queuedCompletions;
 
-  /// What the host adds to every chat's scope, such as its schedulers.
+  /// What the host adds to every chat's scope, such as its schedulers
+  /// ([ProtocolHostPorts.chatScopeOverrides] says what it may not).
   final List<Override> Function()? _scopeOverrides;
 
   late final List<ProviderSubscription<Object?>> _accountWatches;

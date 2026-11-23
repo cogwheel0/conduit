@@ -97,7 +97,14 @@ final class ProtocolHostPorts {
   /// Transcription on this device; none without it.
   final LocalTranscriber? localTranscriber;
 
-  /// What the host adds to every chat's scope, such as its schedulers.
+  /// What the host adds to every chat's scope: its own ports, such as
+  /// `flushSchedulerProvider` and `postFrameSchedulerProvider`.
+  ///
+  /// Never a provider the scope already overrides, those of
+  /// `chatSessionScopeOverrides` and the ones [TurnsService] binds there
+  /// (`chatVoiceSendProvider`, `chatDraftQueueSendProvider`,
+  /// `chatDraftQueueAdmissionWaitProvider`, `composerTextInsertionProvider`):
+  /// Riverpod refuses a provider overridden twice in one container.
   final List<Override> Function()? chatScopeOverrides;
 }
 
@@ -108,106 +115,61 @@ final class ProtocolHostPorts {
 /// [StreamChannel] ([openSession]) and serves the byte routes from the
 /// services it needs.
 final class ProtocolServices {
-  ProtocolServices._({
+  ProtocolServices({
     required this.events,
     required this.system,
     required ProtocolHostPorts ports,
-    required this.servers,
-    required this.auth,
-    required this.settings,
-    required this.queuedCompletions,
-    required this.hermes,
-    required this.hermesRooms,
-    required this.hermesAdmin,
-    required this.chats,
-    required this.files,
-    required this.uiRequests,
-    required this.chatPrompts,
-    required this.turns,
-    required this.hermesCards,
-    required this.handoff,
-    required this.drafts,
-    required this.mcpApps,
-    required this.accounts,
-    required this.models,
-    required this.composer,
-    required this.prompts,
-    required this.direct,
-    required this.mcp,
-    required this.webSearch,
-    required this.notes,
-    required this.channels,
-    required this.workspace,
-    required TerminalsService terminals,
-    required ComputerRpcService computer,
-    required this.voice,
-    required this.dictation,
-    required this.recordings,
-    required this.coreSettings,
-    required this.profile,
-    required this.memories,
-    required this.notifications,
-    required this.webhooks,
-    required this.integrations,
-    required this.libreChat,
-    required this.calendar,
-    required this.automations,
-    required this.releaseNotes,
-    required this.data,
-    required this.chatSettings,
-    required this.valves,
-    required this.access,
-    required this.folderSettings,
-    required this.speech,
-    required this.calls,
-    required this.apple,
-  }) : _ports = ports,
-       _terminals = terminals,
-       _computer = computer;
+  }) : _ports = ports;
+
+  final EventBus events;
+  final SystemService system;
+  final ProtocolHostPorts _ports;
+
+  /// Whether [attach] has built every service.
+  bool get isAttached => _attached;
+  bool _attached = false;
 
   /// Builds every service over [container] and wires them together.
   ///
   /// [system] answers the handshake; it may have served sessions before
-  /// now, and from now on carries what the account can use.
-  factory ProtocolServices.compose(
-    ProviderContainer container, {
-    required EventBus events,
-    required SystemService system,
-    required ProtocolHostPorts ports,
-  }) {
-    final servers = ServersService(container, events: events);
-    final auth = AuthService(container, events: events);
-    final settings = SettingsService(container);
+  /// now, and from now on carries what the account can use. If this throws
+  /// part-way, [closeTransports] and [dispose] still stop what was built.
+  void attach(ProviderContainer container) {
+    if (_servers != null) throw StateError('the services are already built');
+    final ports = _ports;
+    _servers = ServersService(container, events: events);
+    _auth = AuthService(container, events: events);
+    _settings = SettingsService(container);
     final temporary = TemporaryChats();
-    final queuedCompletions = QueuedCompletionsService(container, events);
-    final hermes = HermesService(container, events: events);
+    _queuedCompletions = QueuedCompletionsService(container, events);
+    _hermes = HermesService(container, events: events);
     // Bot Mode and Group Chats; a bot's Bot Chat opens as its session.
-    final hermesRooms = HermesRoomsService(
+    _hermesRooms = HermesRoomsService(
       container,
       events,
       connection: hermes.connection,
     );
     hermes.botChats = hermesRooms;
-    final hermesAdmin = HermesAdminService(
+    _hermesAdmin = HermesAdminService(
       container,
       events: events,
       hermes: hermes,
       dashboardCookies: ports.dashboardCookies,
     );
-    final chats = ChatsService(
+    _chats = ChatsService(
       container,
       events: events,
       temporary: temporary,
       hermes: hermes,
       queued: queuedCompletions,
     );
-    final files = FilesService(container);
-    final uiRequests = UiRequestsService(events);
+    _files = FilesService(container);
+    _uiRequests = UiRequestsService(events);
     // The core's own prompts, raised from any chat's turn, reach the windows
     // through the same broker.
     ports.uiRequests.attach(uiRequests);
-    final chatPrompts = ChatPromptsService(events);
-    final turns = TurnsService(
+    _chatPrompts = ChatPromptsService(events);
+    _turns = TurnsService(
       container,
       events,
       temporary: temporary,
@@ -226,7 +188,7 @@ final class ProtocolServices {
     // Changing the address in use asks first while one of them answers.
     servers.replies = turns;
     // A Hermes chat's agent cards: its work, its context, its questions.
-    final hermesCards = HermesCardsService(
+    _hermesCards = HermesCardsService(
       container,
       events,
       hold: (chatId) => turns.holdScope(chatId),
@@ -236,70 +198,70 @@ final class ProtocolServices {
     turns.hermesCards = hermesCards;
     // A server's `chat:handoff` for a chat the user is in: one answering
     // here, or one a window shows.
-    final handoff = HandoffService(
+    _handoff = HandoffService(
       events,
       claims: (chatId) => turns.hasScope(chatId) || events.watches(chatId),
     );
     ports.handoff.attach(handoff);
-    final drafts = DraftsService(container, temporary: temporary);
-    final mcpApps = McpAppsService(container, events, uiRequests: uiRequests);
-    final accounts = AccountsService(container, events: events, turns: turns);
-    final models = ModelsService(container, events: events);
-    final composer = ComposerService(container);
-    final prompts = PromptsService(container);
-    final direct = DirectService(container);
-    final mcp = McpService(container);
-    final webSearch = WebSearchService(container);
-    final notes = NotesService(container, events: events, paths: ports.paths);
-    final channels = ChannelsService(container, events: events);
-    final workspace = WorkspaceService(container, events: events);
-    final terminals = TerminalsService(
+    _drafts = DraftsService(container, temporary: temporary);
+    _mcpApps = McpAppsService(container, events, uiRequests: uiRequests);
+    _accounts = AccountsService(container, events: events, turns: turns);
+    _models = ModelsService(container, events: events);
+    _composer = ComposerService(container);
+    _prompts = PromptsService(container);
+    _direct = DirectService(container);
+    _mcp = McpService(container);
+    _webSearch = WebSearchService(container);
+    _notes = NotesService(container, events: events, paths: ports.paths);
+    _channels = ChannelsService(container, events: events);
+    _workspace = WorkspaceService(container, events: events);
+    _terminals = TerminalsService(
       container,
       events: events,
       modelFor: models.modelFor,
     );
-    final computer = ComputerRpcService(container, modelFor: models.modelFor);
-    final voice = VoiceService(
+    _computer = ComputerRpcService(container, modelFor: models.modelFor);
+    _voice = VoiceService(
       container,
       events: events,
       local: ports.localTranscriber,
     );
-    final dictation = DictationService(container, voice: voice);
-    final recordings = RecordingsService(drafts: drafts, dictation: dictation);
-    final coreSettings = CoreSettingsService(container, events: events);
-    final profile = ProfileService(container, accounts: accounts);
-    final memories = MemoriesService(container);
-    final notifications = NotificationsService(
+    _dictation = DictationService(container, voice: voice);
+    _recordings = RecordingsService(drafts: drafts, dictation: dictation);
+    _coreSettings = CoreSettingsService(container, events: events);
+    _profile = ProfileService(container, accounts: accounts);
+    _memories = MemoriesService(container);
+    _notifications = NotificationsService(
       container,
       events: events,
       announced: turns.announced,
     );
-    final webhooks = WebhooksService(container);
-    final integrations = IntegrationsService(container);
-    final libreChat = LibreChatService(
+    _webhooks = WebhooksService(container);
+    _integrations = IntegrationsService(container);
+    _libreChat = LibreChatService(
       container,
       events: events,
       accounts: accounts,
     );
-    final calendar = CalendarService(container, events: events);
-    final automations = AutomationsService(container, events: events);
-    final releaseNotes = ReleaseNotesRpcService(container);
-    final data = DataService(container, events: events);
-    final chatSettings = ChatSettingsService(
+    _calendar = CalendarService(container, events: events);
+    _automations = AutomationsService(container, events: events);
+    _releaseNotes = ReleaseNotesRpcService(container);
+    _data = DataService(container, events: events);
+    _chatSettings = ChatSettingsService(
       container,
       scopeOf: (chatId) => turns.scopeOf(chatId),
     );
     chats.chatSettings = chatSettings;
-    final valves = ValvesService(container);
-    final access = AccessService(container, workspace: workspace);
-    final folderSettings = FolderSettingsService(container, events: events);
-    final speech = SpeechService(
+    _valves = ValvesService(container);
+    _access = AccessService(container, workspace: workspace);
+    _folderSettings = FolderSettingsService(container, events: events);
+    _speech = SpeechService(
       container,
       events: events,
       voice: voice,
       answerFor: chats.answerFor,
     );
-    final calls = CallsService(
+    _calls = CallsService(
       container,
       events: events,
       turns: turns,
@@ -310,186 +272,183 @@ final class ProtocolServices {
     ports.apple.bind(events);
     // `{{USER_LOCATION}}`: the window asks the device's location services.
     ports.location.bind(events);
-    final apple = AppleModelsService(container, bridge: ports.apple);
+    _apple = AppleModelsService(container, bridge: ports.apple);
     voice.speechOfChat = (chatId) async =>
         SpeechService.speechForModel(container, await chats.modelOf(chatId));
-    final services = ProtocolServices._(
-      events: events,
-      system: system,
-      ports: ports,
-      servers: servers,
-      auth: auth,
-      settings: settings,
-      queuedCompletions: queuedCompletions,
-      hermes: hermes,
-      hermesRooms: hermesRooms,
-      hermesAdmin: hermesAdmin,
-      chats: chats,
-      files: files,
-      uiRequests: uiRequests,
-      chatPrompts: chatPrompts,
-      turns: turns,
-      hermesCards: hermesCards,
-      handoff: handoff,
-      drafts: drafts,
-      mcpApps: mcpApps,
-      accounts: accounts,
-      models: models,
-      composer: composer,
-      prompts: prompts,
-      direct: direct,
-      mcp: mcp,
-      webSearch: webSearch,
-      notes: notes,
-      channels: channels,
-      workspace: workspace,
-      terminals: terminals,
-      computer: computer,
-      voice: voice,
-      dictation: dictation,
-      recordings: recordings,
-      coreSettings: coreSettings,
-      profile: profile,
-      memories: memories,
-      notifications: notifications,
-      webhooks: webhooks,
-      integrations: integrations,
-      libreChat: libreChat,
-      calendar: calendar,
-      automations: automations,
-      releaseNotes: releaseNotes,
-      data: data,
-      chatSettings: chatSettings,
-      valves: valves,
-      access: access,
-      folderSettings: folderSettings,
-      speech: speech,
-      calls: calls,
-      apple: apple,
-    );
     // What the active account can use: answered by `system.capabilities`
     // and the handshake, announced on change.
-    services._capabilities = CapabilitiesService(
+    _capabilities = CapabilitiesService(
       container,
       events: events,
       onChange: (capabilities) => system.capabilities = capabilities,
     );
+    // A host reusing a system service starts from what this account can
+    // use, not what the last one could.
+    system.capabilities = _capabilities!.current;
     // An MCP sign-in opens the provider's page through a window.
     ports.openUrl.attach(events);
-    return services;
+    _core = _buildCore(transports: true);
+    _attached = true;
   }
 
-  final EventBus events;
-  final SystemService system;
-  final ProtocolHostPorts _ports;
+  ServersService? _servers;
+  ServersService get servers => _servers!;
+  AuthService? _auth;
+  AuthService get auth => _auth!;
+  SettingsService? _settings;
+  SettingsService get settings => _settings!;
+  QueuedCompletionsService? _queuedCompletions;
+  QueuedCompletionsService get queuedCompletions => _queuedCompletions!;
+  HermesService? _hermes;
+  HermesService get hermes => _hermes!;
+  HermesRoomsService? _hermesRooms;
+  HermesRoomsService get hermesRooms => _hermesRooms!;
+  HermesAdminService? _hermesAdmin;
+  HermesAdminService get hermesAdmin => _hermesAdmin!;
+  ChatsService? _chats;
+  ChatsService get chats => _chats!;
+  FilesService? _files;
+  FilesService get files => _files!;
+  UiRequestsService? _uiRequests;
+  UiRequestsService get uiRequests => _uiRequests!;
+  ChatPromptsService? _chatPrompts;
+  ChatPromptsService get chatPrompts => _chatPrompts!;
+  TurnsService? _turns;
+  TurnsService get turns => _turns!;
+  HermesCardsService? _hermesCards;
+  HermesCardsService get hermesCards => _hermesCards!;
+  HandoffService? _handoff;
+  HandoffService get handoff => _handoff!;
+  DraftsService? _drafts;
+  DraftsService get drafts => _drafts!;
+  McpAppsService? _mcpApps;
+  McpAppsService get mcpApps => _mcpApps!;
+  AccountsService? _accounts;
+  AccountsService get accounts => _accounts!;
+  ModelsService? _models;
+  ModelsService get models => _models!;
+  ComposerService? _composer;
+  ComposerService get composer => _composer!;
+  PromptsService? _prompts;
+  PromptsService get prompts => _prompts!;
+  DirectService? _direct;
+  DirectService get direct => _direct!;
+  McpService? _mcp;
+  McpService get mcp => _mcp!;
+  WebSearchService? _webSearch;
+  WebSearchService get webSearch => _webSearch!;
+  NotesService? _notes;
+  NotesService get notes => _notes!;
+  ChannelsService? _channels;
+  ChannelsService get channels => _channels!;
+  WorkspaceService? _workspace;
+  WorkspaceService get workspace => _workspace!;
+  VoiceService? _voice;
+  VoiceService get voice => _voice!;
+  DictationService? _dictation;
+  DictationService get dictation => _dictation!;
+  RecordingsService? _recordings;
+  RecordingsService get recordings => _recordings!;
+  CoreSettingsService? _coreSettings;
+  CoreSettingsService get coreSettings => _coreSettings!;
+  ProfileService? _profile;
+  ProfileService get profile => _profile!;
+  MemoriesService? _memories;
+  MemoriesService get memories => _memories!;
+  NotificationsService? _notifications;
+  NotificationsService get notifications => _notifications!;
+  WebhooksService? _webhooks;
+  WebhooksService get webhooks => _webhooks!;
+  IntegrationsService? _integrations;
+  IntegrationsService get integrations => _integrations!;
+  LibreChatService? _libreChat;
+  LibreChatService get libreChat => _libreChat!;
+  CalendarService? _calendar;
+  CalendarService get calendar => _calendar!;
+  AutomationsService? _automations;
+  AutomationsService get automations => _automations!;
+  ReleaseNotesRpcService? _releaseNotes;
+  ReleaseNotesRpcService get releaseNotes => _releaseNotes!;
+  DataService? _data;
+  DataService get data => _data!;
+  ChatSettingsService? _chatSettings;
+  ChatSettingsService get chatSettings => _chatSettings!;
+  ValvesService? _valves;
+  ValvesService get valves => _valves!;
+  AccessService? _access;
+  AccessService get access => _access!;
+  FolderSettingsService? _folderSettings;
+  FolderSettingsService get folderSettings => _folderSettings!;
+  SpeechService? _speech;
+  SpeechService get speech => _speech!;
+  CallsService? _calls;
+  CallsService get calls => _calls!;
+  AppleModelsService? _apple;
+  AppleModelsService get apple => _apple!;
+  CapabilitiesService? _capabilities;
 
-  final ServersService servers;
-  final AuthService auth;
-  final SettingsService settings;
-  final QueuedCompletionsService queuedCompletions;
-  final HermesService hermes;
-  final HermesRoomsService hermesRooms;
-  final HermesAdminService hermesAdmin;
-  final ChatsService chats;
-  final FilesService files;
-  final UiRequestsService uiRequests;
-  final ChatPromptsService chatPrompts;
-  final TurnsService turns;
-  final HermesCardsService hermesCards;
-  final HandoffService handoff;
-  final DraftsService drafts;
-  final McpAppsService mcpApps;
-  final AccountsService accounts;
-  final ModelsService models;
-  final ComposerService composer;
-  final PromptsService prompts;
-  final DirectService direct;
-  final McpService mcp;
-  final WebSearchService webSearch;
-  final NotesService notes;
-  final ChannelsService channels;
-  final WorkspaceService workspace;
-  final VoiceService voice;
-  final DictationService dictation;
-  final RecordingsService recordings;
-  final CoreSettingsService coreSettings;
-  final ProfileService profile;
-  final MemoriesService memories;
-  final NotificationsService notifications;
-  final WebhooksService webhooks;
-  final IntegrationsService integrations;
-  final LibreChatService libreChat;
-  final CalendarService calendar;
-  final AutomationsService automations;
-  final ReleaseNotesRpcService releaseNotes;
-  final DataService data;
-  final ChatSettingsService chatSettings;
-  final ValvesService valves;
-  final AccessService access;
-  final FolderSettingsService folderSettings;
-  final SpeechService speech;
-  final CallsService calls;
-  final AppleModelsService apple;
-  late final CapabilitiesService _capabilities;
-
-  final TerminalsService _terminals;
-  final ComputerRpcService _computer;
+  TerminalsService? _terminals;
+  ComputerRpcService? _computer;
   bool _transportsClosed = false;
 
   /// Null once [closeTransports] has closed them.
   TerminalsService? get terminals => _transportsClosed ? null : _terminals;
   ComputerRpcService? get computer => _transportsClosed ? null : _computer;
 
-  /// What sessions see of the services.
-  late final CoreServices core = CoreServices(
-    accounts: accounts,
-    servers: servers,
-    auth: auth,
-    settings: settings,
-    chats: chats,
-    turns: turns,
-    models: models,
-    uiRequests: uiRequests,
-    chatPrompts: chatPrompts,
-    mcpApps: mcpApps,
-    hermesCards: hermesCards,
-    composer: composer,
-    prompts: prompts,
-    direct: direct,
-    mcp: mcp,
-    webSearch: webSearch,
-    notes: notes,
-    channels: channels,
-    workspace: workspace,
-    terminals: _terminals,
-    computer: _computer,
-    hermes: hermes,
-    hermesAdmin: hermesAdmin,
-    voice: voice,
-    dictation: dictation,
-    recordings: recordings,
-    coreSettings: coreSettings,
-    profile: profile,
-    memories: memories,
-    notifications: notifications,
-    webhooks: webhooks,
-    integrations: integrations,
-    libreChat: libreChat,
-    releaseNotes: releaseNotes,
-    data: data,
-    drafts: drafts,
-    chatSettings: chatSettings,
-    valves: valves,
-    access: access,
-    folderSettings: folderSettings,
-    speech: speech,
-    calls: calls,
-    apple: apple,
+  /// What sessions see of the services: none until [attach] has built them,
+  /// and none of those [closeTransports] closed after it.
+  CoreServices get core => _core;
+  CoreServices _core = const CoreServices();
+
+  CoreServices _buildCore({required bool transports}) => CoreServices(
+    accounts: _accounts,
+    servers: _servers,
+    auth: _auth,
+    settings: _settings,
+    chats: _chats,
+    turns: _turns,
+    models: _models,
+    uiRequests: _uiRequests,
+    chatPrompts: _chatPrompts,
+    mcpApps: _mcpApps,
+    hermesCards: _hermesCards,
+    composer: _composer,
+    prompts: _prompts,
+    direct: _direct,
+    mcp: _mcp,
+    webSearch: _webSearch,
+    notes: _notes,
+    channels: _channels,
+    workspace: _workspace,
+    terminals: transports ? _terminals : null,
+    computer: transports ? _computer : null,
+    hermes: _hermes,
+    hermesAdmin: _hermesAdmin,
+    voice: _voice,
+    dictation: _dictation,
+    recordings: _recordings,
+    coreSettings: _coreSettings,
+    profile: _profile,
+    memories: _memories,
+    notifications: _notifications,
+    webhooks: _webhooks,
+    integrations: _integrations,
+    libreChat: _libreChat,
+    releaseNotes: _releaseNotes,
+    data: transports ? _data : null,
+    drafts: _drafts,
+    chatSettings: _chatSettings,
+    valves: _valves,
+    access: _access,
+    folderSettings: _folderSettings,
+    speech: transports ? _speech : null,
+    calls: transports ? _calls : null,
+    apple: _apple,
     location: _ports.location,
-    handoff: handoff,
-    calendar: calendar,
-    automations: automations,
-    hermesRooms: hermesRooms,
+    handoff: _handoff,
+    calendar: _calendar,
+    automations: _automations,
+    hermesRooms: _hermesRooms,
   );
 
   /// A window's session over [channel]. The caller runs
@@ -511,37 +470,39 @@ final class ProtocolServices {
   /// terminals, the computer view and data exports. First, before the
   /// host's own transport goes.
   Future<void> closeTransports() async {
-    await calls.dispose();
-    await speech.dispose();
-    await _terminals.dispose();
-    await _computer.dispose();
-    await data.dispose();
+    await _calls?.dispose();
+    await _speech?.dispose();
+    await _terminals?.dispose();
+    await _computer?.dispose();
+    await _data?.dispose();
     _transportsClosed = true;
+    if (_attached) _core = _buildCore(transports: false);
   }
 
-  /// Stops the services that hold chats and watches, while the core they
-  /// read is still there: stopping an answer that is still running, and
-  /// closing a chat that lingers after its answer, both read its container.
-  /// The host disposes the core after this.
+  /// Stops the services that hold chats and watches, all of them or those
+  /// a failed [attach] built, while the core they read is still there:
+  /// stopping an answer that is still running, and closing a chat that
+  /// lingers after its answer, both read its container. The host disposes
+  /// the core after this.
   Future<void> dispose() async {
-    accounts.dispose();
-    servers.dispose();
-    auth.dispose();
-    notifications.dispose();
-    await turns.dispose();
-    queuedCompletions.dispose();
-    mcpApps.dispose();
-    hermesCards.dispose();
-    hermesRooms.dispose();
-    hermesAdmin.dispose();
+    _accounts?.dispose();
+    _servers?.dispose();
+    _auth?.dispose();
+    _notifications?.dispose();
+    await _turns?.dispose();
+    _queuedCompletions?.dispose();
+    _mcpApps?.dispose();
+    _hermesCards?.dispose();
+    _hermesRooms?.dispose();
+    _hermesAdmin?.dispose();
     _ports.uiRequests.hermesChatOf = null;
-    chats.dispose();
+    _chats?.dispose();
     _ports.handoff.detach();
-    calendar.dispose();
-    automations.dispose();
-    _capabilities.dispose();
+    _calendar?.dispose();
+    _automations?.dispose();
+    _capabilities?.dispose();
     // Waits for the recordings' writers: nothing writes once the database
     // closes.
-    await notes.close();
+    await _notes?.close();
   }
 }
