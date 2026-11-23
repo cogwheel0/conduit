@@ -2203,29 +2203,32 @@ void main() {
     check(api.hiddenAsked).equals(0);
   });
 
-  test(
-    'a reasoning pick asked under one account is not made under the next',
-    () async {
-      var account = Object();
-      final listed = Completer<void>();
-      final container = ProviderContainer(
-        overrides: [
-          modelsProvider.overrideWith(() => _Held(listed.future)),
-          openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
-        ],
-        retry: (_, _) => null,
-      );
-      addTearDown(container.dispose);
+  test('a reasoning pick asked under one account is not made under the next, '
+      "nor looked for among the old server's hidden models", () async {
+    var account = Object();
+    final listed = Completer<void>();
+    final api = _AgentsApi();
+    final container = ProviderContainer(
+      overrides: [
+        modelsProvider.overrideWith(() => _Held(listed.future)),
+        openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+        apiServiceProvider.overrideWithValue(api),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    for (final modelId in const ['first-model', 'hidden-model']) {
       final picking = ModelsService(container).setReasoningEffort(
-        const SetReasoningEffort(modelId: 'first-model', effort: 'high'),
+        SetReasoningEffort(modelId: modelId, effort: 'high'),
       );
       // Another account signs in while the model is looked up.
       account = Object();
       container.invalidate(openWebUiAuthSessionEpochProvider);
-      listed.complete();
+      if (!listed.isCompleted) listed.complete();
       await expectLater(picking, refused(ConduitErrorCodes.sessionExpired));
-    },
-  );
+    }
+    check(api.hiddenAsked).equals(0);
+  });
 
   test('a pick for a chat that cannot be read is refused', () async {
     final container = ProviderContainer(

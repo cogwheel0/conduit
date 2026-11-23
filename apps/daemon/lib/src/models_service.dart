@@ -810,11 +810,16 @@ final class ModelsService {
   /// ([modelForId]): a hidden model a chat was saved with included.
   Future<core.Model?> _model(String? id) async {
     if (id == null) return currentModel(_container);
+    final account = AccountScope.capture(_container);
     // The settled list first, as before; past it, the core's rule.
     final listed = (await _models()).where((m) => m.id == id).firstOrNull;
     if (listed != null) return listed;
     try {
-      return await modelForId(_container.read, id);
+      return await modelForId(
+        _container.read,
+        id,
+        isCurrent: () => account.isCurrent,
+      );
     } on Object {
       return null;
     }

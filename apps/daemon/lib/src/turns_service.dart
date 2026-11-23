@@ -4051,6 +4051,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// Otherwise the account's selection or default ([currentModel]), and
   /// failing that the core's [modelForUnpickedSend], as on mobile.
   Future<Model> _resolveModel(String? requested) async {
+    final account = AccountScope.capture(_container);
     List<Model> models;
     try {
       // Awaited, not read: a turn sent before anything loaded the list
@@ -4094,7 +4095,11 @@ final class TurnsService implements ChatTurns, AddressReplies {
       // One the server hides from the picker but still offers (a chat saved
       // on it), with its capabilities, by the core's one rule.
       try {
-        final usable = await modelForId(_container.read, id);
+        final usable = await modelForId(
+          _container.read,
+          id,
+          isCurrent: () => account.isCurrent,
+        );
         if (usable != null) return usable;
       } on Object {
         // Not found past the list: taken by its id, as before.
