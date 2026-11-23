@@ -378,7 +378,7 @@ pub enum Mode {
 
 impl Mode {
     pub fn from_args(args: &[String]) -> Option<Self> {
-        let i = args.iter().position(|a| a == "--fixture")?;
+        let (i, _) = crate::scripted::option_positions(args).find(|(_, a)| *a == "--fixture")?;
         match args.get(i + 1).map(String::as_str) {
             Some("a11y") => Some(Self::A11y),
             Some("notes-perf") => Some(Self::NotesPerf),
@@ -386,11 +386,7 @@ impl Mode {
                 comfortable: args.get(i + 2).is_some_and(|a| a == "comfortable"),
             }),
             Some("shell") => Some(Self::Shell {
-                shots: args
-                    .iter()
-                    .position(|a| a == "--shots")
-                    .and_then(|j| args.get(j + 1))
-                    .map(PathBuf::from),
+                shots: crate::scripted::value(args, "--shots").map(PathBuf::from),
             }),
             _ => None,
         }

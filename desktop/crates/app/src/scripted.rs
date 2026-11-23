@@ -62,6 +62,11 @@ pub fn options(args: &[String]) -> impl Iterator<Item = &str> {
     option_positions(args).map(|(_, arg)| arg)
 }
 
+/// Whether `flag` is in an option's place.
+pub fn has(args: &[String], flag: &str) -> bool {
+    options(args).any(|arg| arg == flag)
+}
+
 /// The value after `flag`, where `flag` is in an option's place.
 pub fn value(args: &[String], flag: &str) -> Option<String> {
     let (at, _) = option_positions(args).find(|(_, arg)| *arg == flag)?;

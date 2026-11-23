@@ -27,10 +27,7 @@ use crate::views::chat::inline_web::InlineWebView;
 use crate::voice::peer;
 
 pub fn requested(args: &[String]) -> bool {
-    args.iter()
-        .position(|a| a == "--fixture")
-        .and_then(|i| args.get(i + 1))
-        .is_some_and(|m| m == "web-media")
+    crate::scripted::value(args, "--fixture").is_some_and(|m| m == "web-media")
 }
 
 struct FixtureView {

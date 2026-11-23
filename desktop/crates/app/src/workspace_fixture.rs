@@ -26,10 +26,7 @@ const ITEMS: usize = 2_000;
 
 /// Whether the arguments ask for the fixture.
 pub fn requested(args: &[String]) -> bool {
-    args.iter()
-        .position(|a| a == "--workspace-fixture")
-        .and_then(|i| args.get(i + 1))
-        .is_some_and(|m| m == "perf")
+    crate::scripted::value(args, "--workspace-fixture").is_some_and(|m| m == "perf")
 }
 
 struct Canned;

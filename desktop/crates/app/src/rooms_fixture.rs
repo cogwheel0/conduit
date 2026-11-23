@@ -295,5 +295,5 @@ pub fn run(cx: &mut App) {
 
 /// Whether `--rooms-fixture` was asked for.
 pub fn requested(args: &[String]) -> bool {
-    args.iter().any(|a| a == "--rooms-fixture")
+    crate::scripted::has(args, "--rooms-fixture")
 }

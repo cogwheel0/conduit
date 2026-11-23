@@ -318,12 +318,10 @@ pub fn run(mode: String, _shots: Option<PathBuf>, cx: &mut App) {
 
 /// Whether `--channel-fixture` was asked for: `(mode, shots)`.
 pub fn requested(args: &[String]) -> Option<(String, Option<PathBuf>)> {
-    let at = args.iter().position(|a| a == "--channel-fixture")?;
-    let mode = args.get(at + 1).cloned().unwrap_or_else(|| "perf".into());
-    let shots = args
-        .iter()
-        .position(|a| a == "--shots")
-        .and_then(|i| args.get(i + 1))
-        .map(PathBuf::from);
+    if !crate::scripted::has(args, "--channel-fixture") {
+        return None;
+    }
+    let mode = crate::scripted::value(args, "--channel-fixture").unwrap_or_else(|| "perf".into());
+    let shots = crate::scripted::value(args, "--shots").map(PathBuf::from);
     Some((mode, shots))
 }

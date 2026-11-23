@@ -37,12 +37,7 @@ pub enum Which {
 }
 
 pub fn requested(args: &[String]) -> Option<Which> {
-    let perf = |flag: &str| {
-        args.iter()
-            .position(|a| a == flag)
-            .and_then(|i| args.get(i + 1))
-            .is_some_and(|m| m == "perf")
-    };
+    let perf = |flag: &str| crate::scripted::value(args, flag).is_some_and(|m| m == "perf");
     if perf("--calendar-fixture") {
         Some(Which::Calendar)
     } else if perf("--tasks-fixture") {

@@ -618,7 +618,7 @@ pub fn run() {
             desktop::show_main(cx);
         }
     });
-    let hidden_arg = args.iter().any(|a| a == "--hidden");
+    let hidden_arg = scripted::has(&args, "--hidden");
     app.run(move |cx: &mut App| {
         // The open-application Apple event is current only now.
         #[cfg(target_os = "macos")]
@@ -1316,6 +1316,42 @@ mod harness_profile_tests {
     /// anything opens, never a launch on the real profile beside the app.
     /// Linux runs on XWayland where the session has both (D2), whoever
     /// starts the app, unless `CONDUIT_WAYLAND=1` keeps Wayland.
+    /// Every reader of the harness's flags agrees with `is_scripted` on what
+    /// is a flag: a folder named `--capture` (or `--e2e`, `--fixture`, ...),
+    /// given to `--cwd`, starts no capture, pass or fixture on the app's
+    /// own profile, and a real flag still does.
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    #[test]
+    fn no_harness_reader_takes_a_flags_value_for_a_flag() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let capture = args(&["app", "--cwd", "--capture", "out"]);
+        assert!(!is_scripted(&capture));
+        assert!(crate::capture::CaptureOptions::from_args(&capture).is_none());
+        assert!(
+            crate::e2e::E2eInputs::from_args(&args(&["app", "--cwd", "--e2e", "chat"])).is_none()
+        );
+        assert!(fixture::Mode::from_args(&args(&["app", "--cwd", "--fixture", "a11y"])).is_none());
+        assert!(
+            chat_fixture::requested(&args(&["app", "--cwd", "--chat-fixture", "a11y"])).is_none()
+        );
+        assert!(!rooms_fixture::requested(&args(&[
+            "app",
+            "--cwd",
+            "--rooms-fixture"
+        ])));
+        assert!(!web_media_fixture::requested(&args(&[
+            "app",
+            "--cwd",
+            "--fixture",
+            "web-media"
+        ])));
+        assert!(
+            crate::capture::CaptureOptions::from_args(&args(&["app", "--capture", "out"]))
+                .is_some()
+        );
+        assert!(rooms_fixture::requested(&args(&["app", "--rooms-fixture"])));
+    }
+
     /// A launch the profile's app didn't take says why in a small file of
     /// its own beside the log, one line each, never in the running app's
     /// rotating log.
