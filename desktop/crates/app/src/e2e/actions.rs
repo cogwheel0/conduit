@@ -1245,6 +1245,25 @@ async fn hidden_model_reopened(chat: &str, cx: &mut AsyncApp) -> bool {
         })
     });
     pass &= ok("the picker does not offer it", !offered);
+    // Its own controls: the reasoning effort is taken for it.
+    in_pane(cx, |p, _, cx| {
+        p.composer_store
+            .update(cx, |c, cx| c.set_reasoning_effort("high", cx))
+    });
+    let effort = wait_until(cx, Duration::from_secs(20), |cx| {
+        pane(cx).is_some_and(|p| {
+            p.read(cx)
+                .composer_store
+                .read(cx)
+                .model_options
+                .as_ref()
+                .is_some_and(|o| {
+                    o.model_id.as_deref() == Some(HIDDEN_MODEL) && o.reasoning.current == "high"
+                })
+        })
+    })
+    .await;
+    pass &= ok("its reasoning effort can be changed", effort);
     send("Reply with exactly the word: nu", cx).await;
     let answered = wait_answer(cx, Duration::from_secs(60)).await
         && cx.update(|cx| {
