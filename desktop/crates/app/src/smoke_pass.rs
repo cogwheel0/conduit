@@ -51,8 +51,11 @@ impl SmokeReport {
     }
 
     pub fn say(&mut self, what: impl Display) {
-        // A line the disk refuses changes no verdict: the exit code has it.
-        let _ = writeln!(self.file, "SMOKE {what}");
+        // A line the disk refuses (it's full) fails the pass: the file may
+        // never say how it ended.
+        if writeln!(self.file, "SMOKE {what}").is_err() {
+            self.failed = true;
+        }
     }
 
     pub fn fail(&mut self, why: impl Display) {
@@ -89,11 +92,10 @@ impl SmokeReport {
             None => self.fail("the app's quit stopped no daemon"),
         }
         if self.failed {
-            1
-        } else {
-            self.say("passed");
-            0
+            return 1;
         }
+        self.say("passed");
+        i32::from(self.failed)
     }
 }
 
@@ -273,6 +275,30 @@ mod tests {
             assert_eq!(report.finish(), 1, "{outcome:?}");
             assert!(written(&dir).ends_with(why), "{}", written(&dir));
         }
+    }
+
+    /// A report the system won't take (a full disk) fails the pass: its
+    /// `SMOKE passed` may never have been written. Here the report is a
+    /// FIFO whose reader has gone, so every write fails.
+    #[cfg(unix)]
+    #[test]
+    fn a_report_that_cannot_be_written_fails_the_pass() {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("smoke.txt");
+        let c_path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        // SAFETY: mkfifo(3) with a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        let reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&path)
+            .unwrap();
+        let mut report = SmokeReport::create(&path).unwrap();
+        drop(reader);
+        report.quitting();
+        report.daemon_stopped(Some(StopOutcome::Graceful(ExitInfo::Code(0))));
+        assert_eq!(report.finish(), 1);
     }
 
     /// The app quitting before the pass ended (a window closed, a crash in a
