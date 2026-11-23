@@ -33,9 +33,10 @@ core-foundation = "0.10"
 
 # The master key's store off the Mac: Credential Manager and the Secret
 # Service, through the crates (and features) GPUI already uses for its own
-# credentials API.
+# credentials API. Windows' known folders (Win32_UI_Shell, and COM's
+# allocator for the strings it returns).
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Credentials"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Com", "Win32_UI_Shell"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }

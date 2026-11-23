@@ -3329,6 +3329,30 @@
   "@desktopStoreUnreadableBody": {
     "description": "Explains the unreadable-data screen and what Reset local data does."
   },
+  "desktopNoSecretServiceTitle": "Conduit Can't Find a Keyring",
+  "@desktopNoSecretServiceTitle": {
+    "description": "Title of the status screen on Linux when no keyring service (the Secret Service: GNOME Keyring, KWallet) is running to keep the app's master key."
+  },
+  "desktopNoSecretServiceBody": "Conduit keeps the key that encrypts its saved data in your desktop's keyring, and none is running. Start GNOME Keyring or KWallet and click “Retry”, or keep the key in a file instead.",
+  "@desktopNoSecretServiceBody": {
+    "description": "Body of that screen: why, and the two ways on (start a keyring, then the Retry button; or keep the key in a file). “Retry” is the Retry button's label."
+  },
+  "desktopUseKeyFile": "Use a Key File…",
+  "@desktopUseKeyFile": {
+    "description": "Button on that screen: keep the master key in a file instead of a keyring. It opens a warning first."
+  },
+  "desktopKeyFileWarningTitle": "Keep the Key in a File?",
+  "@desktopKeyFileWarningTitle": {
+    "description": "Title of the warning shown before the master key is kept in a file."
+  },
+  "desktopKeyFileWarningBody": "The key goes in a file only your account can open. Any app you run can read it, so a keyring keeps it safer. Data Conduit already saved on this computer with a keyring's key won't open with the new one.",
+  "@desktopKeyFileWarningBody": {
+    "description": "Body of that warning: the file is the user's account's alone, but any app the user runs can read it; data saved earlier with a keyring's key can't be opened with the new key."
+  },
+  "desktopKeyFileWarningConfirm": "Use a Key File",
+  "@desktopKeyFileWarningConfirm": {
+    "description": "Confirm button of that warning."
+  },
   "desktopResetLocalData": "Reset Local Data",
   "@desktopResetLocalData": {
     "description": "Button that moves the unreadable data folder aside and starts fresh."

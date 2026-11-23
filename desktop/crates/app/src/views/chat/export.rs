@@ -16,15 +16,6 @@ fn stores(cx: &App) -> Option<Stores> {
     cx.try_global::<crate::AppState>().map(|s| s.stores.clone())
 }
 
-/// `~/Downloads`, or home.
-fn downloads() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"));
-    let downloads = home.join("Downloads");
-    if downloads.is_dir() { downloads } else { home }
-}
-
 fn toast(stores: &Stores, level: NoticeLevel, text: String, cx: &mut App) {
     stores.toasts.update(cx, |t, cx| t.show(level, text, cx));
 }
@@ -83,8 +74,9 @@ pub fn export(chat_id: String, format: ChatExportFormat, window: &mut Window, cx
                     return;
                 }
             };
-            let asked =
-                cx.update(|_, cx| cx.prompt_for_new_path(&downloads(), Some(&file.file_name)));
+            let asked = cx.update(|_, cx| {
+                cx.prompt_for_new_path(&conduit_daemon::paths::downloads(), Some(&file.file_name))
+            });
             let Ok(asked) = asked else {
                 return;
             };

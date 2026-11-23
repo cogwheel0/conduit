@@ -750,10 +750,7 @@ pub fn download(stores: Stores, handle: String, path: String, cx: &mut App) {
         let target = match preset {
             Some(dir) => dir.join(&name),
             None => {
-                let downloads = std::env::var_os("HOME")
-                    .map(|h| PathBuf::from(h).join("Downloads"))
-                    .filter(|d| d.is_dir())
-                    .unwrap_or_else(std::env::temp_dir);
+                let downloads = conduit_daemon::paths::downloads();
                 let asked = cx.update(|cx| cx.prompt_for_new_path(&downloads, Some(&name)));
                 let Ok(Ok(Some(target))) = asked.await else {
                     return;

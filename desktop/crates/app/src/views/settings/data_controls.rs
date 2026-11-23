@@ -190,7 +190,9 @@ impl DataControlsPane {
                 if !ask.await {
                     return;
                 }
-                let asked = cx.update(|_, cx| cx.prompt_for_new_path(&downloads(), Some(&name)));
+                let asked = cx.update(|_, cx| {
+                    cx.prompt_for_new_path(&conduit_daemon::paths::downloads(), Some(&name))
+                });
                 let Ok(asked) = asked else { return };
                 let Ok(Ok(Some(path))) = asked.await else {
                     return;
@@ -500,15 +502,6 @@ impl DataControlsPane {
 
 /// What a row's button runs.
 type Run = Rc<dyn Fn(&mut DataControlsPane, &mut Window, &mut Context<DataControlsPane>)>;
-
-/// `~/Downloads`, or home.
-fn downloads() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"));
-    let downloads = home.join("Downloads");
-    if downloads.is_dir() { downloads } else { home }
-}
 
 impl Render for DataControlsPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

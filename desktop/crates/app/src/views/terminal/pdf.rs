@@ -186,11 +186,7 @@ impl PdfViewer {
     /// Save…: the PDF as the terminal had it, where the user picks.
     fn save(&mut self, cx: &mut Context<Self>) {
         let name = crate::stores::files::safe_name(&self.name);
-        let home = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("/"));
-        let dir = home.join("Downloads");
-        let dir = if dir.is_dir() { dir } else { home };
+        let dir = conduit_daemon::paths::downloads();
         let asked = cx.prompt_for_new_path(&dir, Some(&name));
         let bytes = self.bytes.clone();
         cx.spawn(async move |this, cx| {

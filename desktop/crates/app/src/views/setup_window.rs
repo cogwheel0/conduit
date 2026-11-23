@@ -467,6 +467,7 @@ impl Render for SetupWindow {
                 status,
                 Status::Failed { .. }
                     | Status::StoreUnreadable
+                    | Status::NoSecretStore { .. }
                     | Status::KeychainPrompt { .. }
                     | Status::VersionMismatch { .. }
             );

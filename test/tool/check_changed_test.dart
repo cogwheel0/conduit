@@ -70,6 +70,7 @@ void main() {
       'the full Dart test suites',
       'Web-safe packages (conduit_markdown compiled to JS and run)',
       'Desktop daemon (macOS build and smoke test)',
+      'Desktop daemon (Windows and Linux build and smoke test)',
       // conduitd is built from conduit_markdown, and the bundle carries it.
       'Desktop workflow (cargo tests, builds and the generated Rust)',
     ]);

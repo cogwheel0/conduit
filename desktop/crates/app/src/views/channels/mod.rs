@@ -776,7 +776,7 @@ impl ChannelPane {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let downloads = dirs_downloads();
+        let downloads = conduit_daemon::paths::downloads();
         let name = crate::stores::files::safe_name(&reply.filename);
         let rx = cx.prompt_for_new_path(&downloads, Some(&name));
         let stores = self.stores.clone();
@@ -1362,13 +1362,6 @@ pub fn strip_mentions(content: &str) -> String {
     }
     out.push_str(rest);
     out
-}
-
-fn dirs_downloads() -> std::path::PathBuf {
-    std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .map(|h| h.join("Downloads"))
-        .unwrap_or_else(std::env::temp_dir)
 }
 
 #[cfg(test)]

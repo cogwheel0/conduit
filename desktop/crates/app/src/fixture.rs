@@ -408,7 +408,13 @@ pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Store
         ConnectionOptions {
             paths,
             binary: PathBuf::from("/nonexistent/conduitd"),
-            master_key: crate::stores::connection::MasterKey::Failed("fixture".into()),
+            master_key: std::sync::Arc::new(|| {
+                crate::stores::connection::MasterKey::Failed(
+                    conduit_daemon::secrets::SecretError::Store("fixture".into()),
+                )
+            }),
+            key_file: None,
+            key_in_background: false,
             locale: "en".into(),
             client_version: crate::VERSION.into(),
         },
