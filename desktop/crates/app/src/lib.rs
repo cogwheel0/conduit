@@ -308,6 +308,50 @@ fn prefer_xwayland(
     set(display) && set(wayland) && keep_wayland != Some(std::ffi::OsStr::new("1"))
 }
 
+/// Ends a launch the profile's app didn't take, saying why on stderr and
+/// in [`REFUSED_LOG`]: the log file is the running app's, never touched
+/// from here.
+#[cfg(not(target_os = "macos"))]
+fn refuse_launch(paths: &AppPaths, why: &str) -> ! {
+    eprintln!("conduit-desktop: {why}");
+    note_refused_launch(&paths.logs, std::time::SystemTime::now(), why);
+    std::process::exit(1);
+}
+
+/// Where a refused launch is noted, beside the app's rotating log.
+#[cfg_attr(target_os = "macos", cfg(test))]
+const REFUSED_LOG: &str = "launch-refused.log";
+
+/// The most [`REFUSED_LOG`] keeps before it starts over.
+#[cfg_attr(target_os = "macos", cfg(test))]
+const MAX_REFUSED_LOG: u64 = 64 * 1024;
+
+/// A refused launch's line: when (UTC) and why.
+#[cfg_attr(target_os = "macos", cfg(test))]
+fn refusal_line(now: std::time::SystemTime, why: &str) -> String {
+    let at = chrono::DateTime::<chrono::Utc>::from(now).format("%Y-%m-%dT%H:%M:%SZ");
+    format!("{at} {why}\n")
+}
+
+/// Adds a refused launch's line to [`REFUSED_LOG`] in `logs`, starting it
+/// over past [`MAX_REFUSED_LOG`]. Best effort: the launch ends either way.
+#[cfg_attr(target_os = "macos", cfg(test))]
+fn note_refused_launch(logs: &std::path::Path, now: std::time::SystemTime, why: &str) {
+    use std::io::Write as _;
+    let _ = std::fs::create_dir_all(logs);
+    let path = logs.join(REFUSED_LOG);
+    let start_over = std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_REFUSED_LOG);
+    let mut open = std::fs::OpenOptions::new();
+    if start_over {
+        open.write(true).truncate(true);
+    } else {
+        open.append(true);
+    }
+    if let Ok(mut file) = open.create(true).open(&path) {
+        let _ = file.write_all(refusal_line(now, why).as_bytes());
+    }
+}
+
 /// What a launch's arguments ask to open (Windows, Linux), or `None` for a
 /// scripted launch: it runs on a profile of its own ([`is_scripted`], the
 /// same test that gives it one), so it claims no instance, and its
@@ -355,27 +399,21 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
         Ok(Claim::Busy) => {
             let why = "Conduit is already running for this profile but isn't responding; \
                        this launch quits rather than open the profile twice";
-            log::error!("{why}");
-            eprintln!("conduit-desktop: {why}");
-            std::process::exit(1);
+            refuse_launch(paths, why);
         }
         Ok(Claim::NotListening(e)) => {
             let why = format!(
                 "this launch can't listen for the profile's later launches ({e}); \
                  it quits rather than open the profile where another launch could too"
             );
-            log::error!("{why}");
-            eprintln!("conduit-desktop: {why}");
-            std::process::exit(1);
+            refuse_launch(paths, &why);
         }
         Ok(Claim::Unidentified(e)) => {
             let why = format!(
                 "something holds this profile and couldn't be reached ({e}); \
                  this launch quits rather than open the profile twice"
             );
-            log::error!("{why}");
-            eprintln!("conduit-desktop: {why}");
-            std::process::exit(1);
+            refuse_launch(paths, &why);
         }
         Err(e) => {
             eprintln!("conduit-desktop: single instance: {e}; this launch runs on its own");
@@ -1278,6 +1316,28 @@ mod harness_profile_tests {
     /// anything opens, never a launch on the real profile beside the app.
     /// Linux runs on XWayland where the session has both (D2), whoever
     /// starts the app, unless `CONDUIT_WAYLAND=1` keeps Wayland.
+    /// A launch the profile's app didn't take says why in a small file of
+    /// its own beside the log, one line each, never in the running app's
+    /// rotating log.
+    #[test]
+    fn a_refused_launch_is_noted_beside_the_log() {
+        let logs = tempfile::tempdir().unwrap();
+        let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+        note_refused_launch(
+            logs.path(),
+            at,
+            "Conduit is already running but isn't responding",
+        );
+        note_refused_launch(logs.path(), at, "something holds this profile");
+        let noted = std::fs::read_to_string(logs.path().join("launch-refused.log")).unwrap();
+        assert_eq!(
+            noted,
+            "2027-01-15T08:00:00Z Conduit is already running but isn't responding\n\
+             2027-01-15T08:00:00Z something holds this profile\n"
+        );
+        assert!(!logs.path().join("conduit-desktop.log").exists());
+    }
+
     #[test]
     fn linux_prefers_xwayland_unless_asked_not_to() {
         let os = |v: &'static str| Some(std::ffi::OsStr::new(v));
