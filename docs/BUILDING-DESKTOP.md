@@ -462,7 +462,11 @@ wants them gone deletes those. Their dependencies come from the binaries: the
 (CI: Ubuntu 22.04, glibc 2.35), and the `.rpm`'s as sonames and glibc
 symbol versions, which any rpm distribution resolves. The renderer loads
 Vulkan or EGL at run time (recommended, not required); the master key goes
-to the Secret Service, or the opt-in key file.
+to the Secret Service, or the opt-in key file. nfpm packages the staged
+files' modes, so `package.sh` sets them whatever the builder's umask
+(folders and executables 0755, the rest 0644) and checks each built
+package's listing (`dpkg-deb -c`, `rpm -qlvp`): everything root's and
+readable by every user.
 
 `smoke.ps1` and `smoke.sh` install the package for the current user (or
 into `/usr`), check what it installed and registered, run the installed

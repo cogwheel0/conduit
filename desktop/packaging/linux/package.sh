@@ -46,6 +46,9 @@
 # the environment, else the release tools.env pins, downloaded once into
 # desktop/target/nfpm/<version> and checked against its SHA-256.
 set -euo pipefail
+# nfpm packages the staged modes: what this script makes is everyone's to
+# read whatever the caller's umask (the tree is normalized below as well).
+umask 022
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../macos/lib.sh
 . "$here/../macos/lib.sh"
@@ -202,6 +205,9 @@ if [ -n "$notices" ]; then
 else
   "$here/../notices/notices.sh" --target x86_64-unknown-linux-gnu --out "$app_dir/THIRD_PARTY_NOTICES.md"
 fi
+# What cargo, dart and cp made carries the builder's umask: folders and
+# executables 0755, the rest 0644, so every user can run the app.
+python3 -I "$winlinux" modes "$app_dir"
 python3 -I "$winlinux" layout "$app_dir" --os linux
 if command -v desktop-file-validate >/dev/null; then
   desktop-file-validate "$here/conduit-desktop.desktop"
@@ -292,6 +298,13 @@ for packager in deb rpm; do
   log "nfpm: $packager"
   "$nfpm" package --config "$config" --packager "$packager" --target "$out/"
 done
+# Every file the packages install is root's and readable by everyone.
+python3 -I "$winlinux" package-modes "$out"/*.deb
+if command -v rpm >/dev/null; then
+  python3 -I "$winlinux" package-modes "$out"/*.rpm
+else
+  warn "no rpm: the .rpm's modes are not checked"
+fi
 log "packages in $out:"
 for f in "$out"/*.deb "$out"/*.rpm; do
   printf '  %s (%s, SHA-256 %s; unsigned)\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)" \

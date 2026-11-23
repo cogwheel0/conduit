@@ -19,6 +19,13 @@ library only, so it runs on every build and test machine.
                                    needs a C/C++ runtime DLL Windows lacks
                                    unless it sits beside the executable of
                                    the process that loads that PE
+  winlinux.py modes DIR            sets the modes of a staged tree as every
+                                   user needs them, whatever the builder's
+                                   umask: folders and executables 0755, the
+                                   rest 0644
+  winlinux.py package-modes PKG... fails unless every file a built .deb or
+                                   .rpm installs is root's and readable by
+                                   everyone (dpkg-deb -c, rpm -qlvp)
   winlinux.py rpm-requires DIR     the rpm requirements of the ELF files under
                                    DIR (sonames and glibc symbol versions, as
                                    rpmbuild finds them), from readelf
@@ -265,6 +272,59 @@ def layout_problems(root, os_name):
     return problems
 
 
+# --- modes --------------------------------------------------------------------
+
+
+def normalize_modes(root):
+    """Folders 0755; files 0755 when their owner may run them, else 0644.
+    nfpm packages the staged modes, which the builder's umask set."""
+    root = Path(root)
+    for path in [root, *root.rglob("*")]:
+        if path.is_symlink():
+            continue
+        if path.is_dir():
+            path.chmod(0o755)
+        else:
+            path.chmod(0o755 if path.stat().st_mode & 0o100 else 0o644)
+
+
+# The package's executables, which must stay so for every user.
+_EXECUTABLES = ("/usr/lib/conduit/conduit-desktop", "/usr/lib/conduit/conduitd/bin/conduitd")
+
+
+def package_mode_problems(listing, fmt):
+    """What in a package listing (`dpkg-deb -c` for "deb", `rpm -qlvp` for
+    "rpm") a user other than root couldn't read or run."""
+    problems = []
+    for line in listing.splitlines():
+        if not line.strip():
+            continue
+        if fmt == "deb":
+            perms, owner, _size, _date, _time, rest = line.split(maxsplit=5)
+            path = rest.split(" -> ")[0].removeprefix(".")
+            root_owned = owner in ("root/root", "0/0")
+        else:
+            perms, _links, owner, group, _size, _month, _day, _time, rest = line.split(maxsplit=8)
+            path = rest.split(" -> ")[0]
+            root_owned = (owner, group) == ("root", "root")
+        if perms.startswith("l"):
+            continue
+        if perms.startswith("d"):
+            wanted = ("drwxr-xr-x",)
+        elif path in _EXECUTABLES:
+            wanted = ("-rwxr-xr-x",)
+        else:
+            wanted = ("-rw-r--r--", "-rwxr-xr-x")
+        if perms not in wanted or not root_owned:
+            problems.append(f"{path} is {perms} {owner}, not {' or '.join(wanted)} owned by root")
+    return problems
+
+
+def _package_listing(package):
+    command = ["dpkg-deb", "-c"] if package.endswith(".deb") else ["rpm", "-qlvp"]
+    return subprocess.run([*command, package], check=True, capture_output=True, text=True).stdout
+
+
 # --- rpm requirements -------------------------------------------------------
 
 
@@ -369,6 +429,10 @@ def main(argv):
     p = sub.add_parser("notices")
     p.add_argument("file")
     p.add_argument("--os", required=True, choices=["windows", "linux"])
+    p = sub.add_parser("modes")
+    p.add_argument("dir")
+    p = sub.add_parser("package-modes")
+    p.add_argument("packages", nargs="+")
     p = sub.add_parser("rpm-requires")
     p.add_argument("dir")
     p = sub.add_parser("gone")
@@ -396,6 +460,21 @@ def main(argv):
                 print(f"error: {problem}", file=sys.stderr)
             if problems:
                 return 1
+        elif args.command == "modes":
+            normalize_modes(args.dir)
+        elif args.command == "package-modes":
+            problems = [
+                f"{Path(pkg).name}: {problem}"
+                for pkg in args.packages
+                for problem in package_mode_problems(
+                    _package_listing(pkg), "deb" if pkg.endswith(".deb") else "rpm"
+                )
+            ]
+            for problem in problems:
+                print(f"error: {problem}", file=sys.stderr)
+            if problems:
+                return 1
+            print(f"every file of {len(args.packages)} package(s) is root's and readable by everyone")
         elif args.command == "rpm-requires":
             outputs = [_readelf(p) for p in _elf_files(args.dir)]
             shipped = shipped_sonames(outputs) | {p.name for p in Path(args.dir).rglob("*.so*")}

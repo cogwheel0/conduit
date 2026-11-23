@@ -329,6 +329,80 @@ class RpmRequires(unittest.TestCase):
         self.assertEqual(winlinux.shipped_sonames([READELF_APP, READELF_LIB]), {"libsqlite3.so"})
 
 
+DEB_LISTING = """\
+drwxr-xr-x 0/0               0 2026-11-23 12:00 ./
+drwxr-xr-x 0/0               0 2026-11-23 12:00 ./usr/
+drwxr-xr-x root/root         0 2026-11-23 12:00 ./usr/lib/conduit/
+-rwxr-xr-x root/root  91000000 2026-11-23 12:00 ./usr/lib/conduit/conduit-desktop
+drwxr-xr-x root/root         0 2026-11-23 12:00 ./usr/lib/conduit/conduitd/bin/
+-rwxr-xr-x root/root  20000000 2026-11-23 12:00 ./usr/lib/conduit/conduitd/bin/conduitd
+-rw-r--r-- root/root   1500000 2026-11-23 12:00 ./usr/lib/conduit/conduitd/lib/libsqlite3.so
+-rw-r--r-- root/root      9000 2026-11-23 12:00 ./usr/share/applications/conduit-desktop.desktop
+lrwxrwxrwx root/root         0 2026-11-23 12:00 ./usr/bin/conduit-desktop -> /usr/lib/conduit/conduit-desktop
+"""
+
+RPM_LISTING = """\
+lrwxrwxrwx    1 root     root                       32 Nov 23 12:00 /usr/bin/conduit-desktop -> /usr/lib/conduit/conduit-desktop
+drwxr-xr-x    2 root     root                        0 Nov 23 12:00 /usr/lib/conduit
+-rwxr-xr-x    1 root     root                 91000000 Nov 23 12:00 /usr/lib/conduit/conduit-desktop
+-rwxr-xr-x    1 root     root                 20000000 Nov 23 12:00 /usr/lib/conduit/conduitd/bin/conduitd
+-rw-r--r--    1 root     root                  1500000 Nov 23 12:00 /usr/lib/conduit/conduitd/lib/libsqlite3.so
+"""
+
+
+class Modes(unittest.TestCase):
+    """A package built under any umask installs files every user can read
+    and run: nfpm keeps the staged modes."""
+
+    def test_the_staged_tree_is_readable_by_everyone_whatever_the_umask(self):
+        tree = Tree(self)
+        old = os.umask(0o077)
+        try:
+            app = tree.file("conduit-desktop", b"\x7fELF", 0o700)
+            data = tree.file("conduitd/lib/libsqlite3.so", b"\x7fELF", 0o600)
+            (tree.root / "conduitd" / "model_logos").mkdir()
+        finally:
+            os.umask(old)
+        (tree.root / "conduitd").chmod(0o700)
+        winlinux.normalize_modes(tree.root)
+        mode = lambda p: p.stat().st_mode & 0o7777
+        self.assertEqual(mode(app), 0o755)
+        self.assertEqual(mode(data), 0o644)
+        for folder in (tree.root, tree.root / "conduitd", tree.root / "conduitd" / "model_logos"):
+            self.assertEqual(mode(folder), 0o755, folder)
+
+    def test_a_built_package_installs_nothing_root_only(self):
+        self.assertEqual(winlinux.package_mode_problems(DEB_LISTING, "deb"), [])
+        self.assertEqual(winlinux.package_mode_problems(RPM_LISTING, "rpm"), [])
+        bad_deb = DEB_LISTING.replace(
+            "drwxr-xr-x root/root         0 2026-11-23 12:00 ./usr/lib/conduit/\n",
+            "drwx------ root/root         0 2026-11-23 12:00 ./usr/lib/conduit/\n",
+        ).replace("-rwxr-xr-x root/root  91000000", "-rwx------ root/root  91000000")
+        problems = winlinux.package_mode_problems(bad_deb, "deb")
+        self.assertEqual(len(problems), 2, problems)
+        self.assertTrue(any("/usr/lib/conduit/ " in p for p in problems), problems)
+        bad_rpm = RPM_LISTING.replace(
+            "-rw-r--r--    1 root     root                  1500000",
+            "-rw-------    1 root     root                  1500000",
+        )
+        problems = winlinux.package_mode_problems(bad_rpm, "rpm")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("libsqlite3.so", problems[0])
+        # A file owned by someone else than root.
+        problems = winlinux.package_mode_problems(
+            DEB_LISTING.replace("root/root   1500000", "1001/1001   1500000"), "deb"
+        )
+        self.assertEqual(len(problems), 1, problems)
+
+    def test_the_executables_stay_executable(self):
+        listing = DEB_LISTING.replace(
+            "-rwxr-xr-x root/root  20000000", "-rw-r--r-- root/root  20000000"
+        )
+        problems = winlinux.package_mode_problems(listing, "deb")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("conduitd/bin/conduitd", problems[0])
+
+
 class Leftovers(unittest.TestCase):
     def test_what_an_uninstall_left(self):
         tree = Tree(self)

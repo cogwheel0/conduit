@@ -547,8 +547,8 @@ jobs:
         with:
           persist-credentials: false
       # The build libraries as the workspace job's, the checks the packages
-      # get (desktop-file-validate, lintian, rpmlint), and room for the
-      # release target.
+      # get (desktop-file-validate, lintian, rpmlint, and rpm to list the
+      # .rpm's modes), and room for the release target.
       - name: Install the build and packaging tools
         run: |
           df -h / | tail -1
@@ -557,7 +557,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
             libwayland-dev libfontconfig-dev libfreetype-dev \
-            dpkg-dev desktop-file-utils lintian rpmlint
+            dpkg-dev desktop-file-utils lintian rpm rpmlint
           df -h / | tail -1
       - name: Fetch third_party submodules
         run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
