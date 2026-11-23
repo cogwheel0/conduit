@@ -46,6 +46,8 @@ import 'package:conduit_core/providers/primary_account_providers.dart'
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/settings_service.dart'
+    show AppSettings, AppSettingsNotifier, appSettingsProvider;
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart' hide ReviewerMode;
 import 'package:conduitd/conduitd.dart';
@@ -99,6 +101,16 @@ final class _OnDevices extends Models {
     }),
     const core.Model(id: 'first-model', name: 'First model'),
   ];
+}
+
+/// App settings naming [id] as the default model.
+final class _DefaultModel extends AppSettingsNotifier {
+  _DefaultModel(this.id);
+
+  final String id;
+
+  @override
+  AppSettings build() => AppSettings(defaultModel: id);
 }
 
 /// [first], then LibreChat's models once its catalog arrives: listed
@@ -1568,6 +1580,44 @@ void main() {
     await pumpEventQueue();
     catalog.complete(libreChatModels);
     check(await picking).equals(libreChatModels.single.id);
+  });
+
+  test('with LibreChat in charge, a default that names one of its models '
+      'wins once the catalog arrives', () async {
+    final libreChatModels = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'Sample': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'Sample': <String>['sample-model', 'chosen-model'],
+      },
+    );
+    final chosen = libreChatModels.last;
+    final catalog = Completer<List<core.Model>>();
+    final container = ProviderContainer(
+      overrides: [
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        openWebUiAccountAvailableProvider.overrideWithValue(false),
+        appSettingsProvider.overrideWith(() => _DefaultModel(chosen.id)),
+        libreChatModelCatalogProvider.overrideWith((ref) => catalog.future),
+        modelsProvider.overrideWith(() => _BesideLibreChat(const [_cached])),
+        defaultModelProvider.overrideWith(
+          (ref) async => throw StateError('settings unavailable'),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(modelsProvider, (_, _) {});
+    await container.read(modelsProvider.future);
+
+    final picking = ModelsService(container).modelFor(null);
+    await pumpEventQueue();
+    catalog.complete(libreChatModels);
+    check(await picking).equals(chosen.id);
   });
 
   test(

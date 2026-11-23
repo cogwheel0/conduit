@@ -959,17 +959,21 @@ final class ModelsService {
     } on Object {
       // No default to read: the core's choice.
     }
-    final regular = models.where((m) => !isTerminalAgentModel(m));
     final primary = _container.read(primaryAccountKindProvider);
-    final now =
-        regular.where((m) => m.id == id).firstOrNull ??
-        unpickedSendModelAmong(regular, primary);
+    core.Model? among(List<core.Model> models) {
+      final regular = models.where((m) => !isTerminalAgentModel(m));
+      return regular.where((m) => m.id == id).firstOrNull ??
+          unpickedSendModelAmong(regular, primary);
+    }
+
+    final now = among(models);
     if (now != null || primary != PrimaryAccountKind.libreChat) return now;
     // LibreChat's catalog may still be on its way (the list does not wait
-    // for it): a send waits for it, as mobile's does.
+    // for it): a send waits for it, as mobile's does, then takes the same
+    // order from the list that has it (the default first).
     try {
-      final waited = await modelForUnpickedSend(_container.read);
-      return waited == null || isTerminalAgentModel(waited) ? null : waited;
+      await modelForUnpickedSend(_container.read);
+      return among(await _models());
     } on Object {
       return null;
     }
