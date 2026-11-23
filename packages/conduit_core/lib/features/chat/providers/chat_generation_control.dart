@@ -14,16 +14,29 @@ bool assistantHasNormalizedImageFiles(ChatMessage message) {
 
 /// Stops [answer]'s run on the server as Stop does, and keeps that stop owed
 /// to the open chat until the server accepts it, asked again as a refused
-/// Stop is ([ChatMessagesNotifier.settlePendingCancellation]); a request to
-/// the chat waits for it meanwhile. For a delete that took a running answer
-/// out: the stop ends every task of the chat, so a queued batch is not
-/// admitted over one the server has not taken.
-Future<bool> stopRemovedAnswer(dynamic ref, ChatMessage answer) {
+/// Stop is ([_stopAskAgain], scoped to the chat as it follows a remap); a
+/// request to the chat waits for it meanwhile. For a delete that took a
+/// running answer out of [shown], the transcript as it was: the stop ends
+/// every task of the chat, so a queued batch is not admitted over one the
+/// server has not taken.
+Future<bool> stopRemovedAnswer(
+  dynamic ref,
+  ChatMessage answer, {
+  required List<ChatMessage> shown,
+}) {
   final api = ref.read(apiServiceProvider) as ApiService?;
   final active = ref.read(activeConversationProvider) as Conversation?;
   final chatId = active?.id ?? '';
-  Future<bool> stop(String _) => stopActiveTransport(answer, api);
-  final step = _CancellationStep(stop, retry: api == null ? null : stop);
+  final askAgainWith = _stopAskAgain(
+    ref,
+    shown,
+    (ref.read(currentUserProvider2) as User?)?.id,
+  );
+  final step = _CancellationStep(
+    (_) => stopActiveTransport(answer, api),
+    chatScoped: true,
+    retry: askAgainWith(api),
+  );
   final taken = step.attempt(chatId);
   if (api != null && active != null && chatId.isNotEmpty) {
     unawaited(api.holdingChatCompletions(chatId, () => taken));
@@ -35,6 +48,32 @@ Future<bool> stopRemovedAnswer(dynamic ref, ChatMessage answer) {
         );
   }
   return taken;
+}
+
+/// A Stop's ask again ([_askStopAgain]) over the tasks of this account's
+/// answers running at the end of [messages] as it began; one ask at a time
+/// for every step that shares it. Null for no server.
+Future<bool> Function(String chatId)? Function(ApiService? api) _stopAskAgain(
+  dynamic ref,
+  List<ChatMessage> messages,
+  String? userId,
+) {
+  final stopping =
+      ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+  final ownTasks = _tasksOfRunningAnswers(
+    messages,
+    userId,
+    (messageId) => stopping._answersThisAccountRuns(inMessage: messageId),
+  );
+  Future<bool>? askingAgain;
+  return (api) => api == null
+      ? null
+      : (chatId) => askingAgain ??= _askStopAgain(
+          api,
+          chatId,
+          ownTasks,
+          userId,
+        ).whenComplete(() => askingAgain = null);
 }
 
 // Regenerate last message
@@ -385,22 +424,11 @@ Future<bool> _stopGeneration(Ref ref) {
 
   // The tasks of the answers this Stop ends, and one ask again for every step
   // of it at a time.
-  final stopping = ref.read(chatMessagesProvider.notifier);
-  final ownTasks = _tasksOfRunningAnswers(
+  final askAgainWith = _stopAskAgain(
+    ref,
     ref.read(chatMessagesProvider),
     userId,
-    (messageId) => stopping._answersThisAccountRuns(inMessage: messageId),
   );
-  Future<bool>? askingAgain;
-  Future<bool> Function(String chatId)? askAgainWith(ApiService? api) =>
-      api == null
-      ? null
-      : (chatId) => askingAgain ??= _askStopAgain(
-          api,
-          chatId,
-          ownTasks,
-          userId,
-        ).whenComplete(() => askingAgain = null);
 
   try {
     final messages = ref.read(chatMessagesProvider);

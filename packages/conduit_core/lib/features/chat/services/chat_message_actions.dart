@@ -102,15 +102,17 @@ Future<ChatMessageDeleteOutcome> _deleteChatMessageGroup(
   }
   if (removedIds.isEmpty) return ChatMessageDeleteOutcome.nothingToDelete;
 
-  final removedStreamingMessage = latestMessages
-      .where((candidate) => removedIds.contains(candidate.id))
-      .where((candidate) => candidate.isStreaming)
-      .firstOrNull;
+  final removedStreaming = [
+    for (final candidate in latestMessages)
+      if (removedIds.contains(candidate.id) && candidate.isStreaming) candidate,
+  ];
   final messagesNotifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-  if (removedStreamingMessage != null) {
+  if (removedStreaming.isNotEmpty) {
     // Stopped as Stop stops it, the stop owed until the server takes it.
-    unawaited(stopRemovedAnswer(ref, removedStreamingMessage));
+    unawaited(
+      stopRemovedAnswer(ref, removedStreaming.first, shown: latestMessages),
+    );
     messagesNotifier.cancelActiveMessageStream();
   }
   messagesNotifier.setMessages(updatedMessages);
@@ -164,17 +166,17 @@ Future<ChatMessageDeleteOutcome> _deleteChatMessageGroup(
         id,
       );
     }
-    // The answer this delete stopped comes back stopped: nothing streams it.
-    final stoppedId = removedStreamingMessage?.id;
-    if (stoppedId != null) {
+    // The answers this delete stopped come back stopped: nothing streams them.
+    final stoppedIds = {for (final message in removedStreaming) message.id};
+    if (stoppedIds.isNotEmpty) {
       restoredMessages = [
         for (final message in restoredMessages)
-          message.id == stoppedId
+          stoppedIds.contains(message.id)
               ? message.copyWith(isStreaming: false)
               : message,
       ];
     }
-    final restoredConversation = deletedOnServer.isEmpty && stoppedId == null
+    final restoredConversation = deletedOnServer.isEmpty && stoppedIds.isEmpty
         ? activeConversation
         : inheritNativeHermesConversationProvenance(
             activeConversation,

@@ -1637,6 +1637,45 @@ void main() {
       check(await s.completions('server-a')).length.equals(1);
     });
 
+    // The delete's stop is Stop's, scoped to the chat: one refused before
+    // the chat has its server id is asked again under that id.
+    test('a refused delete stop is asked again for the server chat after a '
+        'remap', () async {
+      final s = await _Session.start();
+      await _seedChat(s.db, 'local:a');
+      await _seedChat(s.db, 'server-a');
+      final turn = _runningTurn();
+      s.switchTo(
+        'local:a',
+        messages: [
+          turn.first,
+          turn.last.copyWith(
+            metadata: const {'taskId': 'task-1', 'taskConversationId': 'local:a'},
+          ),
+        ],
+      );
+      s.api.stopError = StateError('stop refused');
+      s.queue.enqueue('after the deleted answer');
+      await deleteChatMessageGroup(s.container, ['a0']);
+      await s.until(() => s.api.stoppedChats.isNotEmpty);
+      check(s.api.stoppedChats).deepEquals(['local:a']);
+
+      // Owed under the server id once the chat has it: asked again there.
+      remapStoppedChat(s);
+      await s.until(() => s.active?.admissionFailed == true);
+      check(s.api.stoppedChats.last).equals('server-a');
+      check(await s.sentUserRows('server-a')).isEmpty();
+
+      s.api.stopError = null;
+      s.queue.retryAdmission();
+      await s.until(() => s.active == null);
+      await s.settle();
+
+      check(s.api.stoppedChats.last).equals('server-a');
+      check((await s.sentUserRows('server-a')).single.content)
+          .equals('after the deleted answer');
+    });
+
     test('a remap announced under another sign-in leaves the Stop where it '
         'was', () async {
       final s = await _Session.start();
@@ -2296,6 +2335,58 @@ void main() {
       await s.reaches(() => s.active == null);
       check((await s.sentUserRows()).map((row) => row.content))
           .deepEquals(['queued']);
+    });
+
+    // Asked again, the delete's stop is Stop's: it ends the chat's tasks only
+    // while nothing but the stopped answer's runs there.
+    test('a refused delete stop asked again leaves another device\'s answer '
+        'running', () async {
+      final s = await _Session.start();
+      final turn = _runningTurn();
+      s.switchTo(
+        _Session.chatId,
+        messages: [
+          turn.first,
+          turn.last.copyWith(
+            metadata: const {
+              'taskId': 'task-1',
+              'taskConversationId': _Session.chatId,
+            },
+          ),
+        ],
+      );
+      s.queue.enqueue('queued');
+      s.api
+        ..stopError = StateError('stop refused')
+        ..deleteError = StateError('the server kept the message');
+      await deleteChatMessageGroup(s.container, ['a0']);
+      await s.reaches(() => s.active?.admissionFailed == true);
+      check(s.api.stoppedChats).length.equals(1);
+
+      // Meanwhile another device's answer runs in the chat.
+      s.api
+        ..stopError = null
+        ..chatTaskIds = const ['task-elsewhere'];
+      s.queue.retryAdmission();
+      await s.reaches(() => s.active == null);
+      check(s.api.stoppedChats).length.equals(1);
+      check((await s.sentUserRows()).map((row) => row.content))
+          .deepEquals(['queued']);
+    });
+
+    test('a refused delete puts every answer it stopped back stopped',
+        () async {
+      final s = await _Session.start();
+      s.showComparison();
+      s.api.deleteError = StateError('the server kept the messages');
+
+      check(
+        await deleteChatMessageGroup(s.container, ['c0', 'c1']),
+      ).equals(ChatMessageDeleteOutcome.persistFailed);
+      final shown = s.container.read(chatMessagesProvider);
+      check(
+        shown.where((m) => m.id == 'c0' || m.id == 'c1').map((m) => m.isStreaming),
+      ).deepEquals([false, false]);
     });
 
     // Every wait yields; whatever began meanwhile is looked at again before
