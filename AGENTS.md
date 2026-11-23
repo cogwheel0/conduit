@@ -258,7 +258,12 @@ Most code changes need no documentation change. Agents can read the code.
   the web search scrapers for on-device models.
 - `packages/conduit_protocol` is the wire contract between `conduitd` and the
   Mac app: pure Dart DTOs, the method and event tables, and their goldens.
-- `apps/daemon` is `conduitd`. `desktop/` is the Mac app, a Cargo workspace:
+- `packages/conduit_services` holds the protocol's services over the core,
+  for any host: the session layer, the services and their composition, the
+  byte routes, and the window-backed ports. Pure Dart, no Flutter, and it
+  never imports `conduitd`.
+- `apps/daemon` is `conduitd`: the desktop's process, transport and stores
+  around those services. `desktop/` is the Mac app, a Cargo workspace:
   the app, its components, the design gallery, its link to `conduitd`, and the
   generated protocol types in `crates/`; its packaging in `packaging/`; and
   GPUI, with the patches its `PATCHES.md` lists, in `vendor/`.

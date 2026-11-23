@@ -313,6 +313,10 @@ jobs:
         if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
         working-directory: packages/conduit_theme
         run: dart analyze --fatal-infos
+      - name: Analyze conduit_services
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_services
+        run: dart analyze --fatal-infos
       - name: Analyze conduitd
         if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
         working-directory: apps/daemon
@@ -326,6 +330,11 @@ jobs:
       # to load it. Its live-server tests skip without a local Open WebUI
       # (tool/local_owui), which CI never starts, and the local speech tests
       # without a built whisper library.
+      # The protocol's services, in the same sequence for the same reason.
+      - name: Test conduit_services
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_services
+        run: dart test
       - name: Test conduitd
         if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
         working-directory: apps/daemon

@@ -34,6 +34,8 @@ const List<String> desktopWorkflowPaths = [
   // conduitd, built from the core and markdown packages.
   'lib/l10n/',
   'apps/daemon/',
+  'packages/conduit_services/lib/',
+  'packages/conduit_services/pubspec.yaml',
   'packages/conduit_core/lib/',
   'packages/conduit_core/pubspec.yaml',
   'packages/conduit_markdown/lib/',
