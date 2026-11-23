@@ -25,11 +25,14 @@ use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
+use conduit_components::chrome::{self, ChromeStyle};
 use conduit_components::theme::ConduitTheme;
 use conduit_components::views::focus::ControlExt as _;
 use conduit_components::views::kit::{IconButton, heading};
 use conduit_components::views::shell::toolbar_capsule;
-use conduit_components::window::{TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, drag_region};
+use conduit_components::window::{
+    TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, leading_room, trailing_room,
+};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, App, Context, Entity, FontWeight, Role, SharedString, Subscription, Window, div, px,
@@ -367,10 +370,16 @@ impl Render for AreaPane {
         let shown = ((0.3 - reveal) / 0.25).clamp(0., 1.);
         let covered = t.metrics.sidebar_width * reveal;
         let inset = if reveal < 1. {
-            (TRAFFIC_LIGHTS_WIDTH + 8. - covered).max(10.)
+            (leading_room(cx) + 8. - covered).max(10.)
         } else {
             10.
         };
+        let style = chrome::style(cx);
+        // Off the Mac the toolbar takes presses as the title bar's: each
+        // control blocks that. GNOME leads with the toggle always.
+        let blocks = style.is_some();
+        let gnome = style == Some(ChromeStyle::Gnome);
+        let trailing_pad = trailing_room(reveal >= 1., cx);
         let keys = conduit_components::views::focus::hints(cx);
         let room_actions = match &item {
             AreaItem::HermesRoom(id) => Some(crate::views::hermes_room::toolbar_actions(
@@ -381,7 +390,7 @@ impl Render for AreaPane {
             .filter(|a| !a.is_empty()),
             _ => None,
         };
-        let toolbar = drag_region("area-pane-toolbar")
+        let toolbar = chrome::header_drag("area-pane-toolbar", style, window, cx)
             .role(Role::Toolbar)
             .aria_label(SharedString::from(title.clone()))
             .relative()
@@ -390,22 +399,30 @@ impl Render for AreaPane {
             .flex()
             .items_center()
             .pl(px(inset))
-            .pr(px(10.))
-            .when(reveal < 1., |d| {
+            .pr(px(10. + trailing_pad))
+            .when(reveal < 1. || gnome, |d| {
                 d.child(
-                    toolbar_capsule(&t).p(px(2.)).opacity(shown).child(
-                        IconButton::new(
-                            "show-sidebar",
-                            IconName::PanelLeft,
-                            l.desktop_menu_show_sidebar(),
-                        )
-                        .size(30., 16.)
-                        .round()
-                        .shortcut(keys.toggle_sidebar.clone())
-                        .on_click(Rc::new(|_, window, cx| {
-                            window.dispatch_action(Box::new(ToggleSidebar), cx)
-                        })),
-                    ),
+                    toolbar_capsule(&t)
+                        .when(blocks, |d| d.occlude())
+                        .p(px(2.))
+                        .opacity(if gnome { 1. } else { shown })
+                        .child(
+                            IconButton::new(
+                                "show-sidebar",
+                                IconName::PanelLeft,
+                                if sidebar_visible {
+                                    l.desktop_menu_hide_sidebar()
+                                } else {
+                                    l.desktop_menu_show_sidebar()
+                                },
+                            )
+                            .size(30., 16.)
+                            .round()
+                            .shortcut(keys.toggle_sidebar.clone())
+                            .on_click(Rc::new(|_, window, cx| {
+                                window.dispatch_action(Box::new(ToggleSidebar), cx)
+                            })),
+                        ),
                 )
             })
             .when(terminal.is_none(), |d| {
@@ -422,9 +439,15 @@ impl Render for AreaPane {
                         .child(match &item {
                             // A room names itself with its bots' faces and who
                             // is at work; a click opens Room Info.
-                            AreaItem::HermesRoom(id) => {
-                                crate::views::hermes_room::toolbar_title(&self.stores, id, &t, cx)
-                            }
+                            AreaItem::HermesRoom(id) => div()
+                                .when(blocks, |d| d.occlude())
+                                .child(crate::views::hermes_room::toolbar_title(
+                                    &self.stores,
+                                    id,
+                                    &t,
+                                    cx,
+                                ))
+                                .into_any_element(),
                             _ => div()
                                 .id("area-pane-title")
                                 // The item's name, as VoiceOver's headings list
@@ -441,10 +464,11 @@ impl Render for AreaPane {
                         }),
                 )
                 .child(div().flex_1())
-                .children(trailing)
+                .children(trailing.map(|el| div().when(blocks, |d| d.occlude()).child(el)))
                 .when_some(room_actions, |d, actions| {
                     d.child(
                         toolbar_capsule(&t)
+                            .when(blocks, |d| d.occlude())
                             .p(px(2.))
                             .flex()
                             .gap(px(2.))
@@ -458,6 +482,7 @@ impl Render for AreaPane {
                 let subtitle = pane.read(cx).shell_title().map(str::to_string);
                 d.child(
                     div()
+                        .when(blocks, |d| d.occlude())
                         .flex_1()
                         .min_w_0()
                         .pl(px(if reveal < 1. { 10. } else { 4. }))
@@ -514,8 +539,8 @@ impl Render for AreaPane {
                             )
                         }),
                 )
-                .child(crate::views::terminal::pane::TerminalPane::toolbar(
-                    pane, window, cx,
+                .child(div().when(blocks, |d| d.occlude()).child(
+                    crate::views::terminal::pane::TerminalPane::toolbar(pane, window, cx),
                 ))
             });
         div()

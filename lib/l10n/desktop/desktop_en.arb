@@ -3137,6 +3137,22 @@
   "@desktopCloseWindow": {
     "description": "Window control button that closes the window (Windows and Linux)."
   },
+  "desktopRestoreDown": "Restore Down",
+  "@desktopRestoreDown": {
+    "description": "Windows window control button shown instead of Maximize while the window is maximized. Use Windows' own localized name for this caption button; Linux uses desktopRestoreWindow."
+  },
+  "desktopMainMenu": "Main Menu",
+  "@desktopMainMenu": {
+    "description": "Accessible name of the ☰ button that opens the app's menu on Windows and Linux, and of the menu it opens."
+  },
+  "desktopMenuExit": "Exit",
+  "@desktopMenuExit": {
+    "description": "Last item of the ☰ menu on Windows: quits the app, like the Mac's Quit Conduit. Use Windows' localized File › Exit."
+  },
+  "desktopMenuPreferences": "Preferences",
+  "@desktopMenuPreferences": {
+    "description": "Item of the ☰ primary menu on Linux that opens the settings window, like the Mac's Settings…. Use GNOME's localized Preferences."
+  },
   "desktopResizeSidebar": "Resize the sidebar",
   "@desktopResizeSidebar": {
     "description": "Accessible name of the draggable divider between the sidebar and the conversation; arrow keys also resize."

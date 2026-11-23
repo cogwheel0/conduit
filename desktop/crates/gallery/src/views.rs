@@ -22,6 +22,9 @@ pub fn build(screen: Screen, window: &mut Window, cx: &mut App) -> gpui_kit::Ent
             cx.new(|cx| QuickAskScreen::new(screen, window, cx)).into()
         }
         Screen::MenuBar => cx.new(|_| MenuBarScene).into(),
+        Screen::Chrome(shot) => cx
+            .new(|cx| crate::screens::chrome::ChromeScreen::new(shot, window, cx))
+            .into(),
         Screen::MainEmpty
         | Screen::MainStreaming
         | Screen::MainLong
@@ -60,6 +63,39 @@ pub fn hide_window_buttons(window: &Window) {
                 let _: () = msg_send![button, setHidden: true];
             }
         }
+    }
+}
+
+/// Makes a window borderless and clear, its content clipped to `radius`
+/// (none at 0), for the chrome screens: the image is the drawn window alone,
+/// with no Mac frame, shadow or corners.
+pub fn make_chrome_window(window: &Window, radius: f32) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    let Some(ns) = conduit_components::window::macos::ns_window(window) else {
+        return;
+    };
+    // SAFETY: AppKit and Core Animation messages on the gallery's own live
+    // NSWindow, its content view and that view's layer, on the main thread.
+    unsafe {
+        let _: () = msg_send![&*ns, setHasShadow: false];
+        let _: () = msg_send![&*ns, setOpaque: false];
+        let clear: *mut AnyObject = msg_send![objc2::class!(NSColor), clearColor];
+        let _: () = msg_send![&*ns, setBackgroundColor: clear];
+        if radius <= 0. {
+            return;
+        }
+        let view: *mut AnyObject = msg_send![&*ns, contentView];
+        if view.is_null() {
+            return;
+        }
+        let _: () = msg_send![view, setWantsLayer: true];
+        let layer: *mut AnyObject = msg_send![view, layer];
+        if layer.is_null() {
+            return;
+        }
+        let _: () = msg_send![layer, setCornerRadius: radius as f64];
+        let _: () = msg_send![layer, setMasksToBounds: true];
     }
 }
 

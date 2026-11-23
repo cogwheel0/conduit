@@ -26,6 +26,9 @@
 //! ([`SidebarReveal`]). Under Reduce Motion it is instant.
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::chrome::{
+    ActiveChrome, ButtonLayout, Chrome, ChromeStyle, ClientFrame, ControlLabels, MainMenu,
+};
 use conduit_components::motion::{self, Reduced, specs};
 #[cfg(target_os = "macos")]
 use conduit_components::theme::SidebarStyle;
@@ -99,6 +102,8 @@ pub struct MainWindow {
     focus: FocusHandle,
     /// The page drawn last.
     page: Option<Page>,
+    /// ☰, off the Mac (`menus::primary_menu`); the Mac has its menu bar.
+    main_menu: Option<Entity<MainMenu>>,
     #[cfg(target_os = "macos")]
     material: crate::shell::macos::SidebarMaterial,
     /// Frames drawn without the sidebar while its material is still up.
@@ -211,6 +216,20 @@ impl MainWindow {
                 }
             }),
         ];
+        let main_menu = ChromeStyle::native().map(|style| {
+            let items: conduit_components::chrome::MenuItems =
+                std::rc::Rc::new(move |_, cx| crate::menus::chrome_menu_items(style, cx));
+            let name = cx.l10n().desktop_main_menu();
+            cx.new(|cx| MainMenu::new(style, name, items, window, cx))
+        });
+        let mut subscriptions = subscriptions;
+        if main_menu.is_some() {
+            // The desktop's button-layout, and the frame's shadow and window
+            // controls, which follow the window's focus and size.
+            subscriptions.push(cx.observe_button_layout_changed(window, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe_window_activation(window, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe_window_bounds(window, |_, _, cx| cx.notify()));
+        }
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         Self {
@@ -224,6 +243,7 @@ impl MainWindow {
             approvals,
             focus,
             page: None,
+            main_menu,
             #[cfg(target_os = "macos")]
             material: Default::default(),
             #[cfg(target_os = "macos")]
@@ -545,6 +565,8 @@ impl Render for MainWindow {
             .status(route != Route::Unknown, session_error.as_deref());
         let blocked = status.blocks(route != Route::Unknown);
         let sidebar_visible = self.layout.read(cx).state.sidebar_visible;
+        let chrome = self.chrome(window, cx);
+        cx.set_global(ActiveChrome(chrome.clone()));
         let t = cx.conduit().clone();
         let shows_main = !blocked && route == Route::Main;
         let reveal = motion::tween(
@@ -587,11 +609,30 @@ impl Render for MainWindow {
             )
         } else {
             // Blocked, not routed yet, or a session that just ended (the
-            // setup window is taking over).
-            (
-                Page::Status,
-                status_screen(&status, &self.stores.connection, cx).into_any_element(),
-            )
+            // setup window is taking over). Off the Mac the window keeps its
+            // own controls and a header to drag it by.
+            let card = status_screen(&status, &self.stores.connection, cx);
+            let card = match &chrome {
+                Some(c) => card
+                    .relative()
+                    .child(
+                        conduit_components::chrome::header_drag(
+                            "status-titlebar",
+                            Some(c.style),
+                            window,
+                            cx,
+                        )
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(conduit_components::window::TOOLBAR_HEIGHT)),
+                    )
+                    .child(conduit_components::chrome::corner_controls(c, false))
+                    .into_any_element(),
+                None => card.into_any_element(),
+            };
+            (Page::Status, card)
         };
         // A field of the page that went (the server form's address, after
         // Connect) would keep focus out of sight, and Tab would find no way
@@ -703,7 +744,7 @@ impl Render for MainWindow {
 
         // A click on no control focuses the window itself (closing the model
         // picker, Stop): named, so VoiceOver says where focus went.
-        div()
+        let root = div()
             .id("main-window")
             .role(Role::Group)
             .aria_label(SharedString::from(cx.l10n().app_title()))
@@ -1061,7 +1102,49 @@ impl Render for MainWindow {
             .children(approvals)
             .children(toasts)
             .children(banner)
-            .child(crate::views::chat::inline_web::frame_end())
+            .child(crate::views::chat::inline_web::frame_end());
+        match chrome {
+            Some(c) => ClientFrame::new(
+                c.style,
+                c.decorations,
+                c.maximized,
+                window.is_window_active(),
+                root,
+            )
+            .into_any_element(),
+            None => root.into_any_element(),
+        }
+    }
+}
+
+impl MainWindow {
+    /// The window's chrome this frame, off the Mac: ☰, the window controls
+    /// as the desktop lays them out, and who draws the frame.
+    fn chrome(&self, window: &Window, cx: &App) -> Option<Chrome> {
+        let menu = self.main_menu.clone()?;
+        let style = menu.read(cx).style();
+        let offered = window.window_controls();
+        let buttons = match style {
+            ChromeStyle::Windows => ButtonLayout::windows(),
+            ChromeStyle::Gnome => cx
+                .button_layout()
+                .map(|l| ButtonLayout::from_gpui(l, offered.minimize, offered.maximize))
+                .unwrap_or_else(ButtonLayout::gnome),
+        };
+        let l = cx.l10n();
+        Some(Chrome {
+            style,
+            buttons,
+            decorations: window.window_decorations(),
+            maximized: window.is_maximized(),
+            menu,
+            labels: control_labels(style, l),
+            title: l.app_title().into(),
+            // As File › Close Window (which may only hide it).
+            on_close: Some(std::rc::Rc::new(|_, window, cx| {
+                window.dispatch_action(Box::new(CloseWindow), cx)
+            })),
+        })
     }
 }
 
@@ -1069,6 +1152,46 @@ impl Render for MainWindow {
 /// the chat pane is on screen.
 fn answers_chat_prompt(shows_main: bool, shows_chat: bool) -> bool {
     shows_main && shows_chat
+}
+
+/// The window controls' names, in each platform's words.
+fn control_labels(style: ChromeStyle, l: &crate::l10n::L10n) -> ControlLabels {
+    ControlLabels {
+        minimize: l.desktop_minimize_window().into(),
+        maximize: l.desktop_maximize_window().into(),
+        restore: match style {
+            ChromeStyle::Windows => l.desktop_restore_down(),
+            ChromeStyle::Gnome => l.desktop_restore_window(),
+        }
+        .into(),
+        close: l.desktop_close_window().into(),
+    }
+}
+
+#[cfg(test)]
+mod control_label_tests {
+    use super::{ChromeStyle, control_labels};
+    use crate::l10n::L10n;
+
+    #[test]
+    fn windows_names_its_restore_button_restore_down_and_gnome_restore() {
+        let en = L10n::new("en");
+        assert_eq!(
+            control_labels(ChromeStyle::Windows, &en).restore,
+            "Restore Down"
+        );
+        assert_eq!(control_labels(ChromeStyle::Gnome, &en).restore, "Restore");
+        // In Windows' own words for the language.
+        let de = L10n::new("de");
+        assert_eq!(
+            control_labels(ChromeStyle::Windows, &de).restore,
+            "Verkleinern"
+        );
+        assert_eq!(
+            control_labels(ChromeStyle::Gnome, &de).restore,
+            "Wiederherstellen"
+        );
+    }
 }
 
 #[cfg(test)]
