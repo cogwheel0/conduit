@@ -305,7 +305,6 @@ void main() {
       policy: const CoreHostPolicy(
         settingsDefaults: AppSettingsHostDefaults(),
         readAloudLiveDeviceSpeech: false,
-        offerPrivateCloudCompute: true,
       ),
     );
     addTearDown(runtime.dispose);
@@ -313,7 +312,9 @@ void main() {
     await handshakeAndAsk(connect(built));
 
     final container = runtime.container;
-    expect(container.read(applePrivateCloudComputeSupportedProvider), isTrue);
+    // The window's Apple engine serves only the on-device model, so Private
+    // Cloud Compute is never offered through it.
+    expect(container.read(applePrivateCloudComputeSupportedProvider), isFalse);
     expect(container.read(readAloudLiveDeviceSpeechProvider), isFalse);
 
     // The core's connectivity checks stop in the background and start

@@ -107,7 +107,6 @@ final class CoreHostPolicy {
   const CoreHostPolicy({
     required this.settingsDefaults,
     required this.readAloudLiveDeviceSpeech,
-    required this.offerPrivateCloudCompute,
   });
 
   /// The settings a new install starts with where hosts differ.
@@ -116,10 +115,6 @@ final class CoreHostPolicy {
   /// Read aloud speaks live through the device's voices, reporting each
   /// word, rather than as rendered clips.
   final bool readAloudLiveDeviceSpeech;
-
-  /// Apple's Private Cloud Compute is offered beside the on-device model.
-  /// Only a build with its entitlement may say yes.
-  final bool offerPrivateCloudCompute;
 }
 
 /// Hosts `conduit_core` for the protocol's services.
@@ -323,9 +318,7 @@ final class CoreRuntime {
         voiceModeSpeechProvider.overrideWith(
           (ref) => ref.watch(textToSpeechServiceProvider),
         ),
-        ...window.overrides(
-          offerPrivateCloudCompute: policy.offerPrivateCloudCompute,
-        ),
+        ...window.overrides(),
         // `clipboardPortProvider` keeps the core's default: the clipboard
         // belongs to the window's process, so it crosses as RPC.
         ...host.overrides,

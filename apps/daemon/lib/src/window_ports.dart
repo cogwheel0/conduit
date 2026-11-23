@@ -90,9 +90,7 @@ final class WindowPorts {
   final WindowLocationBridge location;
 
   /// What a container needs so the core reaches these ports.
-  /// [offerPrivateCloudCompute] says whether Apple's Private Cloud Compute
-  /// is offered beside the on-device model.
-  List<Override> overrides({required bool offerPrivateCloudCompute}) {
+  List<Override> overrides() {
     final cookies = dashboardCookies;
     return <Override>[
       openExternalUrlProvider.overrideWithValue(openUrl),
@@ -116,10 +114,7 @@ final class WindowPorts {
       // Apple's on-device model runs in the window (Foundation Models is a
       // Swift API); the core's Apple adapter reaches it through this host,
       // as the phone's reaches its Swift bridge.
-      ...appleModelsOverrides(
-        apple,
-        offerPrivateCloudCompute: offerPrivateCloudCompute,
-      ),
+      ...appleModelsOverrides(apple),
       // A Desktop Gateway's dashboard sign-in runs in the window's browser
       // window, which hands the cookies over; the host then holds them as a
       // phone's WebView does, and sends the dashboard's requests with them

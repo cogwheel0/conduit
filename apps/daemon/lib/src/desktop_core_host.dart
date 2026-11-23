@@ -31,8 +31,6 @@ const CoreHostPolicy desktopCorePolicy = CoreHostPolicy(
   // The Mac's voices read aloud live, reporting each word, and the reading
   // moves from sentence to sentence (the phone renders clips).
   readAloudLiveDeviceSpeech: true,
-  // This build has no entitlement for it.
-  offerPrivateCloudCompute: false,
 );
 
 /// The desktop's stores, under the user data directory the app chose: a
