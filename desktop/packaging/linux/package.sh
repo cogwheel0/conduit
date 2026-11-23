@@ -10,10 +10,10 @@
 # 2. conduitd: `dart build cli` in apps/daemon (conduitd and its
 #    libsqlite3.so), with the Dart code generated first when it isn't.
 # 3. <out>/stage/usr/lib/conduit: conduit-desktop with conduitd/ beside it
-#    (where paths::packaged_daemon_for looks) and the model logo catalog
-#    conduitd reads; checked (winlinux.py layout: complete, no test
-#    harness), and the desktop entry with desktop-file-validate when it's
-#    installed.
+#    (where paths::packaged_daemon_for looks), the model logo catalog
+#    conduitd reads and the third-party notices; checked (winlinux.py
+#    layout: complete, Linux's notices, no test harness), and the desktop
+#    entry with desktop-file-validate when it's installed.
 # 4. The dependencies, worked out from the binaries: the .deb's with
 #    dpkg-shlibdeps, as Debian names them on the build machine (so build on
 #    the oldest release the packages are for: CI uses Ubuntu 22.04, glibc
@@ -26,8 +26,8 @@
 # The packages install /usr/lib/conduit/, the link /usr/bin/conduit-desktop,
 # /usr/share/applications/conduit-desktop.desktop (conduit:// links, and
 # Open With for the Mac's document types: never their default app), the
-# hicolor icons, the licence and the third-party notices
-# (/usr/share/doc/conduit-desktop/). Nothing goes in a home folder, so
+# hicolor icons, the licence and the third-party notices (beside the app,
+# and in /usr/share/doc/conduit-desktop/). Nothing goes in a home folder, so
 # removing a package leaves its users' data.
 #
 # --notices: the Linux third-party notices, made by
@@ -195,13 +195,14 @@ cp "$binary" "$app_dir/conduit-desktop"
 cp -R "$daemon_bundle/." "$app_dir/conduitd/"
 # The models.dev logo catalog: conduitd looks for it beside its bin/.
 cp "$REPO_ROOT/assets/model_logos/catalog.json" "$app_dir/conduitd/model_logos/"
-python3 -I "$winlinux" layout "$app_dir" --os linux
+# The notices beside the app, where Settings › About finds them, and in the
+# doc folder (below), which a minimized system drops.
 if [ -n "$notices" ]; then
-  cp "$notices" "$stage/THIRD_PARTY_NOTICES.md"
+  cp "$notices" "$app_dir/THIRD_PARTY_NOTICES.md"
 else
-  "$here/../notices/notices.sh" --target x86_64-unknown-linux-gnu --out "$stage/THIRD_PARTY_NOTICES.md"
+  "$here/../notices/notices.sh" --target x86_64-unknown-linux-gnu --out "$app_dir/THIRD_PARTY_NOTICES.md"
 fi
-python3 -I "$winlinux" notices "$stage/THIRD_PARTY_NOTICES.md" --os linux
+python3 -I "$winlinux" layout "$app_dir" --os linux
 if command -v desktop-file-validate >/dev/null; then
   desktop-file-validate "$here/conduit-desktop.desktop"
   log "desktop-file-validate: conduit-desktop.desktop"
@@ -261,7 +262,7 @@ contents:
     dst: /usr/share/applications/conduit-desktop.desktop
     file_info:
       mode: 0644
-  - src: $stage/THIRD_PARTY_NOTICES.md
+  - src: $app_dir/THIRD_PARTY_NOTICES.md
     dst: /usr/share/doc/conduit-desktop/THIRD_PARTY_NOTICES.md
     file_info:
       mode: 0644

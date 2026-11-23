@@ -2149,18 +2149,16 @@ impl SettingsView {
     }
 }
 
-/// The open-source notices: the copy this bundle carries, or, for a build
-/// that has none (a dev build), the repository's page on how they are made.
+/// The open-source notices: the copy this install carries (the Mac's bundle,
+/// the Windows install folder, the Linux package's doc folder), or, for a
+/// build that has none (a dev build), the repository's page on how they are
+/// made.
 fn licenses_url(repository: &str) -> String {
-    let bundled = std::env::current_exe()
+    let installed = std::env::current_exe()
         .ok()
-        .and_then(|exe| {
-            exe.parent()
-                .map(|d| d.join("../Resources/THIRD_PARTY_NOTICES.md"))
-        })
-        .filter(|p| p.is_file());
-    match bundled.and_then(|p| p.canonicalize().ok()) {
-        Some(path) => format!("file://{}", path.display()),
+        .and_then(|exe| conduit_daemon::paths::packaged_notices(&exe));
+    match installed.and_then(|path| url::Url::from_file_path(path).ok()) {
+        Some(url) => url.to_string(),
         None if !repository.is_empty() => {
             format!("{repository}/blob/main/desktop/packaging/notices/README.md")
         }

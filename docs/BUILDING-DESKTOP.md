@@ -448,6 +448,9 @@ install `/usr/lib/conduit/` (the app with `conduitd/` beside it),
 `/usr/share/applications/conduit-desktop.desktop` (`conduit://` and the
 Mac's document types as MIME types, `Exec=… %U`), hicolor icons and
 `/usr/share/doc/conduit-desktop/` (the licence and the third-party notices).
+The notices are also in `/usr/lib/conduit/`, beside the app, where Settings
+› About opens them: a minimized system (dpkg's `path-exclude`, rpm's
+`nodocs`) drops the doc folder's copy.
 `package.sh --notices FILE` takes the notices; without it, it runs
 `notices.sh` (cargo-about needed). Removing a package keeps the user's
 data: `~/.local/share/conduit`, the logs in `~/.local/state/conduit/logs`,
@@ -835,7 +838,9 @@ before compiling.
 ## Third-party notices
 
 `THIRD_PARTY_NOTICES.md` is generated, not committed: `bundle.sh build`
-writes it into each bundle's `Resources` (Settings › About opens it), and
+writes it into each bundle's `Resources`, the Windows and Linux packages
+install their own (Settings › About opens the installed copy, else the
+repository's page on the notices), and
 CI's `desktop.yml` runs the generator's check with the release bundle
 (see [Checks](#checks) for when that runs).
 

@@ -99,6 +99,7 @@ class Tree:
         self.file("conduitd/bin/conduitd", b"\x7fELF daemon", 0o755)
         self.file("conduitd/lib/libsqlite3.so", b"\x7fELF sqlite", 0o644)
         self.file("conduitd/model_logos/catalog.json", b"{}")
+        self.file("THIRD_PARTY_NOTICES.md", b"# Third-party notices: Conduit Desktop for Linux\n")
         return self
 
 
@@ -214,19 +215,22 @@ class Layout(unittest.TestCase):
         (tree.root / "conduit-desktop").chmod(0o644)
         self.assertEqual(len(winlinux.layout_problems(tree.root, "linux")), 1)
 
-    def test_windows_ships_its_own_notices(self):
-        # The licences of what the Windows build includes: not missing, and
-        # not the Mac's or Linux's (generated for another target).
-        for notices in (None, b"# Third-party notices: Conduit Desktop for Linux\n"):
-            tree = Tree(self).windows()
-            path = tree.root / "THIRD_PARTY_NOTICES.md"
-            if notices is None:
-                path.unlink()
-            else:
-                path.write_bytes(notices)
-            problems = winlinux.layout_problems(tree.root, "windows")
-            self.assertEqual(len(problems), 1, problems)
-            self.assertIn("THIRD_PARTY_NOTICES.md", problems[0])
+    def test_each_os_ships_its_own_notices_beside_the_app(self):
+        # The licences of what that OS's build includes, in the install
+        # folder (on Linux too: a minimized system drops /usr/share/doc), not
+        # missing, and not the Mac's or another OS's (made for another
+        # target).
+        for os_name, other in (("windows", b"Linux"), ("linux", b"Windows")):
+            for notices in (None, b"# Third-party notices: Conduit Desktop for " + other + b"\n"):
+                tree = getattr(Tree(self), os_name)()
+                path = tree.root / "THIRD_PARTY_NOTICES.md"
+                if notices is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(notices)
+                problems = winlinux.layout_problems(tree.root, os_name)
+                self.assertEqual(len(problems), 1, f"{os_name}: {problems}")
+                self.assertIn("THIRD_PARTY_NOTICES.md", problems[0])
 
     def test_a_harness_build_never_ships(self):
         for os_name, exe in (("windows", "conduit-desktop.exe"), ("linux", "conduit-desktop")):

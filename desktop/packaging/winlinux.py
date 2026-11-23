@@ -14,8 +14,8 @@ library only, so it runs on every build and test machine.
                                    one): the app, conduitd beside it as
                                    paths::packaged_daemon_for expects, its
                                    SQLite and the model logo catalog; no test
-                                   harness in the app; on Windows, its
-                                   THIRD_PARTY_NOTICES.md, and no PE that
+                                   harness in the app; THIRD_PARTY_NOTICES.md
+                                   for that OS; on Windows, no PE that
                                    needs a C/C++ runtime DLL Windows lacks
                                    unless it sits beside the executable of
                                    the process that loads that PE
@@ -238,8 +238,7 @@ def layout_problems(root, os_name):
         problems.append("no conduitd/model_logos/catalog.json (the model logo catalog)")
     if windows and not (root / "conduit.ico").is_file():
         problems.append("no conduit.ico (the Start menu and link icon)")
-    if windows:
-        problems += notices_problems(root / "THIRD_PARTY_NOTICES.md", "windows")
+    problems += notices_problems(root / "THIRD_PARTY_NOTICES.md", os_name)
     if app.is_file() and _has_marker(app):
         problems.append(f"{app.name} was built with the test harness (the `harness` feature): never shipped")
     if windows:

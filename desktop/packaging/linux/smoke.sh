@@ -23,9 +23,11 @@
 #    registered, and the user's data folder is still there.
 #
 # With --container: installs the package without recommended ones, checks
-# every library resolves and the app starts (it refuses --e2e, exit 64),
-# removes it and checks none of its files is left. Nothing else is needed
-# in the container (no python3, no display).
+# every library resolves, the notices are there (the doc folder's copy may
+# be missing only where the image excludes documentation) and the app
+# starts (it refuses --e2e, exit 64), removes it and checks none of its
+# files is left. Nothing else is needed in the container (no python3, no
+# display).
 #
 # The .deb mode installs into /usr and removes the package at the end, and
 # the app runs on a profile in WORK (default: a new folder in /tmp).
@@ -38,6 +40,7 @@ app_dir=/usr/lib/conduit
 app=$app_dir/conduit-desktop
 daemon=$app_dir/conduitd/bin/conduitd
 entry=/usr/share/applications/conduit-desktop.desktop
+lib_notices=$app_dir/THIRD_PARTY_NOTICES.md
 notices=/usr/share/doc/conduit-desktop/THIRD_PARTY_NOTICES.md
 icon_sizes="16 24 32 48 64 128 256 512"
 installed=("$app_dir" /usr/bin/conduit-desktop "$entry" "$notices")
@@ -54,11 +57,30 @@ $missing"
   log "every library the binaries need resolves"
 }
 
-# The package carries the Linux build's third-party notices.
+# Whether this system drops packages' documentation: dpkg's path-exclude
+# (minimized Ubuntu and Debian images), rpm's nodocs (dnf's tsflags).
+docs_excluded() {
+  if grep -hqs '^path-exclude=/usr/share/doc' /etc/dpkg/dpkg.cfg.d/*; then return 0; fi
+  if command -v rpm >/dev/null && [ "$(rpm --eval '%{_excludedocs}' 2>/dev/null)" = 1 ]; then
+    return 0
+  fi
+  grep -qs '^tsflags=.*nodocs' /etc/dnf/dnf.conf /etc/yum.conf
+}
+
+# The package carries the Linux build's third-party notices: beside the app
+# always (what Settings › About opens), and in the doc folder unless, with
+# docs-may-drop, this system excludes documentation.
 has_notices() {
-  [ "$(head -n 1 "$notices" 2>/dev/null)" = "# Third-party notices: Conduit Desktop for Linux" ] ||
+  local heading="# Third-party notices: Conduit Desktop for Linux"
+  [ "$(head -n 1 "$lib_notices" 2>/dev/null)" = "$heading" ] ||
+    die "no Linux third-party notices at $lib_notices"
+  if [ "$(head -n 1 "$notices" 2>/dev/null)" = "$heading" ]; then
+    log "the third-party notices are in $lib_notices and $notices"
+  elif [ "${1:-}" = docs-may-drop ] && docs_excluded; then
+    log "the third-party notices are in $lib_notices ($notices dropped: this system excludes documentation)"
+  else
     die "no Linux third-party notices at $notices"
-  log "the third-party notices are in $notices"
+  fi
 }
 
 # Each harness flag ends the launch with 64 before anything opens.
@@ -96,7 +118,7 @@ if [ "${1:-}" = --container ]; then
   esac
   log "installed $(basename "$package") ($(. /etc/os-release && printf '%s' "$PRETTY_NAME"))"
   libraries_resolve
-  has_notices
+  has_notices docs-may-drop
   refuses_harness_flags "$(mktemp -d)"
   case "$package" in
     *.deb) DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq conduit-desktop >/dev/null ;;

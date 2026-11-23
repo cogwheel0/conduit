@@ -543,6 +543,43 @@ pub fn packaged_daemon_for(os: Os, exe: &Path) -> Option<PathBuf> {
     candidate.is_file().then_some(candidate)
 }
 
+/// The third-party notices installed with the executable at `exe`, if any.
+pub fn packaged_notices(exe: &Path) -> Option<PathBuf> {
+    packaged_notices_for(Os::CURRENT, exe)
+}
+
+/// Where a packaged build's `THIRD_PARTY_NOTICES.md` is, if it is there:
+///
+/// * macOS: `<bundle>/Contents/Resources/` for an executable at
+///   `<bundle>/Contents/MacOS/<exe>`.
+/// * Windows: beside the executable (the install folder).
+/// * Linux: beside the executable (`/usr/lib/conduit`), else
+///   `<prefix>/share/doc/conduit-desktop/` for an executable in
+///   `<prefix>/lib/conduit/`. The packages install both; a minimized
+///   system (dpkg's `path-exclude`, rpm's `nodocs`) drops the doc folder's.
+pub fn packaged_notices_for(os: Os, exe: &Path) -> Option<PathBuf> {
+    const NAME: &str = "THIRD_PARTY_NOTICES.md";
+    let dir = exe.parent()?;
+    let candidates = match os {
+        Os::MacOs => vec![dir.parent()?.join("Resources").join(NAME)],
+        Os::Windows => vec![dir.join(NAME)],
+        Os::Linux => {
+            let mut found = vec![dir.join(NAME)];
+            if let Some(prefix) = dir.parent().and_then(Path::parent) {
+                found.push(
+                    prefix
+                        .join("share")
+                        .join("doc")
+                        .join("conduit-desktop")
+                        .join(NAME),
+                );
+            }
+            found
+        }
+    };
+    candidates.into_iter().find(|p| p.is_file())
+}
+
 /// The `dart build cli` output in this repo.
 pub fn dev_daemon() -> PathBuf {
     dev_daemon_for(Os::CURRENT, std::env::consts::ARCH)
@@ -1031,6 +1068,56 @@ pub(crate) mod tests {
             std::fs::write(dir.join(daemon), b"").unwrap();
             assert_eq!(packaged_daemon_for(os, &exe), Some(dir.join(daemon)));
         }
+    }
+
+    #[test]
+    fn a_packaged_build_finds_the_notices_its_package_installs() {
+        // Its own new folder, removed when it drops.
+        let root = tempfile::Builder::new()
+            .prefix("conduit-notices-")
+            .tempdir()
+            .expect("a temporary folder");
+        for (os, exe, notices) in [
+            (
+                Os::MacOs,
+                "Conduit.app/Contents/MacOS/Conduit",
+                "Conduit.app/Contents/Resources/THIRD_PARTY_NOTICES.md",
+            ),
+            (
+                Os::Windows,
+                "Programs/Conduit/conduit-desktop.exe",
+                "Programs/Conduit/THIRD_PARTY_NOTICES.md",
+            ),
+            (
+                Os::Linux,
+                "usr/lib/conduit/conduit-desktop",
+                "usr/share/doc/conduit-desktop/THIRD_PARTY_NOTICES.md",
+            ),
+        ] {
+            let dir = root.path().join(format!("{os:?}"));
+            let (exe, notices) = (dir.join(exe), dir.join(notices));
+            std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+            std::fs::create_dir_all(notices.parent().unwrap()).unwrap();
+            // A build with no notices beside it (a dev build) finds none.
+            assert_eq!(packaged_notices_for(os, &exe), None, "{os:?}");
+            std::fs::write(&notices, b"").unwrap();
+            assert_eq!(packaged_notices_for(os, &exe), Some(notices), "{os:?}");
+        }
+        // Linux: the copy beside the app first, which a minimized system
+        // (dpkg's path-exclude, rpm's nodocs) keeps when it drops the doc
+        // folder's.
+        let lib = root
+            .path()
+            .join("Linux/usr/lib/conduit/THIRD_PARTY_NOTICES.md");
+        let exe = root.path().join("Linux/usr/lib/conduit/conduit-desktop");
+        std::fs::write(&lib, b"").unwrap();
+        assert_eq!(packaged_notices_for(Os::Linux, &exe), Some(lib.clone()));
+        std::fs::remove_file(
+            root.path()
+                .join("Linux/usr/share/doc/conduit-desktop/THIRD_PARTY_NOTICES.md"),
+        )
+        .unwrap();
+        assert_eq!(packaged_notices_for(Os::Linux, &exe), Some(lib));
     }
 
     #[test]
