@@ -510,6 +510,69 @@ Future<void> deleteDirectLocalConversation(
   ).removeConversation(selectionId);
 }
 
+/// Deletes a chat from where it is kept: an on-device chat here, a LibreChat
+/// chat through its outbox, and an Open WebUI chat on its server.
+///
+/// [conversation] is the chat as the caller shows it, when it has one;
+/// otherwise it is found in the list or the open chat by [conversationId].
+Future<void> deleteConversation(
+  dynamic ref,
+  String conversationId, {
+  Conversation? conversation,
+}) async {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final chat =
+      conversation ??
+      _listedConversationForSelection(ref, conversationId) ??
+      _openConversationFor(ref, conversationId);
+  if (identity.storage == ChatStorageKind.directLocal ||
+      (identity.storage == null &&
+          identity.rawId.startsWith('direct-local:')) ||
+      isDirectLocalConversation(chat)) {
+    await deleteDirectLocalConversation(ref, conversationId);
+    return;
+  }
+  if (_isLibreChatSelection(conversationId, chat)) {
+    await deleteLibreChatConversation(ref, conversationId);
+    return;
+  }
+  final api = _readProvider(ref, apiServiceProvider);
+  if (api == null) throw Exception('No API service available');
+  // Revoke first: a thrown DELETE can still mean the server committed and
+  // only its response was lost. A crash must not leave replayable proof for
+  // a remotely deleted conversation. Do not restore proof based on an HTTP
+  // status: 404 already means the chat is absent, while an auth-looking
+  // response may come from an intermediary after an ambiguous upstream
+  // outcome. Losing safe continuity is preferable to authorizing replay
+  // against a deleted or later-reused conversation id.
+  await forgetMixedHermesConversationProvenance(
+    ref,
+    conversation:
+        chat ??
+        withChatStorageProvenance(
+          Conversation(
+            id: identity.rawId,
+            title: '',
+            createdAt: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+            updatedAt: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+          ),
+          ChatStorageKind.openWebUi,
+        ),
+  );
+  await api.deleteConversation(identity.rawId);
+  _readProvider(
+    ref,
+    conversationsProvider.notifier,
+  ).removeConversation(conversationId);
+}
+
+Conversation? _openConversationFor(dynamic ref, String conversationId) {
+  final active = _readProvider(ref, activeConversationProvider);
+  return _activeConversationMatchesSelection(active, conversationId)
+      ? active
+      : null;
+}
+
 // Pin/Unpin conversation
 Future<void> pinConversation(
   dynamic ref,

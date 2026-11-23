@@ -1479,6 +1479,8 @@ void main() {
         modelsProvider.overrideWith(_Listed.new),
         // The user's settings name a model that the server lists last.
         defaultModelProvider.overrideWith((ref) async => preferred),
+        // A pick is made by hand: the selection reads the reviewer mode.
+        reviewerModeProvider.overrideWith(_ReviewerOff.new),
       ],
     );
     addTearDown(container.dispose);
@@ -1767,6 +1769,8 @@ void main() {
         overrides: [
           modelsProvider.overrideWith(_FastGated.new),
           openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+          // A pick is made by hand: the selection reads the reviewer mode.
+          reviewerModeProvider.overrideWith(_ReviewerOff.new),
         ],
         retry: (_, _) => null,
       );
@@ -1790,7 +1794,11 @@ void main() {
 
   test("another model's Fast tier request changes nothing", () async {
     final container = ProviderContainer(
-      overrides: [modelsProvider.overrideWith(_Fast.new)],
+      overrides: [
+        modelsProvider.overrideWith(_Fast.new),
+        // A pick is made by hand: the selection reads the reviewer mode.
+        reviewerModeProvider.overrideWith(_ReviewerOff.new),
+      ],
       retry: (_, _) => null,
     );
     addTearDown(container.dispose);

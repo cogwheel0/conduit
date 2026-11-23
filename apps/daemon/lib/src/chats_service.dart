@@ -4,7 +4,6 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         archiveConversation,
         copyLibreChatConversation,
-        deleteLibreChatConversation,
         pinConversation,
         renameLibreChatConversation,
         captureChatMutationOwner,
@@ -974,22 +973,20 @@ final class ChatsService {
       _events?.emit(ConduitEventSpecs.chatsChanged, ChatsChanged(chatId: id));
       return _refresh();
     }
-    if (_isDirectLocal(id)) {
-      await mutations.deleteDirectLocalConversation(_container, id);
-      return _refresh();
-    }
-    if (_isLibreChat(id)) {
-      await deleteLibreChatConversation(_container, id);
-      _conversations.removeConversation(id);
-      return _refresh();
-    }
-    await _api.deleteConversation(id);
-    // The local row too. A pull reconciles additions and edits, but a row the
-    // server no longer has is not something the next pull will mention -- so
-    // without this the conversation stays in the sidebar until something
-    // else happens to evict it, which reads as the delete having failed.
-    _conversations.removeConversation(id);
+    await _deleteConversation(id);
     return _refresh();
+  }
+
+  /// Deletes through the core, with [id] scoped to LibreChat when this
+  /// account would take it for one (a copy not listed yet).
+  Future<void> _deleteConversation(String id) {
+    if (_isDirectLocal(id)) return mutations.deleteConversation(_container, id);
+    if (_isLibreChat(id)) {
+      return mutations.deleteConversation(_container, _libreChatScoped(id));
+    }
+    // Refused while signed out, as the other Open WebUI writes here are.
+    final _ = _api;
+    return mutations.deleteConversation(_container, id);
   }
 
   /// Many conversations at once, one server call each -- Open
@@ -1007,14 +1004,8 @@ final class ChatsService {
             await _archive(id, true);
           case BulkChatAction.unarchive:
             await _archive(id, false);
-          case BulkChatAction.delete when _isDirectLocal(id):
-            await mutations.deleteDirectLocalConversation(_container, id);
-          case BulkChatAction.delete when _isLibreChat(id):
-            await deleteLibreChatConversation(_container, id);
-            _conversations.removeConversation(id);
           case BulkChatAction.delete:
-            await _api.deleteConversation(id);
-            _conversations.removeConversation(id);
+            await _deleteConversation(id);
           case BulkChatAction.move:
             await _api.moveConversationToFolder(id, request.folderId);
             await _afterEnvelopeChange(id);
