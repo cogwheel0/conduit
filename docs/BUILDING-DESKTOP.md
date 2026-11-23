@@ -385,14 +385,15 @@ release), and installs them on fresh runners (`Windows install smoke`,
 `Linux install smoke`). They don't update themselves yet.
 
 ```powershell
-desktop\packaging\windows\build.ps1                  # version 0.0.0
-desktop\packaging\windows\build.ps1 -Version 1.2.0
+desktop\packaging\windows\build.ps1 -Notices <file>   # version 0.0.0
+desktop\packaging\windows\build.ps1 -Notices <file> -Version 1.2.0
 desktop\packaging\windows\smoke.ps1 -Installer desktop\target\windows\Conduit-1.2.0\Conduit-1.2.0-windows-x64-setup.exe
 ```
 
 ```sh
 desktop/packaging/linux/package.sh                   # version 0.0.0
 desktop/packaging/linux/package.sh --version 1.2.0
+desktop/packaging/notices/notices.sh --target x86_64-pc-windows-msvc --out <file>   # build.ps1's -Notices
 desktop/packaging/linux/smoke.sh desktop/target/linux/Conduit-1.2.0/conduit-desktop_1.2.0-1_amd64.deb
 ```
 
@@ -400,7 +401,8 @@ Each builds the app in release mode without the test harness
 (`CONDUIT_VERSION` set) and conduitd with `dart build cli`, stages the
 install folder, the app with `conduitd/bin/conduitd[.exe]` and its SQLite
 beside it (what `paths::packaged_daemon_for` looks for, so the installed
-app runs in the production flavour) and the model logo catalog, checks it
+app runs in the production flavour), the model logo catalog and the
+[third-party notices](#third-party-notices) for that target, checks it
 (`packaging/winlinux.py layout`: complete, no test harness, and on Windows
 no DLL of a C/C++ runtime Windows lacks), then packages it. Output goes to
 `desktop/target/windows/Conduit-<version>/` and
@@ -426,8 +428,12 @@ administrator, into `%LOCALAPPDATA%\Programs\Conduit`:
   never as their default app;
 - Windows' Restart Manager closes a running Conduit and its conduitd
   before files are replaced;
-- uninstalling removes all of that and keeps the user's data
-  (`%LOCALAPPDATA%\Conduit`, the key in Credential Manager).
+- uninstalling removes all of that and always keeps the user's data,
+  without asking: chats and files saved on the computer, settings and logs
+  in `%LOCALAPPDATA%\Conduit`, and the key that encrypts them in Credential
+  Manager (Windows Credentials: the generic credentials named
+  `app.cogwheel.conduit.desktop:masterKey…`). Someone who wants them gone
+  deletes that folder and those credentials.
 
 Its AppId (`AppGuid` in `conduit.iss`) must never change. The wizard's text
 is Inno Setup's own, in its translations of the app's languages (Chinese
@@ -440,8 +446,15 @@ downloaded into `desktop/target/nfpm/<version>/` and checked. The packages
 install `/usr/lib/conduit/` (the app with `conduitd/` beside it),
 `/usr/bin/conduit-desktop` (a link), the desktop entry
 `/usr/share/applications/conduit-desktop.desktop` (`conduit://` and the
-Mac's document types as MIME types, `Exec=… %U`) and hicolor icons; removing
-them keeps the user's data. Their dependencies come from the binaries: the
+Mac's document types as MIME types, `Exec=… %U`), hicolor icons and
+`/usr/share/doc/conduit-desktop/` (the licence and the third-party notices).
+`package.sh --notices FILE` takes the notices; without it, it runs
+`notices.sh` (cargo-about needed). Removing a package keeps the user's
+data: `~/.local/share/conduit`, the logs in `~/.local/state/conduit/logs`,
+and the key in the Secret Service (the keyring's items for
+`app.cogwheel.conduit.desktop`) or, if chosen, the key file
+`~/.local/share/app.cogwheel.conduit.desktop.master-key`; someone who
+wants them gone deletes those. Their dependencies come from the binaries: the
 `.deb`'s from `dpkg-shlibdeps`, so build on the oldest release to support
 (CI: Ubuntu 22.04, glibc 2.35), and the `.rpm`'s as sonames and glibc
 symbol versions, which any rpm distribution resolves. The renderer loads
@@ -450,8 +463,10 @@ to the Secret Service, or the opt-in key file.
 
 `smoke.ps1` and `smoke.sh` install the package for the current user (or
 into `/usr`), check what it installed and registered, run the installed
-app's `--smoke` pass (on Linux under Xvfb with GNOME Keyring unlocked on a
-session bus of its own), check no conduitd is left, and uninstall,
+app's `--smoke` pass (on Linux under Xvfb, on a session bus of its own
+with GNOME Keyring on an unencrypted default keyring of the smoke's own,
+never the user's, so nothing prompts), check no conduitd is left, and
+uninstall,
 checking nothing is left but the user's data; `smoke.ps1` also installs
 over the running app. `smoke.sh --container PACKAGE` checks a package in a
 clean distribution container: its dependencies resolve every library and
@@ -833,8 +848,10 @@ It lists the components bundled directly (the vendored and modified
 gpui-pre, Sparkle, whisper.cpp, SQLite, the Dart runtime, mermaid, Chart.js,
 noVNC, Lucide, the KaTeX fonts), every Rust crate in the `conduit-desktop`
 binary (cargo-about, `about.toml`, `about.hbs`) and every Dart package in
-conduitd, each grouped by licence text. Every run fails unless the set is
-complete: each crate `cargo tree` puts in the app for Apple Silicon is
+conduitd, each grouped by licence text. `--target x86_64-pc-windows-msvc`
+or `x86_64-unknown-linux-gnu` makes the Windows and Linux packages' notices
+(their crates; no Sparkle or whisper.cpp). Every run fails unless the set is
+complete: each crate `cargo tree` puts in the app for the target is
 listed with an accepted licence, each Dart package has a licence file, and
 each bundled component's text is found. Licence texts that are not in a
 package on disk live in `desktop/packaging/notices/texts/`; see
