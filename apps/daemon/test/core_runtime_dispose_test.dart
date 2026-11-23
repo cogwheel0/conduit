@@ -4,6 +4,9 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/database/app_database.dart' show AppDatabase;
+import 'package:conduit_core/database/database_provider.dart'
+    show appDatabaseProvider;
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
     show libreChatDatabaseProvider;
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -13,6 +16,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_librechat_chat.dart';
+import 'support/fake_owui_auth_server.dart';
 import 'support/core.dart';
 
 /// Disposing the runtime while a LibreChat list refresh nobody waits on is
@@ -77,6 +81,51 @@ void main() {
       bench.writes,
       writtenAtDispose,
       reason: 'a write came after dispose',
+    );
+  });
+
+  test('dispose returns once the Open WebUI account database is closed', () async {
+    addTearDown(PreferencesStore.debugReset);
+    final temporary = Directory.systemTemp.createTempSync('runtime-dispose');
+    addTearDown(() => temporary.deleteSync(recursive: true));
+    final runtime = await startTestCore(temporary);
+    addTearDown(runtime.dispose);
+    final owui = await FakeOwuiAuthServer.start(
+      users: const {
+        'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
+      },
+    );
+    addTearDown(owui.close);
+    final accounts = AccountsService(runtime.container, events: EventBus());
+    addTearDown(accounts.dispose);
+    final auth = AuthService(runtime.container);
+    addTearDown(auth.dispose);
+    await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Lab', url: owui.url),
+        force: true,
+      ),
+    );
+    await auth.loginWithPassword(
+      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
+    );
+    final opened = Completer<AppDatabase>();
+    final watch = runtime.container.listen<AppDatabase?>(appDatabaseProvider, (
+      _,
+      database,
+    ) {
+      if (database != null && !opened.isCompleted) opened.complete(database);
+    }, fireImmediately: true);
+    addTearDown(watch.close);
+    final database = await opened.future;
+    await database.customSelect('SELECT 1').get();
+
+    await runtime.dispose();
+
+    await expectLater(
+      database.customSelect('SELECT 1').get(),
+      throwsA(anything),
+      reason: 'the database was still open once dispose returned',
     );
   });
 }
