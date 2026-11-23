@@ -9,6 +9,8 @@ import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
 
+import 'local_transcriber.dart';
+
 /// Speech recognition on this computer: whisper.cpp through
 /// `libconduit_whisper`, with models downloaded when the user asks.
 
@@ -321,6 +323,70 @@ class WhisperModelStore {
     cancel(model);
     final file = File(pathFor(model));
     if (file.existsSync()) file.deleteSync();
+  }
+}
+
+/// The desktop's [LocalTranscriber]: whisper.cpp through [library], with
+/// its models kept in [directory].
+final class WhisperTranscriber implements LocalTranscriber {
+  /// [library] defaults to the one this build bundles ([findWhisperLibrary]).
+  WhisperTranscriber(Directory directory, {String? library})
+    : _library = library ?? findWhisperLibrary(),
+      _store = WhisperModelStore(directory);
+
+  final String? _library;
+  final WhisperModelStore _store;
+
+  @override
+  bool get available => _library != null;
+
+  @override
+  final List<LocalSpeechModel> models = <LocalSpeechModel>[
+    for (final model in whisperModels)
+      LocalSpeechModel(
+        id: model.id,
+        name: model.name,
+        sizeBytes: model.sizeBytes,
+        englishOnly: model.englishOnly,
+      ),
+  ];
+
+  WhisperModel _model(String id) =>
+      whisperModel(id) ?? (throw ArgumentError.value(id, 'modelId'));
+
+  @override
+  bool isDownloaded(String modelId) => _store.isDownloaded(_model(modelId));
+
+  @override
+  int? receivedBytes(String modelId) => _store.downloading[modelId];
+
+  @override
+  Future<void> download(
+    String modelId, {
+    required void Function() onProgress,
+  }) => _store.download(_model(modelId), onProgress: onProgress);
+
+  @override
+  void delete(String modelId) => _store.delete(_model(modelId));
+
+  @override
+  void unload() {
+    if (_library case final library?) whisperUnload(library);
+  }
+
+  @override
+  Future<String> transcribe(String modelId, Uint8List wav, {String? language}) {
+    final library = _library;
+    if (library == null) {
+      throw StateError('this build has no whisper library');
+    }
+    final samples = decodeWavTo16kMono(wav);
+    return whisperTranscribe(
+      library: library,
+      modelPath: _store.pathFor(_model(modelId)),
+      samples: samples,
+      language: language,
+    );
   }
 }
 

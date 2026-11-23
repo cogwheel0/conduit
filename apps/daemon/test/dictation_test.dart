@@ -11,6 +11,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/local_whisper.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_openai.dart';
@@ -72,8 +73,10 @@ void main() {
     voice = VoiceService(
       runtime.container,
       events: EventBus(),
-      whisperDirectory: Directory('${temporary.path}/whisper'),
-      whisperLibrary: '/nonexistent',
+      local: WhisperTranscriber(
+        Directory('${temporary.path}/whisper'),
+        library: '/nonexistent',
+      ),
     );
     dictation = DictationService(runtime.container, voice: voice);
     drafts = DraftsService(runtime.container, temporary: TemporaryChats());
