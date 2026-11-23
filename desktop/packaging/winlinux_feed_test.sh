@@ -259,6 +259,26 @@ d = d.replace(old, re.sub(r" sparkle:edSignature=\"[^\"]*\"", "", old))
 open(sys.argv[2], "w", encoding="utf-8").write(d)
 ' "$w2" "$tmp/changed-old-item.xml"
 expect 1 "check refuses a feed that changes an earlier item" check_w --feed "$tmp/changed-old-item.xml" --old "$w1"
+# The 1.3.0 item's date changed: an element the field list doesn't name.
+python3 -I -c '
+import re, sys
+d = open(sys.argv[1], encoding="utf-8").read()
+old = re.search(r"<item>(?:(?!</item>).)*desktop-v1\.3\.0.*?</item>", d, flags=re.S).group(0)
+new = re.sub(r"<pubDate>[^<]*</pubDate>", "<pubDate>Mon, 01 Jan 2024 00:00:00 +0000</pubDate>", old)
+assert new != old, "the 1.3.0 item has no other date to change"
+open(sys.argv[2], "w", encoding="utf-8").write(d.replace(old, new))
+' "$w2" "$tmp/changed-old-date.xml"
+expect 1 "check refuses a feed that changes an earlier item's date" check_w --feed "$tmp/changed-old-date.xml" --old "$w1"
+says "  (it says so)" "drops or changes"
+# An earlier feed that lists the 1.3.0 item twice: the new feed keeps both.
+python3 -I -c '
+import re, sys
+d = open(sys.argv[1], encoding="utf-8").read()
+old = re.search(r"<item>(?:(?!</item>).)*desktop-v1\.3\.0.*?</item>", d, flags=re.S).group(0)
+open(sys.argv[2], "w", encoding="utf-8").write(d.replace(old, old + "\n    " + old, 1))
+' "$w1" "$tmp/old-twice.xml"
+expect 1 "check refuses a feed that keeps one of two identical earlier items" check_w --feed "$w2" --old "$tmp/old-twice.xml"
+says "  (it says so)" "drops or changes"
 sed 's#sparkle:edSignature="[^"]*"/>#/>#' "$w2" >"$tmp/no-item-signature.xml"
 expect 1 "check refuses an unsigned enclosure" check_w --feed "$tmp/no-item-signature.xml"
 sed 's#length="[0-9]*"#length="1"#' "$w2" >"$tmp/length.xml"

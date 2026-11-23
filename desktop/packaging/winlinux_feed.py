@@ -51,6 +51,7 @@ library only.
 import argparse
 import base64
 import binascii
+import copy
 import email.utils
 import os
 import re
@@ -58,6 +59,7 @@ import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
@@ -167,6 +169,19 @@ def items(data):
                 "arguments": attr(f"{{{SPARKLE}}}installerArguments"),
             }
         )
+    return out
+
+
+def whole_items(data):
+    """The <channel>'s items whole (canonical XML, text trimmed), counted:
+    an earlier item stays in a new feed with every element and attribute
+    it had, as many times as it was there."""
+    root = ET.fromstring(unsigned_content(data))
+    out = Counter()
+    for item in channel_items(root):
+        item = copy.deepcopy(item)
+        item.tail = None
+        out[ET.canonicalize(ET.tostring(item, encoding="unicode"), strip_text=True)] += 1
     return out
 
 
@@ -361,10 +376,18 @@ def check(args):
     if data.count(SIGNATURE_PREFIX) != 1:
         return f"the feed has {data.count(SIGNATURE_PREFIX)} signature blocks, not one"
     new = items(data)
-    old = items(Path(args.old).read_bytes()) if args.old else []
+    old_data = Path(args.old).read_bytes() if args.old else None
+    old = items(old_data) if old_data is not None else []
     for previous in old:
         if previous not in new:
             return f"the new feed drops or changes build {previous['build']} ({previous['short']})"
+    if old_data is not None:
+        lost = whole_items(old_data) - whole_items(data)
+        if lost:
+            return (
+                f"the new feed drops or changes {sum(lost.values())} earlier item(s): "
+                "each stays as it was, every element and attribute"
+            )
     build = str(build_number(args.version))
     mine = [i for i in new if i["build"] == build]
     if len(mine) != 1:
