@@ -133,6 +133,8 @@ void main() {
 
     await daemon.stop();
     await daemon.onStopped;
+    await daemon.stop();
+    await runtime.dispose();
 
     await expectLater(
       account.customSelect('SELECT 1').get(),

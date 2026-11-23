@@ -307,6 +307,31 @@ class DatabaseManager {
     return _settleOutstandingExplicitCloses();
   }
 
+  /// Closes every database this manager holds, for a shutdown, and
+  /// completes once each has physically closed: the active one, as
+  /// [closeActive] closes it; each one a switch retired while it was leased,
+  /// which waits for its leases as the active one does; and those already
+  /// draining or closing. One whose close failed earlier is closed once more.
+  /// Every close settles before a failure is thrown.
+  Future<void> closeAll() {
+    final targets = <_ManagedDatabase>[
+      ?_active,
+      ..._retired.values,
+      ..._draining.values,
+      ..._closing.values,
+    ];
+    _active = null;
+    for (final entry in targets) {
+      _requestClose(entry, reason: 'close-all');
+      _trackExplicitClose(entry);
+    }
+    for (final MapEntry(key: serverId, value: failure)
+        in _closeFailures.entries) {
+      _failedExplicitCloses[serverId] ??= failure.entry;
+    }
+    return _settleOutstandingExplicitCloses();
+  }
+
   Future<void> _settleOutstandingExplicitCloses() {
     final operations = <Future<void>>[];
     final explicitlyClosing = Set<_ManagedDatabase>.identity();

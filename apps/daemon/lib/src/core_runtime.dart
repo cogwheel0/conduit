@@ -373,11 +373,12 @@ final class CoreRuntime {
     await _host.close?.call();
   }
 
-  /// Closes [manager]'s open database; a close that fails is logged, and
-  /// stops neither the other databases' nor the host's.
+  /// Closes every database [manager] holds, those a switch left open
+  /// included; a close that fails is logged, and stops neither the other
+  /// databases' nor the host's.
   Future<void> _close(DatabaseManager manager) async {
     try {
-      await manager.closeActive();
+      await manager.closeAll();
     } on Object catch (error, stackTrace) {
       DebugLogger.error(
         'database-close-failed',
