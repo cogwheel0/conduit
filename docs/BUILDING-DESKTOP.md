@@ -622,6 +622,9 @@ Automatically". There is one stable channel, so there is nothing to choose.
 Without the framework (dev builds) the menu item is disabled and About says
 updates come with the installed app. Sparkle's decisions go to the app log
 (`updates: found …`, `none`, `downloaded`, `installing`, `stopped: …`).
+Sparkle is the Mac's `Updater` (`crates/app/src/updates.rs`), the interface
+the menu and About use; Windows and Linux have none yet, so there the menu
+item is disabled and About says the same.
 
 The Sparkle key, the signed appcast and where it is hosted, the release
 workflow (tags make **draft** releases; publishing a draft makes its feed

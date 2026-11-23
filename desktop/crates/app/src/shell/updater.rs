@@ -1,4 +1,5 @@
-//! Updates through Sparkle 2's `SPUStandardUpdaterController` (objc2).
+//! Updates through Sparkle 2's `SPUStandardUpdaterController` (objc2): the
+//! Mac's [`crate::updates::Updater`].
 //!
 //! The framework is loaded at run time from `Contents/Frameworks`, so dev
 //! builds, tests and `cargo run` neither link nor need it. Release bundles
@@ -33,13 +34,13 @@ pub enum Unavailable {
 }
 
 /// The running updater.
-pub struct Updater {
+pub struct Sparkle {
     controller: Retained<AnyObject>,
     /// Kept alive here: the controller holds its delegate weakly.
     _delegate: Retained<Delegate>,
 }
 
-impl Updater {
+impl Sparkle {
     /// Loads Sparkle and starts the updater (automatic checks follow the
     /// user's Sparkle defaults; `SUEnableAutomaticChecks` in Info.plist
     /// turns them on without the first-run prompt).
@@ -94,10 +95,12 @@ impl Updater {
         // SAFETY: a property read on the controller.
         unsafe { msg_send![&*self.controller, updater] }
     }
+}
 
+impl crate::updates::Updater for Sparkle {
     /// "Check for Updates…": Sparkle's own window shows progress, the
     /// update or "You're up to date".
-    pub fn check_for_updates(&self) {
+    fn check_for_updates(&self) {
         // SAFETY: the controller's IBAction; the sender may be nil.
         unsafe {
             let _: () = msg_send![
@@ -108,18 +111,18 @@ impl Updater {
     }
 
     /// Whether a check can start now (not while one runs).
-    pub fn can_check(&self) -> bool {
+    fn can_check(&self) -> bool {
         // SAFETY: a property read on the updater.
         unsafe { msg_send![&*self.updater(), canCheckForUpdates] }
     }
 
     /// Sparkle's "check automatically" (kept in its user defaults).
-    pub fn automatic_checks(&self) -> bool {
+    fn automatic_checks(&self) -> bool {
         // SAFETY: a property read on the updater.
         unsafe { msg_send![&*self.updater(), automaticallyChecksForUpdates] }
     }
 
-    pub fn set_automatic_checks(&self, on: bool) {
+    fn set_automatic_checks(&self, on: bool) {
         // SAFETY: a property write on the updater, on the main thread.
         unsafe {
             let _: () = msg_send![
@@ -219,7 +222,7 @@ mod tests {
     fn a_bare_binary_has_no_updater() {
         // Tests run outside a bundle: no Info.plist keys, no framework.
         assert!(matches!(
-            Updater::start(),
+            Sparkle::start(),
             Err(Unavailable::NotConfigured(_) | Unavailable::NoFramework)
         ));
     }
