@@ -7,7 +7,8 @@
 //! ([`views::settings`]), and the macOS shell extras ([`desktop`]: links,
 //! "Open with", notifications, Quick Ask, the menu-bar item, open at
 //! login), and Sparkle updates ([`updates`]). `--shots <dir>` runs the
-//! scripted smoke pass in [`smoke`].
+//! scripted smoke pass in [`smoke`]; off the Mac, `--smoke <file>` runs the
+//! capture-free one in [`smoke_pass`].
 //!
 //! The test harness is behind the `harness` feature, which dev and test
 //! builds turn on (`crates/app/run.sh`, `perf.sh`, `hc-capture.sh`, and
@@ -44,6 +45,7 @@ pub mod scripted;
 pub mod shell;
 #[cfg(target_os = "macos")]
 pub mod smoke;
+pub mod smoke_pass;
 pub mod stores;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod terminal_fixture;
@@ -115,13 +117,14 @@ fn arg(args: &[String], key: &str) -> Option<String> {
     scripted::value(args, key)
 }
 
-/// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`,
-/// or a fixture: `--fixture`, `--chat-fixture` and the rest) that drives,
-/// resets and photographs its profile, or saves settings to it (a
-/// fixture's screenshot theme): a profile of its own, never the user's.
+/// Whether `args` ask for a scripted run (`--shots`, `--smoke`, `--e2e`,
+/// `--capture`, or a fixture: `--fixture`, `--chat-fixture` and the rest)
+/// that drives, resets and photographs its profile, or saves settings to it
+/// (a fixture's screenshot theme): a profile of its own, never the user's.
 pub fn is_scripted(args: &[String]) -> bool {
     scripted::options(args).any(|a| {
         a == "--shots"
+            || a == "--smoke"
             || a.starts_with("--e2e")
             || a.starts_with("--capture")
             || (a.starts_with("--") && a.ends_with("fixture"))
@@ -289,11 +292,24 @@ fn linux_master_key(
     key
 }
 
-/// A harness flag `os` doesn't run: `--probe` drives the Mac's shell and
-/// isn't built elsewhere, where it would only open the app on its real
-/// profile without the single-instance check, beside the one already open.
+/// Why `os` doesn't run a flag in `args`, flag first, or `None`. `--probe`
+/// and `--shots` drive the Mac's shell and aren't built elsewhere, where they
+/// would only open the app (`--probe` on its real profile, without the
+/// single-instance check, beside the one already open). `--smoke` is their
+/// pass off the Mac, whose exit code only GPUI's run returning can give:
+/// AppKit ends a quitting app itself.
 pub fn unsupported_flag(os: paths::Os, args: &[String]) -> Option<&'static str> {
-    (os != paths::Os::MacOs && scripted::options(args).any(|a| a == "--probe")).then_some("--probe")
+    let mac = os == paths::Os::MacOs;
+    scripted::options(args).find_map(|a| match a {
+        "--probe" if !mac => Some("--probe runs only on macOS"),
+        "--shots" if !mac => Some(
+            "--shots runs only on macOS; on Windows and Linux the smoke pass is --smoke <file>",
+        ),
+        "--smoke" if mac => {
+            Some("--smoke runs on Windows and Linux; on the Mac the smoke pass is --shots <dir>")
+        }
+        _ => None,
+    })
 }
 
 /// Whether to leave Wayland for XWayland: the session has both (`DISPLAY`
@@ -526,10 +542,9 @@ pub fn run() {
     if scripted::options(&args).any(|a| a == "--e2e") && arg(&args, "--shots").is_none() {
         end_launch(64, "--e2e runs with --shots <dir>");
     }
-    // A harness flag this OS doesn't run ends the launch before anything
-    // opens.
-    if let Some(flag) = unsupported_flag(paths::Os::CURRENT, &args) {
-        end_launch(64, &format!("{flag} runs only on macOS"));
+    // A pass this OS doesn't run ends the launch before anything opens.
+    if let Some(why) = unsupported_flag(paths::Os::CURRENT, &args) {
+        end_launch(64, why);
     }
     // The smoke wrapper launches through `open`, which starts apps in `/`.
     if let Some((i, _)) = scripted::option_positions(&args).find(|(_, a)| *a == "--cwd")
@@ -647,8 +662,19 @@ pub fn run() {
     let capture = capture::CaptureOptions::from_args(&args);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let scripted = shots.is_some() || capture.is_some();
-    #[cfg(not(all(target_os = "macos", feature = "harness")))]
+    #[cfg(all(target_os = "macos", not(feature = "harness")))]
     let scripted = shots.is_some();
+    // `--smoke <file>`: the pass's report, made before anything opens (a
+    // launch that can't write it ends here), and its verdict after the quit.
+    #[cfg(not(target_os = "macos"))]
+    let smoke = arg(&args, "--smoke").map(|path| {
+        match smoke_pass::SmokeReport::create(std::path::Path::new(&path)) {
+            Ok(report) => std::rc::Rc::new(std::cell::RefCell::new(report)),
+            Err(e) => end_launch(64, &format!("--smoke {path}: {e}")),
+        }
+    });
+    #[cfg(not(target_os = "macos"))]
+    let scripted = shots.is_some() || smoke.is_some();
     // `{{USER_LOCATION}}`: a scripted run (any pass, the capture, a probe
     // or a fixture: `scripted::active`) answers with a stand-in and never
     // reaches CoreLocation (no test may raise the system's prompt).
@@ -682,6 +708,8 @@ pub fn run() {
         }
     });
     let hidden_arg = scripted::has(&args, "--hidden");
+    #[cfg(not(target_os = "macos"))]
+    let smoke_in_app = smoke.clone();
     app.run(move |cx: &mut App| {
         // The open-application Apple event is current only now.
         #[cfg(target_os = "macos")]
@@ -879,7 +907,9 @@ pub fn run() {
             }
         })
         .detach();
-        cx.on_app_quit(|cx| {
+        #[cfg(not(target_os = "macos"))]
+        let smoke_on_quit = smoke_in_app.clone();
+        cx.on_app_quit(move |cx| {
             desktop::read_shown_chats_on_quit(cx);
             if let Some(state) = cx.try_global::<AppState>() {
                 let (connection, settings, layout) = (
@@ -889,7 +919,13 @@ pub fn run() {
                 );
                 layout.read(cx).save_now();
                 settings.read(cx).save();
-                connection.update(cx, |c, _| c.shutdown());
+                let stopped = connection.update(cx, |c, _| c.shutdown());
+                #[cfg(not(target_os = "macos"))]
+                if let Some(report) = &smoke_on_quit {
+                    report.borrow_mut().daemon_stopped(stopped);
+                }
+                #[cfg(target_os = "macos")]
+                let _ = stopped;
             }
             async {}
         })
@@ -919,8 +955,18 @@ pub fn run() {
             e2e::shell::probe(path, cx);
         }
         #[cfg(not(target_os = "macos"))]
+        if let Some(report) = smoke_in_app {
+            smoke_pass::run(report, cx);
+        }
+        #[cfg(not(target_os = "macos"))]
         let _ = shots;
     });
+    // Off the Mac, GPUI's run returns once the app has quit (and stopped the
+    // daemon): the smoke pass's verdict is the exit code.
+    #[cfg(not(target_os = "macos"))]
+    if let Some(report) = smoke {
+        std::process::exit(report.borrow_mut().finish());
+    }
 }
 
 /// Follows System Settings › Keyboard Navigation (re-read whenever a window
@@ -1456,33 +1502,43 @@ mod harness_profile_tests {
         assert!(!prefer_xwayland(os(":0"), None, None), "X11 already");
     }
 
+    /// A pass or probe an OS doesn't run is refused there before anything
+    /// opens (said with the flag first): `--probe` and `--shots` drive the
+    /// Mac's shell, and `--smoke` is their pass off the Mac, whose exit code
+    /// only Windows and Linux can give (AppKit ends a quitting app itself).
     #[test]
-    fn the_probe_is_refused_off_the_mac() {
+    fn each_pass_is_refused_where_it_does_not_run() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let probe = args(&["app", "--probe", "state.json"]);
-        assert_eq!(unsupported_flag(paths::Os::Linux, &probe), Some("--probe"));
+        let refused = |os, a: &[&str]| {
+            unsupported_flag(os, &args(a)).map(|why| why.split(' ').next().unwrap().to_string())
+        };
+        let (mac, linux, windows) = (paths::Os::MacOs, paths::Os::Linux, paths::Os::Windows);
+        let probe = ["app", "--probe", "state.json"];
+        assert_eq!(refused(linux, &probe).as_deref(), Some("--probe"));
+        assert_eq!(refused(windows, &probe).as_deref(), Some("--probe"));
+        assert_eq!(refused(mac, &probe), None);
+        let shots = ["app", "--shots", "/tmp/shots"];
+        assert_eq!(refused(linux, &shots).as_deref(), Some("--shots"));
+        assert_eq!(refused(windows, &shots).as_deref(), Some("--shots"));
+        assert_eq!(refused(mac, &shots), None);
+        let smoke = ["app", "--smoke", "/tmp/smoke.txt"];
+        assert_eq!(refused(mac, &smoke).as_deref(), Some("--smoke"));
+        assert_eq!(refused(linux, &smoke), None);
+        assert_eq!(refused(windows, &smoke), None);
+        assert_eq!(refused(linux, &["app", "--hidden"]), None);
+        // A folder named `--probe` (or `--smoke`), given to `--cwd`, is a
+        // folder.
         assert_eq!(
-            unsupported_flag(paths::Os::Windows, &probe),
-            Some("--probe")
-        );
-        assert_eq!(unsupported_flag(paths::Os::MacOs, &probe), None);
-        assert_eq!(
-            unsupported_flag(paths::Os::Linux, &args(&["app", "--hidden"])),
+            refused(linux, &["app", "--cwd", "--probe", "notes.md"]),
             None
         );
-        // A folder named `--probe`, given to `--cwd`, is a folder.
+        assert_eq!(refused(mac, &["app", "--cwd", "--smoke", "notes.md"]), None);
         assert_eq!(
-            unsupported_flag(
-                paths::Os::Linux,
-                &args(&["app", "--cwd", "--probe", "notes.md"])
-            ),
-            None
-        );
-        assert_eq!(
-            unsupported_flag(
-                paths::Os::Windows,
-                &args(&["app", "--cwd", r"C:\notes", "--probe", "state.json"])
-            ),
+            refused(
+                windows,
+                &["app", "--cwd", r"C:\notes", "--probe", "state.json"]
+            )
+            .as_deref(),
             Some("--probe")
         );
     }
@@ -1495,6 +1551,7 @@ mod harness_profile_tests {
             &["app", "--shots", "/tmp/shots", "--e2e", "chat"][..],
             &["app", "--chat-fixture", "shots"],
             &["app", "--shots", "/tmp/shots", "--smoke-reset"],
+            &["app", "--smoke", "/tmp/smoke.txt"],
         ] {
             assert_eq!(launch_urls(&args(scripted), cwd), None, "{scripted:?}");
         }
@@ -1519,6 +1576,7 @@ mod harness_profile_tests {
         ])));
         assert!(is_scripted(&args(&["app", "--e2e", "chat"])));
         assert!(is_scripted(&args(&["app", "--capture", "/tmp/c"])));
+        assert!(is_scripted(&args(&["app", "--smoke", "/tmp/smoke.txt"])));
         // A fixture saves its own settings (the shots' theme), with or
         // without `--shots`.
         assert!(is_scripted(&args(&["app", "--chat-fixture", "shots"])));

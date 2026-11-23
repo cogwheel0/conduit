@@ -137,6 +137,19 @@ only type-checks them (`cargo clippy --target x86_64-pc-windows-msvc` or
 `x86_64-unknown-linux-gnu`, with no-op C tool shims, since no cross linker
 is set up).
 
+The smoke pass off the Mac is `--smoke <file>` (the Mac's is `--shots`,
+which only the Mac runs, as `--smoke` only Windows and Linux do). On a
+profile of its own, as every scripted run, it waits for the connection
+(the handshake), asks the daemon for a diagnostics export, opens Settings ›
+About and quits through the app's Quit. It writes its `SMOKE` lines to the
+file, never to stdout (a Windows release build has no console window), and
+exits 0 with `SMOKE passed` last only if every check passed and the quit
+stopped `conduitd` through stdin EOF; otherwise 1, with a `SMOKE FAILED`
+line for each reason. On Linux it needs a display (Xvfb will do) and a
+Secret Service. Whatever ends the app, `conduitd` ends with it there: it
+runs in a job that closes with the app's process on Windows, and gets the
+parent-death signal on Linux.
+
 ### The test harness (`harness` feature)
 
 The E2E passes (`--e2e`), the design capture (`--capture`), `--probe` and

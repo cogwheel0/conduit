@@ -28,7 +28,9 @@ use conduit_daemon::paths::AppPaths;
 use conduit_daemon::paths::KeyLock;
 use conduit_daemon::rpc::{ClientEvent, ConnectionState, Handshake, RpcClient, RpcConfig};
 use conduit_daemon::secrets::{FreshStart, MasterKeyItems, SecretError};
-use conduit_daemon::supervisor::{FatalReason, Supervisor, SupervisorConfig, SupervisorEvent};
+use conduit_daemon::supervisor::{
+    FatalReason, StopOutcome, Supervisor, SupervisorConfig, SupervisorEvent,
+};
 use conduit_daemon::{runtime, secrets};
 use conduit_protocol::{Event, HandshakeRequest, NetworkReport, NoParams, events, methods};
 use gpui_kit::{App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, WeakEntity};
@@ -998,14 +1000,15 @@ impl ConnectionStore {
     }
 
     /// Stops the daemon (stdin EOF → SIGTERM → SIGKILL) and closes the
-    /// connection. Blocks: called on quit.
-    pub fn shutdown(&mut self) {
+    /// connection; says how the daemon stopped (`None`: no supervisor).
+    /// Blocks: called on quit.
+    pub fn shutdown(&mut self) -> Option<StopOutcome> {
         self.quitting = true;
         self.client.shutdown();
-        if let Some(s) = self.supervisor.take() {
-            let outcome = s.stop_blocking();
-            log::info!("daemon stopped: {outcome:?}");
-        }
+        let supervisor = self.supervisor.take()?;
+        let outcome = supervisor.stop_blocking();
+        log::info!("daemon stopped: {outcome:?}");
+        Some(outcome)
     }
 }
 

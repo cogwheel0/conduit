@@ -32,6 +32,8 @@ use conduit_protocol::{NoParams, methods::SystemExportDiagnostics};
 
 use crate::AppState;
 use crate::prefs::ThemeMode;
+use crate::smoke_pass::wait_for;
+pub use crate::smoke_pass::{current_route, current_status};
 use crate::stores::connection::Status;
 use crate::stores::session::Route;
 use crate::views::settings::{SETTINGS_SIZE, Tab};
@@ -265,33 +267,6 @@ fn status_name(status: &Status, route: Route) -> &'static str {
         (Status::VersionMismatch { .. }, _) => "version-mismatch",
         _ => "connecting",
     }
-}
-
-async fn wait_for(want: impl Fn(&Status) -> bool, timeout: Duration, cx: &mut AsyncApp) -> Status {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let status = cx.update(current_status);
-        if want(&status) || Instant::now() > deadline {
-            return status;
-        }
-        cx.background_executor()
-            .timer(Duration::from_millis(200))
-            .await;
-    }
-}
-
-/// The window's status, as the main window derives it.
-pub fn current_status(cx: &mut App) -> Status {
-    let state = cx.global::<AppState>();
-    let session = state.stores.session.read(cx);
-    let routed = session.route(cx) != Route::Unknown;
-    let error = session.error.as_ref().map(|e| e.to_string());
-    state.connection.read(cx).status(routed, error.as_deref())
-}
-
-pub fn current_route(cx: &mut App) -> Route {
-    let session = cx.global::<AppState>().stores.session.clone();
-    session.read(cx).route(cx)
 }
 
 fn report(cx: &mut App) -> Route {

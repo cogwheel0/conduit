@@ -11,9 +11,14 @@ daemon from `dart build cli` in apps/daemon and the dev paths
   crates\app\run.ps1 -RegisterScheme -Force  # ... over another handler
   crates\app\run.ps1 -UnregisterScheme       # undo it
   crates\app\run.ps1 --hidden                # arguments for the app
+  crates\app\run.ps1 --smoke $env:TEMP\smoke.txt
+                                             # the smoke pass: its SMOKE
+                                             # lines in the file, then quit
+                                             # (exit code 0 if it passed)
 
-A scripted run (--e2e, --capture) uses the profile CONDUIT_USER_DATA names,
-never the app's own; without one it starts on a fresh profile in %TEMP%.
+A scripted run (--smoke, --e2e, --capture) uses the profile CONDUIT_USER_DATA
+names, never the app's own; without one it starts on a fresh profile in
+%TEMP%.
 #>
 # A plain script, not an advanced one: arguments it doesn't take (the
 # app's `--hidden`, `--e2e`) stay in $args instead of being refused.
@@ -37,7 +42,7 @@ $ErrorActionPreference = 'Stop'
 # which is a drive).
 $caller = (Get-Location).ProviderPath
 $valueFlags = @(
-  '--cwd', '--shots', '--e2e', '--e2e-env', '--capture', '--capture-env',
+  '--cwd', '--shots', '--smoke', '--e2e', '--e2e-env', '--capture', '--capture-env',
   '--capture-only', '--probe', '--fixture', '--chat-fixture', '--channel-fixture',
   '--calendar-fixture', '--tasks-fixture', '--workspace-fixture', '--preview-route'
 )
