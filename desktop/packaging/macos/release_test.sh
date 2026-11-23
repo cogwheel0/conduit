@@ -693,7 +693,9 @@ if [ -n "$sparkle" ]; then
   cat >"$tmp/busy-bin/hdiutil" <<'STUB'
 #!/bin/bash
 # STUB_ATTACH_FAILS=N: the first N attaches fail. STUB_DETACH=busy: a
-# detach without -force fails, the volume busy.
+# detach without -force fails, the volume busy. STUB_DETACH=stuck: every
+# detach fails, -force or not (the volume is still let go, so the test
+# leaves nothing mounted).
 quiet() { case " $* " in *" -quiet "*) exec >/dev/null 2>&1 ;; esac; }
 case "$1" in
   attach)
@@ -706,6 +708,12 @@ case "$1" in
     fi
     ;;
   detach)
+    if [ "${STUB_DETACH:-}" = stuck ]; then
+      /usr/bin/hdiutil detach -force "${@: -1}" >/dev/null 2>&1 || true
+      quiet "$@"
+      echo 'hdiutil: couldn'\''t unmount "disk9" - Resource busy' >&2
+      exit 16
+    fi
     if [ "${STUB_DETACH:-}" = busy ] && [[ " $* " != *" -force "* ]]; then
       quiet "$@"
       echo 'hdiutil: couldn'\''t unmount "disk9" - Resource busy' >&2
@@ -739,6 +747,18 @@ STUB
   fi
   expect 0 "a volume still busy when it is detached does not stop the release" \
     busy "$tmp/feed-detach-busy" STUB_DETACH=busy
+  expect 0 "and that release's feed passes verify_feed" \
+    feed_check "$tmp/feed-detach-busy/appcast.xml" "$key_a"
+  expect 0 "a volume that won't detach even with -force only warns" \
+    busy "$tmp/feed-detach-stuck" STUB_DETACH=stuck
+  if grep -q 'could not detach' "$tmp/out.txt" && grep -q 'Resource busy' "$tmp/out.txt"; then
+    pass "and the warning says what hdiutil said"
+  else
+    fail "a detach that failed with -force gave no warning with hdiutil's message"
+    sed 's/^/      /' "$tmp/out.txt"
+  fi
+  expect 0 "and that release's feed passes verify_feed" \
+    feed_check "$tmp/feed-detach-stuck/appcast.xml" "$key_a"
 fi
 
 echo
