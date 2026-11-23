@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show modelForId, modelSavedWithChat;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         agentTerminalGone,
@@ -116,6 +118,31 @@ Future<core.Model?> currentModel(ProviderContainer container) async {
   }
   return container.read(selectedModelProvider) ?? resolved;
 }
+
+/// What [ModelsService._resolve] decides a chat's model from, read with no
+/// wait between: the chat's pick record, the account's selection, the
+/// model list, the stored chat (the model it was saved with), the
+/// account's default model, and the selected terminal and the terminal
+/// list New Chat's coding agent was checked against.
+typedef _ModelInputs = ({
+  _Pick? pick,
+  core.Model? selected,
+  List<core.Model>? listed,
+  Conversation? chat,
+  String? defaultId,
+  String? terminal,
+  Object? terminals,
+});
+
+/// [ModelsService._resolve]'s answer: the model the chat shows, the model
+/// id an unnamed turn runs on, and what it was decided with.
+typedef _Resolved = ({
+  core.Model? shown,
+  String? runs,
+  _Pick? record,
+  List<core.Model> listed,
+  Conversation? conversation,
+});
 
 /// Implements `models.*` over the core's model providers.
 final class ModelsService {
@@ -443,7 +470,6 @@ final class ModelsService {
   Future<ModelList> _list(ModelListQuery query) async {
     final account = AccountScope.capture(_container);
     final chatId = query.chatId;
-    final models = await _models();
     await _accountSettings(wait: _listSettingsWait);
     final conversation = chatId == null
         ? null
@@ -459,33 +485,22 @@ final class ModelsService {
     // actually use is worse than showing none. The list only reports what
     // the terminal offers: it never decides the selection (the window keeps
     // each chat's own pick), so nothing is added to it for the selection.
-    if (chatId == null) {
-      await _checkNewChat(account, temporary: query.temporary);
-    }
-    // Read after the waits above, so a selection made meanwhile is the one
-    // answered; an agent selected for another chat is never this one's.
-    final current = await currentModel(_container);
-    final fallback = current != null && isTerminalAgentModel(current)
-        ? await _regularDefault(models)
-        : current;
+    // Decided in one place with `turns.*` ([_resolve]).
+    final resolved = await _resolve(
+      chatId,
+      account,
+      temporary: query.temporary,
+    );
     // Checked right before the answer is put together, after its last
     // wait: the account it was asked for, and the terminal its agents came
     // from, are still the ones in charge.
     account.require('the models are answered');
-    // The chat's own pick (kept here, the one record), else the account's
-    // default: an agent the account picked elsewhere is never this chat's,
-    // and a temporary chat runs no agent.
-    // Read with the answer's revision, after the last wait: the window
+    // The answer's revision is the pick's it was decided from: the window
     // orders this answer against its others for the chat by it.
-    final record = _picksOf(account)[_slotOf(
-      chatId,
-      temporary: query.temporary,
-    )];
+    final models = resolved.listed;
+    final record = resolved.record;
     final pick = record?.model;
-    final agentPick = pick != null && isTerminalAgentModel(pick);
-    final selected = pick != null && !(agentPick && query.temporary)
-        ? pick
-        : fallback;
+    final selected = resolved.shown;
     final selectedId = selected?.id;
     final found2 = _container.read(selectedTerminalIdProvider) == terminal
         ? found.agents
@@ -498,12 +513,23 @@ final class ModelsService {
           !found2.any((agent) => agent.id == selected.id))
         selected,
     ];
+    // A model the server hides from the picker but still offers (the chat's
+    // saved model, or a pick or selection on one hidden since) is listed
+    // for it, so the window can show and send it; the picker's layout
+    // (below) leaves it out, as mobile's picker does. One it no longer
+    // offers at all was never selected above.
+    final hidden =
+        selected != null &&
+            !isTerminalAgentModel(selected) &&
+            !models.any((m) => m.id == selected.id)
+        ? selected
+        : null;
     final plain = ModelList(
-      models: models.map(_summarize).toList(growable: false),
+      models: [...models, ?hidden].map(_summarize).toList(growable: false),
       selectedId: selectedId,
       agents: agents.map(_summarize).toList(growable: false),
-      agentNames: _agentNames(conversation),
-      chatAgent: _chatAgent(conversation, pick),
+      agentNames: _agentNames(resolved.conversation ?? conversation),
+      chatAgent: _chatAgent(resolved.conversation ?? conversation, pick),
       revision: record?.revision ?? 0,
     );
     try {
@@ -780,10 +806,18 @@ final class ModelsService {
     );
   }
 
+  /// The model [id] names (the selection for null), by the core's one rule
+  /// ([modelForId]): a hidden model a chat was saved with included.
   Future<core.Model?> _model(String? id) async {
     if (id == null) return currentModel(_container);
-    final models = await _models();
-    return models.where((candidate) => candidate.id == id).firstOrNull;
+    // The settled list first, as before; past it, the core's rule.
+    final listed = (await _models()).where((m) => m.id == id).firstOrNull;
+    if (listed != null) return listed;
+    try {
+      return await modelForId(_container.read, id);
+    } on Object {
+      return null;
+    }
   }
 
   /// The chat [chatId], read for [account] only (checked before the read
@@ -858,8 +892,9 @@ final class ModelsService {
       _picked(() => _selectAgent(agent), account, chatId, agent);
       return _answerPick(chatId, account, temporary: temporary);
     }
-    final models = await _models();
-    final model = models.where((candidate) => candidate.id == id).firstOrNull;
+    // A listed model, or one the server hides from the picker but still
+    // offers ([_model]): a chat on it lists it, so it can be picked there.
+    final model = await _model(id);
     if (model == null) {
       throw RpcError(
         code: ConduitErrorCodes.notFound,
@@ -869,9 +904,11 @@ final class ModelsService {
     }
     stillTheNewest('the model is selected');
     // A temporary chat's pick lives in its own slot only: as the account's
-    // selection, New Chat would fall back on it.
+    // selection, New Chat would fall back on it. So does a model the server
+    // hides from the picker (a chat's own, listed for it): as on mobile, it
+    // is never what New Chat or another chat starts on.
     _picked(
-      temporary && chatId == null
+      (temporary && chatId == null) || model.isHidden
           ? () {}
           : () {
               _container.read(selectedModelProvider.notifier).set(model);
@@ -924,35 +961,205 @@ final class ModelsService {
   }
 
   /// The model a turn in [chatId] (null: a new chat) runs with when it
-  /// names none: that chat's own pick, else the coding agent it was saved
-  /// with, else a regular model (the account's selection when it is one,
+  /// names none: that chat's own pick, else the coding agent or the model it
+  /// was saved with, else a regular model (the account's selection when it is one,
   /// else its default, else the first). Never an agent picked for another
   /// chat: with no regular model left, the turn is refused.
   Future<String> modelFor(String? chatId, {bool temporary = false}) async {
     final account = AccountScope.capture(_container);
-    if (chatId == null) await _checkNewChat(account, temporary: temporary);
-    final pick = _picksOf(
-      account,
-    )[_slotOf(chatId, temporary: temporary)]?.model;
-    if (pick != null) return pick.id;
-    if (chatId != null) {
-      final saved = (await _conversation(chatId, account))?.model;
-      if (saved != null && isTerminalAgentModelId(saved)) return saved;
-    }
-    final current = await currentModel(_container);
-    account.require('the model in use is read');
-    if (current != null && !isTerminalAgentModel(current)) return current.id;
-    final models = await _models();
-    account.require('the model in use is read');
-    final regular = await _regularDefault(models);
-    account.require('the model in use is read');
-    if (regular == null) {
+    final runs = (await _resolve(chatId, account, temporary: temporary)).runs;
+    if (runs == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
         debugMessage: 'no model this chat can run with',
       );
     }
-    return regular.id;
+    return runs;
+  }
+
+  /// How many times [_resolve] decides before it gives up on inputs that
+  /// keep changing under it.
+  static const int _resolveAttempts = 4;
+
+  /// The model [chatId] (null: New Chat, or a [temporary] one) shows and the
+  /// model a turn there that names none runs on, decided in this one place
+  /// for `models.list` and `turns.*`:
+  ///
+  /// * the chat's own pick, while the server still offers its model (a
+  ///   temporary chat runs no coding agent);
+  /// * else, for a turn, the coding agent the chat was saved with (the list
+  ///   offers it as Switch instead);
+  /// * else the model the chat was saved with ([modelSavedWithChat]);
+  /// * else the account's selection, while the server still offers it and
+  ///   it is not another chat's coding agent; else the account's default,
+  ///   else the first model ([_regularDefault]).
+  ///
+  /// An attempt does its first waits, then reads what the answer depends on
+  /// (the pick, the account's selection, the model list, the chat's saved
+  /// model) once, with no wait between, decides from that alone, and after
+  /// its last wait reads them again: if any changed, it starts over. So no
+  /// value read before a wait is answered after it unchecked. An account
+  /// change ends it ([AccountScope.require]); inputs that are still changing
+  /// after [_resolveAttempts] tries end it with a conflict to ask again.
+  Future<_Resolved> _resolve(
+    String? chatId,
+    AccountScope account, {
+    bool temporary = false,
+  }) async {
+    // Kept alive while it is read, so the chat's saved model is read again
+    // after the waits without fetching the chat again.
+    final chat = chatId == null
+        ? null
+        : _container.listen<AsyncValue<Conversation>>(
+            loadConversationProvider(chatId),
+            (_, _) {},
+          );
+    _ModelInputs inputs() => (
+      // Looked up afresh: a pick moves with its chat's id (`route.remap`).
+      pick: _picksOf(account)[_slotOf(chatId, temporary: temporary)],
+      selected: _container.read(selectedModelProvider),
+      listed: _container.read(modelsProvider).value,
+      chat: chat?.read().value,
+      defaultId: _defaultIdOrNull(),
+      // New Chat's check reads these; a chat's own pick needs neither.
+      terminal: chatId == null
+          ? _container.read(selectedTerminalIdProvider)
+          : null,
+      terminals: chatId == null
+          ? _container.read(terminalAvailableServersProvider).value
+          : null,
+    );
+    try {
+      for (var attempt = 1; ; attempt++) {
+        final models = await _models();
+        final conversation = chatId == null
+            ? null
+            : await _conversation(chatId, account);
+        // Last before the inputs are read: what it found holds only while
+        // the terminal it checked against does, which they include.
+        if (chatId == null) await _checkNewChat(account, temporary: temporary);
+        account.require('the model in use is read');
+        final read = inputs();
+        // The list waited for above is the one read now, or the attempt
+        // starts over: everything below decides with it.
+        if (!identical(read.listed, models)) {
+          if (attempt == _resolveAttempts) throw _keptChanging;
+          continue;
+        }
+        final pick = read.pick?.model;
+        final pickOffered =
+            pick != null && await _stillOffered(pick, models, account);
+        final holds =
+            pickOffered && !(isTerminalAgentModel(pick) && temporary);
+        final savedId = read.chat?.model?.trim();
+        final savedAgent = savedId != null && isTerminalAgentModelId(savedId)
+            ? savedId
+            : null;
+        final saved = holds ? null : await _savedModel(savedId, account);
+        // The account's selection, else its default: with none selected the
+        // list shows none, while a turn still runs on the default.
+        core.Model? shownFallback;
+        core.Model? runFallback;
+        if (!holds && saved == null) {
+          final selection = read.selected ?? await currentModel(_container);
+          if (selection != null &&
+              !isTerminalAgentModel(selection) &&
+              await _stillOffered(selection, models, account)) {
+            shownFallback = runFallback = selection;
+          } else {
+            runFallback = await _regularDefault(models);
+            shownFallback = selection == null ? null : runFallback;
+          }
+        }
+        account.require('the model in use is read');
+        if (_sameInputs(read, inputs())) {
+          final shown = holds ? pick : saved ?? shownFallback;
+          return (
+            shown: shown,
+            runs: pickOffered
+                ? pick.id
+                : savedAgent ?? (saved ?? runFallback)?.id,
+            record: read.pick,
+            listed: models,
+            conversation: read.chat ?? conversation,
+          );
+        }
+        if (attempt == _resolveAttempts) throw _keptChanging;
+      }
+    } finally {
+      chat?.close();
+    }
+  }
+
+  static const _keptChanging = RpcError(
+    code: ConduitErrorCodes.conflict,
+    retryable: true,
+    debugMessage: "the chat's model kept changing while it was read",
+  );
+
+  /// The account's default model id, or null when it cannot be read.
+  String? _defaultIdOrNull() {
+    try {
+      return _defaultModelId();
+    } on Object {
+      return null;
+    }
+  }
+
+  static bool _sameInputs(_ModelInputs a, _ModelInputs b) =>
+      identical(a.pick, b.pick) &&
+      identical(a.selected, b.selected) &&
+      identical(a.listed, b.listed) &&
+      identical(a.chat, b.chat) &&
+      a.defaultId == b.defaultId &&
+      a.terminal == b.terminal &&
+      identical(a.terminals, b.terminals);
+
+  /// Whether the server still offers [model]: listed, a coding agent (its
+  /// terminal's to offer), or hidden from the picker but still offered
+  /// ([modelForId]). A pick or selection on one it no longer has falls
+  /// back, as a chat whose saved model is offered nowhere does.
+  Future<bool> _stillOffered(
+    core.Model model,
+    List<core.Model> listed,
+    AccountScope account,
+  ) async {
+    if (isTerminalAgentModel(model) || listed.any((m) => m.id == model.id)) {
+      return true;
+    }
+    try {
+      // Stops, asking and remembering nothing, once [account] has left.
+      return await modelForId(
+            _container.read,
+            model.id,
+            isCurrent: () => account.isCurrent,
+          ) !=
+          null;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// The model a chat saved as [id] runs on when opened with no pick
+  /// ([modelSavedWithChat], as on mobile). Null for none, for a coding
+  /// agent (offered as Switch), and for one offered nowhere now.
+  Future<core.Model?> _savedModel(String? id, AccountScope account) async {
+    if (id == null || id.isEmpty || isTerminalAgentModelId(id)) return null;
+    try {
+      // Stops, asking and remembering nothing, once [account] has left.
+      return await modelSavedWithChat(
+        _container.read,
+        id,
+        isCurrent: () => account.isCurrent,
+      );
+    } on Object catch (error) {
+      DebugLogger.warning(
+        'saved-model-unresolved',
+        scope: 'daemon/models',
+        data: <String, Object?>{'error': error.runtimeType.toString()},
+      );
+      return null;
+    }
   }
 
   /// The account's default model among [models]' regular ones, else the
@@ -1196,7 +1403,9 @@ final class ModelsService {
       if (pick != null && pick.model?.id == id && !pick.idOnly) {
         return pick.model;
       }
-      if (chatId == null && selected?.id == id) return selected;
+      // Read again: the selection may have moved during the check above.
+      final now = _container.read(selectedModelProvider);
+      if (chatId == null && now?.id == id) return now;
       final conversation = chatId == null
           ? null
           : await _conversation(chatId, account);
@@ -1208,7 +1417,8 @@ final class ModelsService {
         account,
       )).agents.where((candidate) => candidate.id == id).firstOrNull;
     }
-    if (selected?.id == id) return selected;
+    // By the core's one rule, never the selection by its id alone: one the
+    // server no longer offers takes no control.
     return _model(id);
   }
 

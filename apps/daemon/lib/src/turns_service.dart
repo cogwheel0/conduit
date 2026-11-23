@@ -11,7 +11,7 @@ import 'package:conduit_core/database/local_conversation_loader.dart'
 import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
-    show chatModelPickProvider;
+    show chatModelPickProvider, modelForId;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
@@ -4090,6 +4090,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
           args: <String, String>{'model': id},
           debugMessage: 'that model is not available',
         );
+      }
+      // One the server hides from the picker but still offers (a chat saved
+      // on it), with its capabilities, by the core's one rule.
+      try {
+        final usable = await modelForId(_container.read, id);
+        if (usable != null) return usable;
+      } on Object {
+        // Not found past the list: taken by its id, as before.
       }
       return Model(id: id, name: id);
     }

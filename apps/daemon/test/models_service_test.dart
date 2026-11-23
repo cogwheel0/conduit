@@ -6,6 +6,8 @@ import 'dart:io';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show modelForId, modelSavedWithChat;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ModelControlChoicesNotifier,
@@ -14,7 +16,11 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
-    show directModelRegistryProvider;
+    show
+        DirectModelDiscoveryController,
+        DirectModelDiscoveryState,
+        directModelDiscoveryProvider,
+        directModelRegistryProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
@@ -80,6 +86,36 @@ final class _Listed extends Models {
     core.Model(id: 'first-model', name: 'First model'),
     core.Model(id: 'preferred-model', name: 'Preferred'),
   ];
+}
+
+/// Direct discovery that has found nothing and changes no binding.
+final class _IdleDiscovery extends DirectModelDiscoveryController {
+  @override
+  Future<DirectModelDiscoveryState> build() async =>
+      DirectModelDiscoveryState();
+}
+
+/// [_Listed]'s models and [extra], read again on each build; a build waits
+/// for [gate] while it is set, and completes [asked] as it starts waiting.
+final class _Growing extends Models {
+  static List<core.Model> extra = const <core.Model>[];
+  static Completer<void>? gate;
+  static Completer<void>? asked;
+
+  @override
+  Future<List<core.Model>> build() async {
+    if (gate case final held?) {
+      if (asked case final waiting? when !waiting.isCompleted) {
+        waiting.complete();
+      }
+      await held.future;
+    }
+    return [
+      const core.Model(id: 'first-model', name: 'First model'),
+      const core.Model(id: 'preferred-model', name: 'Preferred'),
+      ...extra,
+    ];
+  }
 }
 
 /// A model one of the user's devices offers, as Open WebUI 0.13.4 lists it,
@@ -278,6 +314,32 @@ final class _AgentsApi extends ApiService {
 
   final asked = <String>[];
 
+  /// How often the server was asked for its models with the hidden ones,
+  /// and the first time it was.
+  int hiddenAsked = 0;
+  final hiddenAskedOnce = Completer<void>();
+
+  /// Those answers wait for this while it is set.
+  Completer<void>? hiddenHeld;
+
+  /// The server's models with the hidden ones: one more than it lists.
+  @override
+  Future<List<core.Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    if (includeHidden && hiddenAsked++ == 0) hiddenAskedOnce.complete();
+    await hiddenHeld?.future;
+    return [
+      if (includeHidden)
+        const core.Model(
+          id: 'hidden-model',
+          name: 'Hidden',
+          metadata: {'hidden': true},
+        ),
+    ];
+  }
+
   /// North's answers wait for this while it is set; [northAsked] marks the
   /// question reaching it.
   Completer<void>? held;
@@ -372,7 +434,14 @@ Conversation _conversation(String id) => Conversation(
   title: 'Bench chat',
   createdAt: DateTime.utc(2026, 3, 1),
   updatedAt: DateTime.utc(2026, 3, 1),
-  model: id == 'agent-chat' ? _northAgent : 'first-model',
+  model: switch (id) {
+    'agent-chat' => _northAgent,
+    // Stored with the model its first turn ran on.
+    'preferred-chat' || 'preferred-new-chat' => 'preferred-model',
+    'hidden-chat' => 'hidden-model',
+    'retired-chat' => 'retired-model',
+    _ => 'first-model',
+  },
 );
 
 /// The session the agent tests' container reads; another sign-in replaces it.
@@ -969,11 +1038,16 @@ void main() {
         service = models;
         return models.sending(null);
       }, (models, _) => models.select('preferred-model'));
-      service.sent(send, toChat: 'new-chat-1', model: 'preferred-model');
+      service.sent(
+        send,
+        toChat: 'preferred-new-chat',
+        model: 'preferred-model',
+      );
       // The chat runs with the model the turn did, not north's agent.
       check(
-        (await service.list(const ModelListQuery(chatId: 'new-chat-1')))
-            .selectedId,
+        (await service.list(
+          const ModelListQuery(chatId: 'preferred-new-chat'),
+        )).selectedId,
       ).equals('preferred-model');
       check((await service.list()).selectedId).equals('preferred-model');
     });
@@ -1393,6 +1467,378 @@ void main() {
       });
     });
 
+    test('a chat with no pick shows and runs on the model it was saved with',
+        () async {
+      final container = _agentContainer(_AgentsApi());
+      final models = ModelsService(container);
+      // Each chat's model, and whether the picker offers it: always listed,
+      // so the window can show and send it.
+      for (final (chatId, model, offered) in const [
+        ('preferred-chat', 'preferred-model', true),
+        // Hidden from the picker since, but still the server's.
+        ('hidden-chat', 'hidden-model', false),
+        // Offered nowhere now: the account's selection.
+        ('retired-chat', 'first-model', true),
+      ]) {
+        final list = await models.list(ModelListQuery(chatId: chatId));
+        check(list.selectedId).equals(model);
+        check(list.models.map((m) => m.id)).contains(model);
+        check(<String>[
+          ...list.featuredIds,
+          for (final section in list.moreSections) ...section.ids,
+        ].contains(model)).equals(offered);
+        check(await models.modelFor(chatId)).equals(model);
+      }
+    });
+
+    test("a chat's own pick wins without asking the server for hidden "
+        'models, and a chat asks once while the list stands', () async {
+      final api = _AgentsApi();
+      final container = _agentContainer(api);
+      final models = ModelsService(container);
+      await models.list(const ModelListQuery(chatId: 'hidden-chat'));
+      await models.list(const ModelListQuery(chatId: 'hidden-chat'));
+      check(api.hiddenAsked).equals(1);
+      await models.select('preferred-model', chatId: 'retired-chat');
+      final picked = await models.list(
+        const ModelListQuery(chatId: 'retired-chat'),
+      );
+      check(picked.selectedId).equals('preferred-model');
+      check(await models.modelFor('retired-chat')).equals('preferred-model');
+      check(api.hiddenAsked).equals(1);
+    });
+
+    test("a hidden saved model's options and reasoning pick are its own",
+        () async {
+      final container = _agentContainer(_AgentsApi());
+      final models = ModelsService(container);
+      check(
+        (await models.options(
+          const ModelOptionsQuery(
+            modelId: 'hidden-model',
+            chatId: 'hidden-chat',
+          ),
+        )).modelId,
+      ).equals('hidden-model');
+      check(
+        (await models.setReasoningEffort(
+          const SetReasoningEffort(modelId: 'hidden-model', effort: 'high'),
+        )).modelId,
+      ).equals('hidden-model');
+      // Listed for its chat, it can be picked there too (a picker with no
+      // other model to lay out offers it).
+      check(
+        (await models.select(
+          'hidden-model',
+          chatId: 'hidden-chat',
+        )).selectedId,
+      ).equals('hidden-model');
+    });
+
+    test('a lookup past the list that a refresh overtakes is not kept',
+        () async {
+      _Growing.extra = const <core.Model>[];
+      addTearDown(() => _Growing.extra = const <core.Model>[]);
+      final api = _AgentsApi()..hiddenHeld = Completer<void>();
+      final container = _agentContainer(api, models: _Growing.new);
+      final models = ModelsService(container);
+      final first = models.list(const ModelListQuery(chatId: 'retired-chat'));
+      await api.hiddenAskedOnce.future;
+      // The server lists the chat's model again while the lookup is out.
+      _Growing.extra = const <core.Model>[
+        core.Model(id: 'retired-model', name: 'Retired'),
+      ];
+      container.invalidate(modelsProvider);
+      await container.read(modelsProvider.future);
+      api.hiddenHeld!.complete();
+      await first;
+      check(
+        (await models.list(
+          const ModelListQuery(chatId: 'retired-chat'),
+        )).selectedId,
+      ).equals('retired-model');
+    });
+
+    test("a pick made while a turn's saved model is looked up is the one "
+        'the turn takes', () async {
+      final api = _AgentsApi()..hiddenHeld = Completer<void>();
+      final container = _agentContainer(api);
+      final models = ModelsService(container);
+      final turn = models.modelFor('hidden-chat');
+      await api.hiddenAskedOnce.future;
+      await models.select('preferred-model', chatId: 'hidden-chat');
+      api.hiddenHeld!.complete();
+      check(await turn).equals('preferred-model');
+    });
+
+    test('a pick or a selection naming a model the server no longer has is '
+        'neither listed nor sent, and the chat falls back', () async {
+      _Growing.extra = const <core.Model>[
+        core.Model(id: 'gone-model', name: 'Gone'),
+      ];
+      addTearDown(() => _Growing.extra = const <core.Model>[]);
+      final container = _agentContainer(_AgentsApi(), models: _Growing.new);
+      final models = ModelsService(container);
+      await models.select('gone-model', chatId: 'plain-chat');
+      // Deleted on the server since: listed nowhere, hidden nowhere.
+      _Growing.extra = const <core.Model>[];
+      container.invalidate(modelsProvider);
+      await container.read(modelsProvider.future);
+      final chat = await models.list(
+        const ModelListQuery(chatId: 'plain-chat'),
+      );
+      check(chat.selectedId).equals('first-model');
+      check(chat.models.map((m) => m.id)).not((it) => it.contains('gone-model'));
+      check(await models.modelFor('plain-chat')).equals('first-model');
+      // The account's own selection, gone too: New Chat falls back, and no
+      // control takes it.
+      container
+          .read(selectedModelProvider.notifier)
+          .set(const core.Model(id: 'gone-model', name: 'Gone'));
+      check((await models.list()).selectedId).not((it) => it.equals('gone-model'));
+      check(await models.modelFor(null)).not((it) => it.equals('gone-model'));
+      await expectLater(
+        models.setReasoningEffort(
+          const SetReasoningEffort(modelId: 'gone-model', effort: 'high'),
+        ),
+        refused(ConduitErrorCodes.notFound),
+      );
+    });
+
+    test("a new pick made while the last pick's model is checked is the one "
+        'a turn takes', () async {
+      _Growing.extra = const <core.Model>[
+        core.Model(id: 'hidden-model', name: 'Hidden'),
+      ];
+      addTearDown(() => _Growing.extra = const <core.Model>[]);
+      final api = _AgentsApi();
+      final container = _agentContainer(api, models: _Growing.new);
+      final models = ModelsService(container);
+      await models.select('hidden-model', chatId: 'plain-chat');
+      // Hidden from the picker since: checking it asks the server.
+      _Growing.extra = const <core.Model>[];
+      container.invalidate(modelsProvider);
+      await container.read(modelsProvider.future);
+      api.hiddenHeld = Completer<void>();
+      final turn = models.modelFor('plain-chat');
+      await api.hiddenAskedOnce.future;
+      await models.select('preferred-model', chatId: 'plain-chat');
+      api.hiddenHeld!.complete();
+      check(await turn).equals('preferred-model');
+    });
+
+    test('whatever changes during whichever wait, a turn takes the model the '
+        'inputs give once it answers', () async {
+      addTearDown(() {
+        _Growing.extra = const <core.Model>[];
+        _Growing.gate = null;
+        _chatHeld = null;
+      });
+      // The wait held, what changes during it, the chat (null: New Chat, on
+      // north's coding agent), and the model the turn then takes (null:
+      // refused, the account having changed).
+      for (final (wait, change, chatId, expected) in const <(
+        String,
+        String,
+        String?,
+        String?,
+      )>[
+        ('chat', 'pick', 'hidden-chat', 'preferred-model'),
+        ('chat', 'selection', 'retired-chat', 'preferred-model'),
+        ('chat', 'list', 'retired-chat', 'retired-model'),
+        ('chat', 'account', 'retired-chat', null),
+        // The chat's pick, on a model the server takes away meanwhile.
+        ('chat', 'unlist pick', 'plain-chat', 'first-model'),
+        // The chat's pick, the chat getting its server id meanwhile.
+        ('chat', 'move', 'plain-chat', 'preferred-model'),
+        ('list', 'move', 'plain-chat', 'preferred-model'),
+        ('hidden', 'pick', 'hidden-chat', 'preferred-model'),
+        ('hidden', 'selection', 'retired-chat', 'preferred-model'),
+        ('hidden', 'list', 'retired-chat', 'retired-model'),
+        ('hidden', 'account', 'retired-chat', null),
+        // A pick waits for the list itself, so none is made during it.
+        ('list', 'selection', 'retired-chat', 'preferred-model'),
+        ('list', 'list', 'retired-chat', 'retired-model'),
+        ('list', 'account', 'retired-chat', null),
+        // New Chat's agent goes with its terminal, switched or taken away.
+        ('list', 'terminal', null, 'first-model'),
+        ('list', 'terminals off', null, 'first-model'),
+      ]) {
+        _Growing.extra = const <core.Model>[];
+        final api = _AgentsApi();
+        final container = _agentContainer(api, models: _Growing.new);
+        final bus = EventBus();
+        // Only for a move: the bus also starts the terminal agent guard,
+        // which needs storage this container has none of.
+        final models = ModelsService(
+          container,
+          events: change == 'move' ? bus : null,
+        );
+        await container.read(modelsProvider.future);
+        if (change == 'move') {
+          await models.select('preferred-model', chatId: chatId);
+        }
+        if (chatId == null) {
+          container.read(selectedTerminalIdProvider.notifier).set('north');
+          await models.select(_northAgent);
+        }
+        if (change == 'unlist pick') {
+          _Growing.extra = const <core.Model>[
+            core.Model(id: 'gone-model', name: 'Gone'),
+          ];
+          container.invalidate(modelsProvider);
+          await container.read(modelsProvider.future);
+          await models.select('gone-model', chatId: chatId);
+        }
+        final Future<void> asked;
+        switch (wait) {
+          case 'chat':
+            _chatHeld = Completer<void>();
+            _chatAsked = Completer<void>();
+            asked = _chatAsked.future;
+            // Read afresh, not from a pick's earlier answer.
+            container.invalidate(loadConversationProvider(chatId!));
+          case 'hidden':
+            api.hiddenHeld = Completer<void>();
+            asked = api.hiddenAskedOnce.future;
+          default:
+            _Growing.gate = Completer<void>();
+            _Growing.asked = Completer<void>();
+            asked = _Growing.asked!.future;
+            container.invalidate(modelsProvider);
+        }
+        final answer = models.modelFor(chatId);
+        await asked;
+        // The pick is recorded once the list is read; its own answer then
+        // reads the chat too, so it is awaited once the waits are let go.
+        Future<ModelList>? picking;
+        switch (change) {
+          case 'pick':
+            picking = models.select('preferred-model', chatId: chatId);
+            await pumpEventQueue();
+          case 'selection':
+            container
+                .read(selectedModelProvider.notifier)
+                .set(const core.Model(id: 'preferred-model', name: 'Preferred'));
+          case 'list':
+            _Growing.extra = const <core.Model>[
+              core.Model(id: 'retired-model', name: 'Retired'),
+            ];
+            if (wait != 'list') {
+              container.invalidate(modelsProvider);
+              await container.read(modelsProvider.future);
+            }
+          case 'unlist pick':
+            _Growing.extra = const <core.Model>[];
+            container.invalidate(modelsProvider);
+            await container.read(modelsProvider.future);
+          case 'move':
+            bus.emit(
+              ConduitEventSpecs.routeRemap,
+              RouteRemap(fromId: chatId!, toId: '$chatId-9'),
+            );
+          case 'terminal':
+            container.read(selectedTerminalIdProvider.notifier).set('south');
+          case 'terminals off':
+            _offered = [_terminals.last];
+            container.invalidate(terminalAvailableServersProvider);
+            await container.read(terminalAvailableServersProvider.future);
+          default:
+            _session = Object();
+            container.invalidate(openWebUiAuthSessionEpochProvider);
+        }
+        _chatHeld?.complete();
+        _chatHeld = null;
+        api.hiddenHeld?.complete();
+        _Growing.gate?.complete();
+        _Growing.gate = null;
+        await picking;
+        if (expected == null) {
+          await expectLater(answer, refused(ConduitErrorCodes.sessionExpired));
+        } else {
+          check(because: '$wait / $change', await answer).equals(expected);
+        }
+      }
+    });
+
+    test('a model named by its id is the one with that id, though an Open '
+        'WebUI Direct connection offers one of the same wire id; a chat saved '
+        'on that wire id still opens on the Direct one', () async {
+      // Kept in the server, with no prefix: Open WebUI stores its models by
+      // the provider's own ids, the server's models' ids here.
+      final registry = DirectModelRegistry();
+      final [preferred, hidden] = registry.replaceProfileModels(
+        DirectConnectionProfile(
+          id: 'kept-connection',
+          name: 'Kept connection',
+          adapterKey: kOpenAiCompatibleAdapterKey,
+          baseUrl: 'https://models.invalid/v1',
+        ),
+        [
+          DirectRemoteModel(id: 'preferred-model'),
+          DirectRemoteModel(id: 'hidden-model'),
+        ],
+        source: DirectModelSource.openWebUi,
+        openWebUiUrlIndex: 0,
+      );
+      final container = _agentContainer(
+        _AgentsApi(),
+        models: () => _These(<core.Model>[
+          const core.Model(id: 'first-model', name: 'First model'),
+          const core.Model(id: 'preferred-model', name: 'Preferred'),
+          preferred,
+          hidden,
+        ]),
+        extra: [
+          directModelRegistryProvider.overrideWithValue(registry),
+          // Discovery would drop the connection, which no profile here holds.
+          directModelDiscoveryProvider.overrideWith(_IdleDiscovery.new),
+        ],
+      );
+      final read = container.read;
+      // Asked before the list has loaded, then once it has.
+      check((await modelForId(read, 'preferred-model'))?.id)
+          .equals('preferred-model');
+      check((await modelForId(read, 'preferred-model'))?.id)
+          .equals('preferred-model');
+      // Hidden from the picker: the server's, not the connection's.
+      check((await modelForId(read, 'hidden-model'))?.id)
+          .equals('hidden-model');
+      // As the phone restores a chat saved on the wire id.
+      check((await modelSavedWithChat(read, 'preferred-model'))?.id)
+          .equals(preferred.id);
+      check((await modelSavedWithChat(read, 'hidden-model'))?.id)
+          .equals(hidden.id);
+    });
+
+    test("picking a chat's hidden model leaves the account's selection to "
+        'the other chats', () async {
+      final container = _agentContainer(_AgentsApi());
+      final models = ModelsService(container);
+      container
+          .read(selectedModelProvider.notifier)
+          .set(const core.Model(id: 'preferred-model', name: 'Preferred'));
+      await models.select('hidden-model', chatId: 'hidden-chat');
+      check(container.read(selectedModelProvider)?.id).equals('preferred-model');
+      check(await models.modelFor('hidden-chat')).equals('hidden-model');
+      check(await models.modelFor(null)).equals('preferred-model');
+    });
+
+    test('a selection made while the saved model is looked up is the one '
+        'answered', () async {
+      final api = _AgentsApi()..hiddenHeld = Completer<void>();
+      final container = _agentContainer(api);
+      final listing = ModelsService(
+        container,
+      ).list(const ModelListQuery(chatId: 'retired-chat'));
+      await api.hiddenAskedOnce.future;
+      container
+          .read(selectedModelProvider.notifier)
+          .set(const core.Model(id: 'preferred-model', name: 'Preferred'));
+      api.hiddenHeld!.complete();
+      check((await listing).selectedId).equals('preferred-model');
+    });
+
     test("a turn naming no model in one chat never goes to another chat's "
         'agent', () async {
       final container = _agentContainer(_AgentsApi());
@@ -1620,6 +2066,141 @@ void main() {
     await pumpEventQueue();
     catalog.complete(libreChatModels);
     check(await picking).equals(chosen.id);
+  });
+
+  test("with LibreChat in charge, a chat's saved LibreChat model is found "
+      'once the catalog arrives', () async {
+    final libreChatModels = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'Sample': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'Sample': <String>['sample-model', 'saved-model'],
+      },
+    );
+    final saved = libreChatModels.last;
+    final catalog = Completer<List<core.Model>>();
+    final container = ProviderContainer(
+      overrides: [
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        openWebUiAccountAvailableProvider.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        libreChatModelCatalogProvider.overrideWith((ref) => catalog.future),
+        modelsProvider.overrideWith(() => _BesideLibreChat(const [_cached])),
+        defaultModelProvider.overrideWith(
+          (ref) async => throw StateError('settings unavailable'),
+        ),
+        loadConversationProvider.overrideWith(
+          (ref, id) async => Conversation(
+            id: id,
+            title: 'Harbour notes',
+            createdAt: DateTime.utc(2026, 3, 1),
+            updatedAt: DateTime.utc(2026, 3, 1),
+            model: saved.id,
+          ),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(modelsProvider, (_, _) {});
+    await container.read(modelsProvider.future);
+
+    final models = ModelsService(container);
+    final turn = models.modelFor('lc-chat');
+    final listing = models.list(const ModelListQuery(chatId: 'lc-chat'));
+    await pumpEventQueue();
+    catalog.complete(libreChatModels);
+    check(await turn).equals(saved.id);
+    check((await listing).selectedId).equals(saved.id);
+  });
+
+  test('with LibreChat in charge and its catalog loading, a chat on a model '
+      'already listed resolves without waiting for it', () async {
+    final catalog = Completer<List<core.Model>>();
+    final container = ProviderContainer(
+      overrides: [
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        openWebUiAccountAvailableProvider.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        libreChatModelCatalogProvider.overrideWith((ref) => catalog.future),
+        modelsProvider.overrideWith(() => _BesideLibreChat(const [_cached])),
+        defaultModelProvider.overrideWith(
+          (ref) async => throw StateError('settings unavailable'),
+        ),
+        loadConversationProvider.overrideWith(
+          (ref, id) async => Conversation(
+            id: id,
+            title: 'Bench notes',
+            createdAt: DateTime.utc(2026, 3, 1),
+            updatedAt: DateTime.utc(2026, 3, 1),
+            model: _cached.id,
+          ),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(modelsProvider, (_, _) {});
+    await container.read(modelsProvider.future);
+
+    var answered = false;
+    final turn = ModelsService(container).modelFor('direct-chat')
+      ..then((_) => answered = true);
+    await pumpEventQueue();
+    // Answered while the catalog is still on its way.
+    check(answered).isTrue();
+    check(await turn).equals(_cached.id);
+    catalog.complete(const <core.Model>[]);
+  });
+
+  test('a saved-model lookup the account leaves while it waits asks the old '
+      'server nothing', () async {
+    var primary = const PrimaryAccountRef(PrimaryAccountKind.libreChat, 'lc-one');
+    final api = _AgentsApi();
+    final catalog = Completer<List<core.Model>>();
+    final container = ProviderContainer(
+      overrides: [
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        primaryAccountProvider.overrideWith((ref) => primary),
+        openWebUiAccountAvailableProvider.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(api),
+        libreChatModelCatalogProvider.overrideWith((ref) => catalog.future),
+        modelsProvider.overrideWith(() => _BesideLibreChat(const [_cached])),
+        defaultModelProvider.overrideWith(
+          (ref) async => throw StateError('settings unavailable'),
+        ),
+        loadConversationProvider.overrideWith(
+          (ref, id) async => Conversation(
+            id: id,
+            title: 'Old harbour',
+            createdAt: DateTime.utc(2026, 3, 1),
+            updatedAt: DateTime.utc(2026, 3, 1),
+            model: 'retired-model',
+          ),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    container.listen(modelsProvider, (_, _) {});
+    await container.read(modelsProvider.future);
+
+    final turn = ModelsService(container).modelFor('lc-chat');
+    // The lookup of the chat's saved model now waits for the catalog.
+    await pumpEventQueue();
+    primary = const PrimaryAccountRef(PrimaryAccountKind.libreChat, 'lc-two');
+    container.invalidate(primaryAccountProvider);
+    catalog.complete(const <core.Model>[]);
+    await expectLater(turn, refused(ConduitErrorCodes.sessionExpired));
+    check(api.hiddenAsked).equals(0);
   });
 
   test(

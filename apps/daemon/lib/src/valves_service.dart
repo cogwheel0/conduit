@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show modelForId;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/models/personal_valves.dart';
 import 'package:conduit_core/features/chat/providers/personal_valves_providers.dart';
@@ -302,8 +304,8 @@ final class ValvesService {
   Future<core.Model?> _model(String? modelId) async {
     if (modelId == null) return currentModel(_container);
     try {
-      final models = await readSettled(_container, modelsProvider.future);
-      return models.where((m) => m.id == modelId).firstOrNull;
+      // By the core's one rule: a hidden model a chat was saved with too.
+      return await modelForId(_container.read, modelId);
     } on Object {
       return null;
     }

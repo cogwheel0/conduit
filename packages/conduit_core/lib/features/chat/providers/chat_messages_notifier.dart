@@ -4541,33 +4541,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    // Open WebUI persists the provider-facing id for direct models. Prefer the
-    // current trusted synthetic model that owns that wire id before considering
-    // a same-id server model, matching Open WebUI's direct-model last-wins rule.
-    // Existing chats must keep using their saved model, even if an admin later
-    // hides it from selectors.
     try {
-      final api = ref.read(apiServiceProvider);
-      final visibleModels = await ref.read(modelsProvider.future);
-      if (!stillOwnsSelection()) return;
-      Model? conversationModel = directRegistry.resolveOpenWebUiWireModel(
-        visibleModels,
+      final conversationModel = await modelSavedWithChat(
+        ref.read,
         conversationModelId,
+        isCurrent: stillOwnsSelection,
       );
-      conversationModel ??= visibleModels
-          .where((model) => model.id == conversationModelId)
-          .firstOrNull;
-
-      // Locally minted direct models live only in modelsProvider and must never
-      // be replaced by an untrusted server object with the same id.
-      if (conversationModel == null && api != null) {
-        final serverModels = await api.getModels(includeHidden: true);
-        if (!stillOwnsSelection()) return;
-        conversationModel = serverModels
-            .where((model) => model.id == conversationModelId)
-            .firstOrNull;
-      }
-
       if (conversationModel == null ||
           identical(conversationModel, currentSelectedModel) ||
           !stillOwnsSelection()) {

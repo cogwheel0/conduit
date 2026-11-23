@@ -1,3 +1,5 @@
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show modelForId;
 import 'package:conduit_core/features/chat/composer/composer_availability.dart';
 import 'package:conduit_core/features/chat/composer/composer_commands.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart'
@@ -112,7 +114,7 @@ final class ComposerService {
       DebugLogger.error('mcp-failed', scope: 'daemon/composer', error: error);
     }
 
-    final model = _shownModel(query.modelId);
+    final model = await _shownModel(query.modelId);
     final read = _container.read;
     // The interpreter as the + menu offers it with nothing chosen yet (the
     // core's offer); why it would not run, for a choice the window holds.
@@ -200,10 +202,11 @@ final class ComposerService {
 
   /// The model the composer shows ([id], which the next turn goes to), so
   /// the options are that model's: the account's selection when [id] is
-  /// null or names it, else the listed model of that id. A coding agent
-  /// that is not selected is known by its id alone. The selection when the
-  /// list has no such model.
-  Model? _shownModel(String? id) {
+  /// null or names it, else the listed model of that id, else the model of
+  /// that id by the core's one rule ([modelForId]), a hidden model a chat
+  /// was saved with included. A coding agent that is not selected is known
+  /// by its id alone. The selection when no model has that id.
+  Future<Model?> _shownModel(String? id) async {
     final selected = _container.read(selectedModelProvider);
     if (id == null || selected?.id == id) return selected;
     final listed = _container
@@ -213,7 +216,11 @@ final class ComposerService {
         .firstOrNull;
     if (listed != null) return listed;
     if (isTerminalAgentModelId(id)) return Model(id: id, name: id);
-    return selected;
+    try {
+      return await modelForId(_container.read, id) ?? selected;
+    } on Object {
+      return selected;
+    }
   }
 
   Future<Conversation?> _conversation(String chatId) async {

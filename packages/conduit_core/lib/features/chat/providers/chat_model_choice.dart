@@ -1,14 +1,19 @@
 import 'dart:async';
 
 import 'package:meta/meta.dart';
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directModelRegistryProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_model_providers.dart'
+    show libreChatModelCatalogProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatMutationOwnerToken,
@@ -19,9 +24,102 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show primaryAccountKindProvider;
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountKind;
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+
+/// The model a stored chat that saved [modelId] runs on when it opens, so
+/// it keeps its own model even after an admin hid it from the picker. Open
+/// WebUI stores a direct model by its provider-facing id: the trusted direct
+/// model with that id wins over a server model of the same id. Null when no
+/// model of that id is offered, or once [isCurrent] says the answer is no
+/// longer wanted: the selection then stays as it is. Not for a coding agent,
+/// which its terminal offers.
+Future<Model?> modelSavedWithChat(
+  T Function<T>(ProviderListenable<T> provider) read,
+  String modelId, {
+  bool Function()? isCurrent,
+}) => _offeredModel(read, modelId, isCurrent: isCurrent, byWireId: true);
+
+/// The model [modelId] names: listed, else hidden from the picker but still
+/// offered. With [byWireId], a trusted direct model Open WebUI stores by
+/// that provider-facing id comes before a model whose own id it is.
+Future<Model?> _offeredModel(
+  T Function<T>(ProviderListenable<T> provider) read,
+  String modelId, {
+  required bool byWireId,
+  bool Function()? isCurrent,
+}) async {
+  bool current() => isCurrent?.call() ?? true;
+  final registry = read(directModelRegistryProvider);
+  final api = read(apiServiceProvider);
+  Model? listedIn(List<Model> models) =>
+      (byWireId ? registry.resolveOpenWebUiWireModel(models, modelId) : null) ??
+      models.where((model) => model.id == modelId).firstOrNull;
+  // Already listed: found with no wait, whatever else is loading.
+  final now = read(modelsProvider).value;
+  if (now != null) {
+    if (listedIn(now) case final found?) return found;
+  }
+  // The list does not wait for LibreChat's catalog: with LibreChat in
+  // charge and its catalog still on its way, a chat saved on one of its
+  // models is looked for once it has arrived, as a send waits for it
+  // ([modelForUnpickedSend]). Only then can the wait change the answer.
+  if (read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat &&
+      !read(libreChatModelCatalogProvider).hasValue) {
+    try {
+      await read(libreChatModelCatalogProvider.future);
+    } catch (_) {
+      // A refresh that failed keeps the models it last listed.
+    }
+    if (!current()) return null;
+  }
+  final List<Model> visible = await read(modelsProvider.future);
+  if (!current()) return null;
+  final listed = listedIn(visible);
+  // A locally minted direct model lives only in the list and is never
+  // replaced by an untrusted server object with the same id.
+  if (listed != null || api == null) return listed;
+  final lookups = read(_hiddenModelLookupsProvider);
+  final known = lookups[modelId];
+  if (known != null && identical(known.listed, visible)) return known.model;
+  final all = await api.getModels(includeHidden: true);
+  if (!current()) return null;
+  final model = all.where((model) => model.id == modelId).firstOrNull;
+  // Kept against the list it was looked past, and only while that list
+  // stands: one published meanwhile may list the model now.
+  if (identical(read(modelsProvider).value, visible)) {
+    lookups[modelId] = (listed: visible, model: model);
+  }
+  return model;
+}
+
+/// What [modelSavedWithChat] found past the list, per model id, with the
+/// list it was looked past: the server is asked again once that list
+/// changes. Another server or account starts over.
+final _hiddenModelLookupsProvider =
+    Provider<Map<String, ({List<Model> listed, Model? model})>>((ref) {
+      ref.watch(apiServiceProvider);
+      return <String, ({List<Model> listed, Model? model})>{};
+    });
+
+/// The model [id] names for a turn, a control or a setting: a listed one,
+/// or one the server hides from the picker but still offers
+/// ([modelSavedWithChat]): a chat saved on it runs on it, as mobile's
+/// selection keeps it. Null for one the server no longer offers, even when
+/// it is still selected, or once [isCurrent] says the answer is no longer
+/// wanted. A coding agent is named by its terminal, not here. The id is
+/// the model's own: a direct model is named by its `direct:` id, never by
+/// the provider-facing id a server model may share.
+Future<Model?> modelForId(
+  T Function<T>(ProviderListenable<T> provider) read,
+  String id, {
+  bool Function()? isCurrent,
+}) => _offeredModel(read, id, isCurrent: isCurrent, byWireId: false);
 
 /// The model the user last picked in an open chat, with the ids of the
 /// prompts the chat held then. Open WebUI 0.12.5 regenerates an answer with

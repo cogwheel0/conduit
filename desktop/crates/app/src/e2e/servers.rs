@@ -161,7 +161,7 @@ async fn listed(server_id: &str, cx: &mut AsyncApp) -> Option<ServerAddresses> {
 /// Restarts conduitd through its supervisor, which starts another; the
 /// window reconnects to it. Only the supervisor signals the daemon: a pid
 /// read here could already belong to another process.
-async fn restart_daemon(cx: &mut AsyncApp) -> bool {
+pub(super) async fn restart_daemon(cx: &mut AsyncApp) -> bool {
     let pid = cx.update(
         |cx| match cx.global::<AppState>().connection.read(cx).daemon.clone() {
             DaemonPhase::Running { pid, .. } => Some(pid),

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show modelForId;
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
@@ -265,8 +267,8 @@ final class ChatSettingsService {
   Future<core.Model?> _model(String? modelId) async {
     if (modelId == null) return currentModel(_container);
     try {
-      final models = await readSettled(_container, modelsProvider.future);
-      return models.where((m) => m.id == modelId).firstOrNull ??
+      // By the core's one rule: a hidden model a chat was saved with too.
+      return await modelForId(_container.read, modelId) ??
           await currentModel(_container);
     } on Object {
       return _container
