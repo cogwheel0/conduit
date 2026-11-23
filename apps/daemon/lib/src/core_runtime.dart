@@ -1,8 +1,13 @@
 import 'dart:async';
 
 import 'package:conduit_core/database/account_storage_isolation.dart';
+import 'package:conduit_core/database/database_manager.dart'
+    show DatabaseManager;
 import 'package:conduit_core/database/database_provider.dart'
-    show appDatabaseProvider;
+    show
+        appDatabaseProvider,
+        databaseManagerProvider,
+        directLocalDatabaseManagerProvider;
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
     show
@@ -11,7 +16,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesConfigProvider;
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
-    show libreChatHttpClientProvider;
+    show libreChatDatabaseManagerProvider, libreChatHttpClientProvider;
 import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart'
     show libreChatSyncEngineProvider;
 import 'package:conduit_core/navigation/route_redirect.dart';
@@ -345,14 +350,43 @@ final class CoreRuntime {
 
   Future<void>? _syncIdle;
 
-  Future<void> dispose() async {
+  Future<void>? _disposing;
+
+  Future<void> dispose() => _disposing ??= _dispose();
+
+  Future<void> _dispose() async {
     // Sync work still out (a list refresh, an outbox drain nobody waits on)
     // writes the account database until it ends. Once the clients are cut,
     // what it writes needs no server, and it lands before this returns.
+    // Then the databases close: the container's disposal only starts closing
+    // Direct's and LibreChat's, and never closes Open WebUI's, so a write
+    // still out would end with the process (or a test's directory).
     beginShutdown();
+    final databases = [
+      container.read(databaseManagerProvider),
+      container.read(directLocalDatabaseManagerProvider),
+      container.read(libreChatDatabaseManagerProvider),
+    ];
     container.dispose();
     await _syncIdle;
+    await Future.wait([for (final manager in databases) _close(manager)]);
     await _host.close?.call();
+  }
+
+  /// Closes every database [manager] holds, those a switch left open
+  /// included; a close that fails is logged, and stops neither the other
+  /// databases' nor the host's.
+  Future<void> _close(DatabaseManager manager) async {
+    try {
+      await manager.closeAll();
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'database-close-failed',
+        scope: 'daemon/runtime',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   /// Stops the Open WebUI engine's new work; completes once its running work

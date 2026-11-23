@@ -6,8 +6,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/database/app_database.dart' show AppDatabase;
+import 'package:conduit_core/database/database_manager.dart'
+    show DatabaseManager;
 import 'package:conduit_core/database/database_provider.dart'
-    show appDatabaseProvider, openWebUiCertifiedDatabaseServerProvider;
+    show
+        appDatabaseProvider,
+        databaseManagerProvider,
+        openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart'
     show apiAuthTokenMirrorProvider, apiServiceProvider;
@@ -15,6 +20,7 @@ import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:drift/drift.dart' show Value;
+import 'package:drift/native.dart' show NativeDatabase;
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:test/test.dart';
 import 'package:web_socket_channel/io.dart';
@@ -82,7 +88,6 @@ void main() {
     () async {
       final bench = await _Bench.start(holdChatReads: true);
       await bench.owui.chats.chatReadAsked.future;
-      final database = bench.database;
       final container = bench.runtime.container;
       // The session's client is rebuilt under the pull, which keeps the one it
       // was built with.
@@ -101,7 +106,7 @@ void main() {
       await disposed;
 
       expect(
-        (await database.chatsDao.getChat(_chatId))?.title,
+        await bench.storedTitle(),
         isNot('Shelf labels'),
         reason: "the retired client's pull was answered: dispose waited on it",
       );
@@ -112,7 +117,6 @@ void main() {
       'rather than waiting for the server to answer it', () async {
     final bench = await _Bench.start(daemon: true);
     await bench.firstPull;
-    final database = bench.database;
     final chats = bench.owui.chats;
     // A rating pulls its chat once it is done, and the turns service waits
     // for that pull as it is disposed. The rating's own read of the chat goes
@@ -133,10 +137,30 @@ void main() {
     await stopped;
 
     expect(
-      (await database.chatsDao.getChat(_chatId))?.title,
+      await bench.storedTitle(),
       'Shelf',
       reason: "the held pull's answer was stored: stop waited on the server",
     );
+  });
+
+  // A send keeps the account database leased while its request is out, and
+  // dispose waits for the database to close: the request is cut, not waited
+  // for, so stopping does not wait for the server either.
+  test('stopping the daemon while the server holds a send returns without '
+      "the server's answer", () async {
+    final bench = await _Bench.start(daemon: true);
+    await bench.firstPull;
+    final chats = bench.owui.chats;
+    final held = bench.hold(chats.holdAdmission = Completer());
+    final sending = bench
+        .send('Water the beans')
+        .then<void>((_) {}, onError: (_) {});
+    await chats.admissionAsked.future;
+
+    await bench.dispose();
+
+    expect(held.isCompleted, isFalse);
+    await sending;
   });
 }
 
@@ -153,6 +177,7 @@ final class _Bench {
   DaemonServer? _daemon;
   json_rpc.Peer? _window;
   late final Future<Object?> firstPull;
+  late final String _databaseFile;
   final List<String> writes = <String>[];
   late final AppDatabase database = runtime.container.read(
     appDatabaseProvider,
@@ -227,6 +252,12 @@ final class _Bench {
     );
     await asked.future;
     certified.close();
+    final serverId = runtime.container
+        .read(databaseManagerProvider)
+        .serverIdForDatabase(bench.database)!;
+    bench._databaseFile =
+        '${directories.paths.database}/'
+        '${DatabaseManager.fileNameFor(serverId)}.sqlite';
     return bench;
   }
 
@@ -270,6 +301,24 @@ final class _Bench {
   Future<Object?> rate(String messageId) => _window!.sendRequest(
     ConduitMethods.turnsRate,
     RateTurn(chatId: _chatId, messageId: messageId, rating: 1).toJson(),
+  );
+
+  /// [_chatId]'s title as the account database's file has it, read through
+  /// a connection of the test's own: dispose closes the runtime's.
+  Future<String?> storedTitle() async {
+    expect(File(_databaseFile).existsSync(), isTrue);
+    final stored = AppDatabase(NativeDatabase(File(_databaseFile)));
+    try {
+      return (await stored.chatsDao.getChat(_chatId))?.title;
+    } finally {
+      await stored.close();
+    }
+  }
+
+  /// Sends [text] into the chat, from the window.
+  Future<Object?> send(String text) => _window!.sendRequest(
+    ConduitMethods.turnsSend,
+    SendTurn(chatId: _chatId, model: 'kettle-model', text: text).toJson(),
   );
 
   /// Lets the server answer what [held] holds once the test ends, before

@@ -443,6 +443,116 @@ void main() {
     });
   });
 
+  group('closeAll', () {
+    Future<bool> isClosed(AppDatabase db) async {
+      try {
+        await db.customSelect('SELECT 1').get();
+        return false;
+      } catch (_) {
+        return true;
+      }
+    }
+
+    /// A manager whose databases are [GatedCloseDatabase]s, keyed by server.
+    Map<String, GatedCloseDatabase> gatedManager() {
+      final databases = <String, GatedCloseDatabase>{};
+      manager = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) {
+          final database = GatedCloseDatabase(NativeDatabase(fileFor(fileName)))
+            ..failClose = false;
+          for (final id in ['alpha', 'beta']) {
+            if (fileName == DatabaseManager.fileNameFor(id)) {
+              databases[id] = database;
+            }
+          }
+          return database;
+        },
+      );
+      return databases;
+    }
+
+    /// Completes once the close under way for [serverId] has ended, failed
+    /// or not, and the manager has recorded how.
+    Future<void> closeEnded(String serverId) async {
+      final attempt = manager.openForIfReady(_server(serverId));
+      check(attempt).isA<DatabaseOpenDeferred>();
+      await (attempt as DatabaseOpenDeferred).retryAfter;
+    }
+
+    test('waits for a database a switch left leased, then closes it and the '
+        'active one', () async {
+      final alpha = manager.openFor(_server('alpha'));
+      await alpha.customSelect('SELECT 1').get();
+      final lease = manager.tryAcquireLease(alpha)!;
+      addTearDown(lease.release);
+      final beta = manager.openFor(_server('beta'));
+      await beta.customSelect('SELECT 1').get();
+
+      var closed = false;
+      final closing = manager.closeAll().whenComplete(() => closed = true);
+      await closeEnded('beta');
+      check(await isClosed(alpha)).isFalse();
+      check(closed).isFalse();
+
+      await lease.release();
+      await closing;
+      check(await isClosed(alpha)).isTrue();
+      check(await isClosed(beta)).isTrue();
+    });
+
+    test('waits for the close a switch already started', () async {
+      await manager.closeActive();
+      final databases = gatedManager();
+      manager.openFor(_server('alpha'));
+      final alpha = databases['alpha']!;
+      await alpha.customSelect('SELECT 1').get();
+      final gate = Completer<void>();
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      alpha.closeGate = gate;
+      final beta = manager.openFor(_server('beta'));
+      await beta.customSelect('SELECT 1').get();
+      await alpha.closeStarted.future;
+
+      var closed = false;
+      final closing = manager.closeAll().whenComplete(() => closed = true);
+      await closeEnded('beta');
+      check(await isClosed(beta)).isTrue();
+      check(closed).isFalse();
+
+      gate.complete();
+      await closing;
+      check(await isClosed(alpha)).isTrue();
+      check(await isClosed(beta)).isTrue();
+    });
+
+    test('closes again a database whose close failed in the background, and '
+        'reports a failure that repeats', () async {
+      await manager.closeActive();
+      final databases = gatedManager();
+      manager.openFor(_server('alpha'));
+      final alpha = databases['alpha']!..failClose = true;
+      await alpha.customSelect('SELECT 1').get();
+      manager.openFor(_server('beta'));
+      await closeEnded('alpha');
+
+      await check(manager.closeAll()).throws<StateError>();
+      check(alpha.closeAttempts).equals(2);
+
+      alpha.failClose = false;
+      await manager.closeAll();
+      check(alpha.closeAttempts).equals(3);
+      check(await isClosed(alpha)).isTrue();
+    });
+
+    test('completes with nothing open, and opens nothing', () async {
+      await manager.closeAll();
+      check(openedFileNames).isEmpty();
+    });
+  });
+
   group('deleteFor', () {
     test(
       'cannot reopen a server while deletion waits for its final lease',
