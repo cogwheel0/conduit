@@ -344,9 +344,11 @@ class DatabaseManager {
         _observeFailedCloseRetry(retry, recordExplicitFailure: true),
       );
     }
+    // A Future<void>, not the List the wait yields: a caller's catchError
+    // handler returns nothing.
     return operations.isEmpty
         ? Future<void>.value()
-        : Future.wait<void>(operations);
+        : Future.wait<void>(operations).then((_) {});
   }
 
   Future<void> _trackExplicitClose(_ManagedDatabase target) {

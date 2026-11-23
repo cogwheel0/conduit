@@ -6,18 +6,26 @@ import 'dart:io';
 
 import 'package:conduit_core/database/app_database.dart' show AppDatabase;
 import 'package:conduit_core/database/database_provider.dart'
-    show appDatabaseProvider;
+    show
+        appDatabaseProvider,
+        directLocalDatabaseProvider,
+        kDirectLocalDatabaseFileName;
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
     show libreChatDatabaseProvider;
+import 'package:conduit_core/persistence/hive_boxes.dart' show HiveBoxNames;
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor;
+import 'package:hive_ce/hive.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_librechat_chat.dart';
 import 'support/fake_owui_auth_server.dart';
 import 'support/core.dart';
+import 'support/null_sink.dart';
+import 'support/runtime.dart' show testBootstrapConfig;
 
 /// Disposing the runtime while a LibreChat list refresh nobody waits on is
 /// still out. The process exits, or a test deletes the directory, once
@@ -90,35 +98,7 @@ void main() {
     addTearDown(() => temporary.deleteSync(recursive: true));
     final runtime = await startTestCore(temporary);
     addTearDown(runtime.dispose);
-    final owui = await FakeOwuiAuthServer.start(
-      users: const {
-        'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
-      },
-    );
-    addTearDown(owui.close);
-    final accounts = AccountsService(runtime.container, events: EventBus());
-    addTearDown(accounts.dispose);
-    final auth = AuthService(runtime.container);
-    addTearDown(auth.dispose);
-    await accounts.add(
-      AddAccount(
-        server: ServerDraft(name: 'Lab', url: owui.url),
-        force: true,
-      ),
-    );
-    await auth.loginWithPassword(
-      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
-    );
-    final opened = Completer<AppDatabase>();
-    final watch = runtime.container.listen<AppDatabase?>(appDatabaseProvider, (
-      _,
-      database,
-    ) {
-      if (database != null && !opened.isCompleted) opened.complete(database);
-    }, fireImmediately: true);
-    addTearDown(watch.close);
-    final database = await opened.future;
-    await database.customSelect('SELECT 1').get();
+    final database = await _openWebUiDatabase(runtime);
 
     await runtime.dispose();
 
@@ -128,6 +108,80 @@ void main() {
       reason: 'the database was still open once dispose returned',
     );
   });
+
+  test('a database that fails to close stops nothing else: the others and '
+      "the host's stores close, and the daemon stops", () async {
+    addTearDown(PreferencesStore.debugReset);
+    final temporary = Directory.systemTemp.createTempSync('runtime-dispose');
+    addTearDown(() => temporary.deleteSync(recursive: true));
+    final runtime = await startTestCore(
+      temporary,
+      interceptDatabase: (fileName) =>
+          fileName == kDirectLocalDatabaseFileName ? _CloseFails() : null,
+    );
+    final direct = runtime.container.read(directLocalDatabaseProvider);
+    await direct.customSelect('SELECT 1').get();
+    final account = await _openWebUiDatabase(runtime);
+    final daemon = DaemonServer(
+      config: testBootstrapConfig(temporary),
+      directories: DaemonDirectories.create(temporary.path),
+      daemonVersion: '0.0.0-test',
+      log: DaemonLog(level: 'error', sink: NullSink()),
+    );
+    await daemon.start();
+    daemon.attachCore(runtime);
+
+    await daemon.stop();
+    await daemon.onStopped;
+
+    await expectLater(
+      account.customSelect('SELECT 1').get(),
+      throwsA(anything),
+      reason: 'the account database was left open',
+    );
+    expect(Hive.isBoxOpen(HiveBoxNames.preferences), isFalse);
+  });
+}
+
+/// Fails every close, as a database whose file went away would.
+final class _CloseFails extends QueryInterceptor {
+  @override
+  Future<void> close(QueryExecutor inner) async {
+    await inner.close();
+    throw StateError('the database could not be closed');
+  }
+}
+
+/// The Open WebUI account database of [runtime], once it is signed in to a
+/// fake server and the database is open.
+Future<AppDatabase> _openWebUiDatabase(CoreRuntime runtime) async {
+  final owui = await FakeOwuiAuthServer.start(
+    users: const {
+      'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
+    },
+  );
+  addTearDown(owui.close);
+  final accounts = AccountsService(runtime.container, events: EventBus());
+  addTearDown(accounts.dispose);
+  final auth = AuthService(runtime.container);
+  addTearDown(auth.dispose);
+  await accounts.add(
+    AddAccount(server: ServerDraft(name: 'Lab', url: owui.url), force: true),
+  );
+  await auth.loginWithPassword(
+    const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
+  );
+  final opened = Completer<AppDatabase>();
+  final watch = runtime.container.listen<AppDatabase?>(appDatabaseProvider, (
+    _,
+    database,
+  ) {
+    if (database != null && !opened.isCompleted) opened.complete(database);
+  }, fireImmediately: true);
+  addTearDown(watch.close);
+  final database = await opened.future;
+  await database.customSelect('SELECT 1').get();
+  return database;
 }
 
 /// A runtime signed in to a fake LibreChat server that has one conversation

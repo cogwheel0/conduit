@@ -9,7 +9,8 @@ import 'package:conduit_core/services/settings_service.dart'
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:conduitd/src/ports/worker.dart';
-import 'package:drift/drift.dart' show QueryExecutor;
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
 import 'package:hive_ce/hive.dart';
 
@@ -17,7 +18,13 @@ import 'package:hive_ce/hive.dart';
 /// preferences and credentials in memory, Hive and the account databases
 /// in [dataDir], connectivity the test reports, and the desktop's policy
 /// values so what the tests expect is unchanged.
-Future<CoreRuntime> startTestCore(Directory dataDir) async {
+///
+/// [interceptDatabase], given a database's file name, returns what that
+/// database's queries and close go through (null for none).
+Future<CoreRuntime> startTestCore(
+  Directory dataDir, {
+  QueryInterceptor? Function(String fileName)? interceptDatabase,
+}) async {
   // `PreferencesStore` is process-wide and keeps the first store it loads,
   // so each runtime gets its own rather than one an earlier test left.
   PreferencesStore.debugReset();
@@ -43,7 +50,10 @@ Future<CoreRuntime> startTestCore(Directory dataDir) async {
         attachmentQueue: attachmentQueue,
         metadata: metadata,
       ),
-      databaseOpener: _TestDatabases(Directory('${dataDir.path}/db')),
+      databaseOpener: _TestDatabases(
+        Directory('${dataDir.path}/db'),
+        interceptDatabase,
+      ),
       worker: const DaemonWorkerPort(),
       connectivity: connectivity,
       reportNetwork: connectivity.report,
@@ -108,16 +118,21 @@ final class TestPaths implements PathsPort {
 
 /// Each account's database in a file of its own, as on the desktop.
 final class _TestDatabases implements DatabaseOpenerPort {
-  _TestDatabases(this._directory);
+  _TestDatabases(this._directory, this._intercept);
 
   final Directory _directory;
+  final QueryInterceptor? Function(String fileName)? _intercept;
 
   @override
   QueryExecutor open(String serverId) {
     _directory.createSync(recursive: true);
-    return NativeDatabase.createInBackground(
+    final database = NativeDatabase.createInBackground(
       File('${_directory.path}/$serverId.sqlite'),
     );
+    final interceptor = _intercept?.call(serverId);
+    return interceptor == null
+        ? database
+        : database.interceptWith(interceptor);
   }
 
   @override

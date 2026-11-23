@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:conduit_core/database/account_storage_isolation.dart';
+import 'package:conduit_core/database/database_manager.dart'
+    show DatabaseManager;
 import 'package:conduit_core/database/database_provider.dart'
     show
         appDatabaseProvider,
@@ -367,8 +369,23 @@ final class CoreRuntime {
     ];
     container.dispose();
     await _syncIdle;
-    await Future.wait([for (final manager in databases) manager.closeActive()]);
+    await Future.wait([for (final manager in databases) _close(manager)]);
     await _host.close?.call();
+  }
+
+  /// Closes [manager]'s open database; a close that fails is logged, and
+  /// stops neither the other databases' nor the host's.
+  Future<void> _close(DatabaseManager manager) async {
+    try {
+      await manager.closeActive();
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'database-close-failed',
+        scope: 'daemon/runtime',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   /// Stops the Open WebUI engine's new work; completes once its running work
