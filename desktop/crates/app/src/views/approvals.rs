@@ -466,6 +466,25 @@ impl ApprovalsView {
         true
     }
 
+    /// Types `text` into the Edit or Respond field the card has open (for
+    /// a test that opened it with the card's own button); false when none
+    /// is open.
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    pub(crate) fn librechat_type(
+        &mut self,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.compose.is_none() {
+            return false;
+        }
+        let text = text.to_string();
+        self.compose_text
+            .update(cx, |t, cx| t.set_value(text, window, cx));
+        true
+    }
+
     /// The edit typed was refused on the card (not a JSON object), and
     /// what it holds.
     #[cfg(all(target_os = "macos", feature = "harness"))]

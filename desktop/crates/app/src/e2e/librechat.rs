@@ -424,22 +424,54 @@ fn pause_card(cx: &mut App) -> Option<conduit_protocol::UiRequest> {
         .cloned()
 }
 
-/// Waits for a card in the chat on screen other than `after`, drawn.
+/// Waits for a card in the chat on screen other than `after`, drawn by the
+/// main window's approvals view (its fields are then its own).
 async fn wait_pause_card(
     after: Option<&str>,
     cx: &mut AsyncApp,
 ) -> Option<conduit_protocol::UiRequest> {
     let after = after.map(str::to_string);
-    let shown = wait_until(cx, Duration::from_secs(30), move |cx| {
-        pause_card(cx).is_some_and(|r| Some(&r.request_id) != after.as_ref())
+    let mut drawn = None;
+    wait_until(cx, Duration::from_secs(30), |cx| {
+        drawn = pause_card(cx).filter(|r| {
+            Some(&r.request_id) != after.as_ref()
+                && main_window(cx).is_some_and(|(_, mw)| {
+                    mw.read(cx).approvals.read(cx).drawn_for() == Some(r.request_id.as_str())
+                })
+        });
+        drawn.is_some()
     })
     .await;
-    if !shown {
-        return None;
-    }
-    // The card draws, and its fields are its own.
-    settle(cx, 400).await;
-    cx.update(pause_card)
+    drawn
+}
+
+/// The shortcut a card's primary button announces (⌥⌘↩), telling its Send
+/// from the composer's.
+const CARD_SEND: Option<&str> = Some(conduit_components::views::approval::ALLOW_KEYS);
+
+/// Clicks the main window's rendered `role` control named `label` (and,
+/// when given, announcing `shortcut`, as the card's own buttons do), as a
+/// person would: a synthetic pointer at the control the accessibility tree
+/// shows. False when it is not on screen.
+async fn click_control(role: &str, label: &str, shortcut: Option<&str>, cx: &mut AsyncApp) -> bool {
+    use crate::capture::drive;
+    let Some((handle, _)) = cx.update(main_window) else {
+        return false;
+    };
+    let nodes = drive::nodes(handle, cx).await;
+    let Some(at) = nodes
+        .iter()
+        .find(|n| {
+            n.role == role
+                && n.label == label
+                && shortcut.is_none_or(|k| n.shortcut.as_deref() == Some(k))
+        })
+        .and_then(|n| n.center())
+    else {
+        return false;
+    };
+    drive::click(handle, at, cx).await;
+    true
 }
 
 fn in_approvals<R>(
@@ -490,27 +522,6 @@ async fn alert_labels(name: &str, dir: &Path, cx: &mut AsyncApp) -> Vec<String> 
                 .collect()
         })
         .unwrap_or_default()
-}
-
-/// Picks the options the question on screen shows as `labels`, as a click
-/// on each would; false when one is not shown.
-fn pick_shown(
-    v: &mut crate::views::approvals::ApprovalsView,
-    labels: &[&str],
-    window: &mut Window,
-    cx: &mut gpui_kit::Context<crate::views::approvals::ApprovalsView>,
-) -> bool {
-    use crate::stores::ui_requests::{Card, card};
-    let Some(Card::LibreChatQuestion(q)) = pause_card(cx).map(|r| card(&r)) else {
-        return false;
-    };
-    for label in labels {
-        let Some(choice) = q.question.choices.iter().find(|c| c.label == *label) else {
-            return false;
-        };
-        v.pick(0, choice.value.clone(), window, cx);
-    }
-    true
 }
 
 /// The reply goes on and ends with `text` in it.
@@ -645,17 +656,17 @@ async fn pauses(dir: &Path, cx: &mut AsyncApp) -> bool {
         "⌥⌘↩ approves nothing there",
         in_approvals(cx, |v, _, cx| !v.allow(cx)).unwrap_or(false),
     );
+    // Its rendered Respond opens the field, and the rendered Send Response
+    // sends what is typed there.
+    let opened = click_control("Button", "Respond", None, cx).await
+        && in_approvals(cx, |v, window, cx| {
+            v.librechat_type("Closed for the season.", window, cx)
+        })
+        .unwrap_or(false);
+    pass &= ok("its Respond button opens the response field", opened);
     pass &= ok(
         "its response goes",
-        in_approvals(cx, |v, window, cx| {
-            v.librechat_compose(
-                LibreChatDecision::Respond,
-                "Closed for the season.",
-                window,
-                cx,
-            ) && v.allow(cx)
-        })
-        .unwrap_or(false)
+        click_control("Button", "Send Response", CARD_SEND, cx).await
             && replied("returned Closed for the season.", cx).await,
     );
 
@@ -671,10 +682,8 @@ async fn pauses(dir: &Path, cx: &mut AsyncApp) -> bool {
         "a question has no Cancel",
         in_approvals(cx, |v, _, cx| !v.deny(cx)).unwrap_or(false),
     );
-    let picked = in_approvals(cx, |v, window, cx| {
-        pick_shown(v, &["Gull Haven"], window, cx) && v.allow(cx)
-    })
-    .unwrap_or(false);
+    let picked = click_control("RadioButton", "Gull Haven", None, cx).await
+        && click_control("Button", "Send", CARD_SEND, cx).await;
     let days = wait_pause_card(harbour.as_ref().map(|r| r.request_id.as_str()), cx).await;
     pass &= ok(
         "the second, multi-select, follows",
@@ -686,22 +695,32 @@ async fn pauses(dir: &Path, cx: &mut AsyncApp) -> bool {
     shoot_main(dir, "librechat-pause-days", cx).await;
     pass &= ok(
         "both answers go as their values",
-        in_approvals(cx, |v, window, cx| {
-            pick_shown(v, &["Monday", "Tuesday"], window, cx) && v.allow(cx)
-        })
-        .unwrap_or(false)
+        click_control("CheckBox", "Monday", None, cx).await
+            && click_control("CheckBox", "Tuesday", None, cx).await
+            && click_control("Button", "Send", CARD_SEND, cx).await
             && replied("You chose gull-haven on mon, tue.", cx).await,
     );
 
     // A card waits across the main window closing and opening.
     let waiting = paused_reply("Please decide on the tide", cx).await;
     let waiting_chat = cx.update(open_chat);
-    if let Some((handle, _)) = cx.update(main_window) {
-        let _ = handle.update(cx, |_, window, _| window.remove_window());
-    }
+    let closed = cx.update(main_window).map(|(handle, _)| handle);
+    let shut = closed.is_some_and(|handle| {
+        handle
+            .update(cx, |_, window, _| window.remove_window())
+            .is_ok()
+    });
+    pass &= ok("the main window closes", shut);
     settle(cx, 800).await;
     cx.update(crate::open_main_window);
-    let back = wait_until(cx, Duration::from_secs(20), |cx| main_window(cx).is_some()).await;
+    // A new window, and alive: not the closed one still on record.
+    let back = wait_until(cx, Duration::from_secs(20), move |cx| {
+        main_window(cx).is_some_and(|(handle, _)| {
+            Some(handle) != closed && handle.update(cx, |_, _, _| ()).is_ok()
+        })
+    })
+    .await;
+    pass &= ok("a new main window opens", back);
     if back && cx.update(open_chat) != waiting_chat {
         let chat = waiting_chat.clone().unwrap_or_default();
         cx.update(|cx| {
@@ -735,8 +754,31 @@ async fn pauses(dir: &Path, cx: &mut AsyncApp) -> bool {
         (u.waits_in_chat(&own_chat), pause_card(cx).is_none())
     });
     pass &= ok(
-        "another chat shows no card, and the waiting chat's row is marked",
+        "another chat shows no card, and the store has the waiting chat",
         own.is_some() && elsewhere == (true, true),
+    );
+    // The rendered row says so, as VoiceOver reads it.
+    let own_title = cx.update(|cx| {
+        let list = cx.global::<AppState>().stores.chat_list.clone();
+        list.read(cx)
+            .list
+            .as_ref()
+            .and_then(|l| l.chats.iter().find(|c| c.id == own_chat))
+            .map(|c| c.title.clone())
+            .unwrap_or_default()
+    });
+    let marked: Vec<String> = match cx.update(main_window) {
+        Some((handle, _)) => crate::capture::drive::nodes(handle, cx)
+            .await
+            .into_iter()
+            .filter(|n| n.label.contains("Needs your answer"))
+            .map(|n| n.label)
+            .collect(),
+        None => vec![],
+    };
+    pass &= ok(
+        &format!("the waiting chat's row says it needs an answer ({marked:?})"),
+        marked.len() == 1 && marked[0].contains(own_title.trim()),
     );
     pass &= ok(
         "nor answers it",
