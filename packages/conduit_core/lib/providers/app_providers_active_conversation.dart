@@ -189,6 +189,83 @@ ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
   return ActiveConversationRemapNamespace.openWebUi;
 }
 
+/// A Direct answer stored as still being written while no run here writes
+/// it: the process that ran it quit or died mid-reply. It is finished as it
+/// stands, as read and in the stored copy, or the chat would open writing,
+/// with Stop offered for nothing and Send refused. A run that finishes after
+/// this check still stores its own answer over it.
+Future<Conversation> _settleOrphanedDirectAnswers(
+  Ref ref,
+  Conversation conversation, {
+  required String chatId,
+  required ChatDatabaseLocation location,
+}) async {
+  final registry = ref.read(directRunRegistryProvider);
+  final orphans = <String>{
+    for (final message in conversation.messages)
+      if (message.role == 'assistant' &&
+          message.isStreaming &&
+          message.metadata?['transport'] == kDirectTransport &&
+          !registry.hasLiveIntentForMessage(message.id))
+        message.id,
+  };
+  if (orphans.isEmpty) return conversation;
+  try {
+    final database = location.database;
+    final repository = ref.read(chatDatabaseRepositoryProvider);
+    final now = ref.read(syncClockProvider).nowEpochSeconds();
+    await ref.read(chatLocksProvider).runExclusive(chatId, () async {
+      for (final id in orphans) {
+        if (registry.hasLiveIntentForMessage(id)) continue;
+        final row = await database.messagesDao.getMessage(chatId, id);
+        if (row == null) continue;
+        final decoded = jsonDecode(row.payload);
+        if (decoded is! Map || decoded['isStreaming'] != true) continue;
+        final payload = <String, dynamic>{
+          for (final entry in decoded.entries) '${entry.key}': entry.value,
+          'isStreaming': false,
+          'done': true,
+        };
+        await repository.persistDirectMessages(
+          location,
+          chatId: chatId,
+          messages: <MessageRowData>[
+            MessageRowData(
+              id: row.id,
+              chatId: chatId,
+              parentId: row.parentId,
+              role: row.role,
+              content: row.content,
+              model: row.model,
+              createdAt: row.createdAt,
+              orderIndex: row.orderIndex,
+              payload: payload,
+            ),
+          ],
+          currentMessageId: null,
+          updatedAt: now,
+        );
+      }
+    });
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'orphaned-direct-settle-failed',
+      scope: 'conversation',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'id': chatId},
+    );
+  }
+  return conversation.copyWith(
+    messages: <ChatMessage>[
+      for (final message in conversation.messages)
+        orphans.contains(message.id)
+            ? message.copyWith(isStreaming: false)
+            : message,
+    ],
+  );
+}
+
 // Provider to load full conversation with messages
 @riverpod
 Future<Conversation> loadConversation(Ref ref, String conversationId) {
@@ -304,9 +381,14 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
         !libreChatReadIsCurrent(located.location.database)) {
       throw const LibreChatAccountChangedException();
     }
-    final local = withChatStorageProvenance(
-      located.conversation,
-      located.location.storage,
+    final local = await _settleOrphanedDirectAnswers(
+      ref,
+      withChatStorageProvenance(
+        located.conversation,
+        located.location.storage,
+      ),
+      chatId: rawConversationId,
+      location: located.location,
     );
     DebugLogger.log(
       'load-local-ok',

@@ -26,12 +26,14 @@ use std::io::{Read as _, Write as _};
 use std::net::TcpStream;
 
 use conduit_protocol::{
-    ChatRef, DirectConnectionList, DirectKind, McpAuth, NoParams, UiRequestKind, UiResponse,
-    methods,
+    AccountChangeOutcome, AddAccount, ChatRef, DirectConnectionList, DirectKind, McpAuth, NoParams,
+    PasswordLogin, ServerDraft, UiRequestKind, UiResponse, methods,
 };
 use serde_json::Value;
 
-use super::chat::{chat_store, in_pane, send, sign_in, wait_answer, wait_models};
+use super::chat::{
+    chat_store, in_pane, last_answer_text, send, sign_in, wait_answer, wait_models, wait_streaming,
+};
 use super::*;
 use crate::actions::SettingsChoice;
 use crate::views::direct::editor::DirectEditorSheet;
@@ -306,6 +308,90 @@ async fn wait_connection(cx: &mut AsyncApp, name: &str) -> bool {
         })
     })
     .await
+}
+
+/// `--e2e direct`, last: a Direct reply streaming in a chat kept on this
+/// device runs to its end across a first sign-in to Open WebUI (`OWUI_*`),
+/// and the chat keeps the whole answer, not streaming.
+pub(super) async fn reply_across_sign_in(
+    inputs: &E2eInputs,
+    dir: &Path,
+    cx: &mut AsyncApp,
+) -> bool {
+    let Some((url, email, password)) = inputs.owui() else {
+        return ok(
+            "reply across a sign-in: no OWUI_* in the env, skipped",
+            true,
+        );
+    };
+    let mut pass = ok("the Direct model is offered", wait_models(cx).await);
+    send("slow tide report", cx).await;
+    pass &= ok(
+        "the slow Direct reply streams",
+        wait_streaming(cx, Duration::from_secs(30)).await,
+    );
+    settle(cx, 2000).await;
+    let chat_id = cx.update(|cx| chat_store(cx).map(|s| s.read(cx).chat_id().to_string()));
+    let Some(chat_id) = chat_id.filter(|id| !id.is_empty()) else {
+        return ok("the slow reply's chat has an id", false);
+    };
+    let before = cx.update(last_answer_text).trim().len();
+    shoot_main(dir, "direct-slow-before-sign-in", cx).await;
+    let rpc = cx.update(rpc);
+    let added = rpc
+        .call::<methods::AccountsAdd>(&AddAccount {
+            server: ServerDraft {
+                id: None,
+                name: "Lab server".into(),
+                url,
+                allow_self_signed_certificates: false,
+                mtls_certificate_chain_pem: None,
+                mtls_certificate_label: None,
+                mtls_private_key_pem: None,
+                mtls_private_key_label: None,
+                mtls_private_key_password: None,
+                clear_mutual_tls: false,
+                custom_headers: None,
+            },
+            server_id: None,
+            force: false,
+        })
+        .await;
+    pass &= ok(
+        "adding the first account asks nothing of a Direct reply",
+        added.is_ok_and(|r| r.outcome != AccountChangeOutcome::BlockedByActiveReply),
+    );
+    let signed_in = rpc
+        .call::<methods::AuthLoginWithPassword>(&PasswordLogin {
+            username: email,
+            password,
+        })
+        .await;
+    pass &= ok("signed in to the first account", signed_in.is_ok());
+    // The answer streams on for about a minute; it ends whole, not cut off.
+    let mut answer = None;
+    for _ in 0..240 {
+        let got = rpc
+            .call::<methods::ChatsGet>(&ChatRef {
+                id: chat_id.clone(),
+            })
+            .await
+            .ok()
+            .and_then(|r| r.chat)
+            .and_then(|c| c.messages.into_iter().rev().find(|m| m.role == "assistant"));
+        if got.as_ref().is_some_and(|m| !m.streaming) {
+            answer = got;
+            break;
+        }
+        settle(cx, 500).await;
+    }
+    let whole = answer.is_some_and(|m| m.error_code.is_none() && m.content.trim().len() > before);
+    pass &= ok(
+        "the Direct reply ran to its end across the sign-in, stored whole",
+        whole,
+    );
+    shoot_main(dir, "direct-slow-after-sign-in", cx).await;
+    pass
 }
 
 fn rpc(cx: &mut App) -> crate::stores::rpc::Rpc {

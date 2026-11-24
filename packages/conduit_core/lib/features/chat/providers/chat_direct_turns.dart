@@ -513,12 +513,14 @@ Future<void> _persistCompletedDirectAssistant(
 /// held alive by the run lease, resolves only the captured assistant row (and
 /// its committed remap), and changes it only while its durable payload still
 /// says it is streaming. It therefore cannot write into the newly active
-/// account or overwrite a completion that won the race.
+/// account or overwrite a completion that won the race. [partial]'s words,
+/// what the provider had written by then, replace an empty placeholder's.
 Future<void> _settleDirectAssistantAfterAuthSessionChange(
   dynamic ref, {
   required _DirectConversationOwner owner,
   required String assistantMessageId,
   required bool Function() isCurrentGeneration,
+  ChatMessage? partial,
 }) async {
   final location = owner.location;
   if (location == null) return;
@@ -558,6 +560,9 @@ Future<void> _settleDirectAssistantAfterAuthSessionChange(
       payload
         ..['isStreaming'] = false
         ..['done'] = true;
+      final words = partial?.content ?? '';
+      final keepsWords = existing.content.isEmpty && words.isNotEmpty;
+      if (keepsWords) payload['content'] = words;
       await repository.persistDirectMessages(
         location,
         chatId: currentId,
@@ -567,7 +572,7 @@ Future<void> _settleDirectAssistantAfterAuthSessionChange(
             chatId: currentId,
             parentId: existing.parentId,
             role: existing.role,
-            content: existing.content,
+            content: keepsWords ? words : existing.content,
             model: existing.model,
             createdAt: existing.createdAt,
             orderIndex: existing.orderIndex,
@@ -1775,7 +1780,13 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       } catch (_) {}
     }
     if (!registry.isLatest(reservation)) return;
-    _requireDirectOwnerAuthSession(ref, owner);
+    ChatMessage partialAnswer() => assistantSeed.copyWith(
+      content: accumulator.render(done: true),
+      isStreaming: false,
+    );
+    if (!_directOwnerAuthSessionIsCurrent(ref, owner)) {
+      throw _DirectOpenWebUiAuthSessionChanged(partial: partialAnswer());
+    }
 
     Map<String, dynamic>? signedFileAnnotations;
     if (route.profile.isOpenRouter && accumulator.fileAnnotations.isNotEmpty) {
@@ -1801,7 +1812,9 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     // has closed. Re-establish both generation and auth ownership before
     // projecting or persisting provider output.
     if (!registry.isLatest(reservation)) return;
-    _requireDirectOwnerAuthSession(ref, owner);
+    if (!_directOwnerAuthSessionIsCurrent(ref, owner)) {
+      throw _DirectOpenWebUiAuthSessionChanged(partial: partialAnswer());
+    }
 
     final ownerIsActive = _isDirectConversationOwnerActive(ref, owner);
     if (terminalFailure != null && accumulator.hasGeneratedImages) {
@@ -1894,7 +1907,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       );
     } on _DirectOpenWebUiAuthSessionChanged {
       registry.discardFinalizedOutput(reservation);
-      rethrow;
+      throw _DirectOpenWebUiAuthSessionChanged(partial: completed);
     }
     registry.markDurablyPersisted(reservation);
     await _announceDirectRunCompletion(

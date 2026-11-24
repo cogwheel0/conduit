@@ -1,3 +1,6 @@
+import 'package:conduit_core/providers/account_change_reset.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show accountChangeStopRepliesProvider;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -5716,5 +5719,96 @@ void main() {
     expect(stopped.id, settled.id);
     expect(stopped.isStreaming, isFalse);
     expect(stopped.content, 'Final answer');
+  });
+  group('a Direct reply across an Open WebUI account change', () {
+    test('Switch stops reply: the reply in an on-device chat is stopped, '
+        'what came is stored as a finished answer, and the chat stays '
+        'open', () async {
+      final epoch = NotifierProvider<_EpochState, Object>(
+        () => _EpochState(Object()),
+      );
+      final harness = await _createGatedDirectHarness(
+        'switch-stops-reply',
+        authEpochState: epoch,
+      );
+      final started = harness.adapter.nextRun();
+      final send = sendMessageWithContainer(
+        harness.container,
+        'Tell me about tides',
+        null,
+      );
+      final run = await started.timeout(const Duration(seconds: 1));
+      addTearDown(run.close);
+      run.add(const DirectContentDelta('Words that came'));
+      await Future<void>.delayed(Duration.zero);
+
+      // What the phone does once the user agrees to switch.
+      harness.container.read(accountChangeStopRepliesProvider)();
+      await send.timeout(const Duration(seconds: 1));
+      resetOpenWebUiAccountState(harness.container);
+      harness.container.read(epoch.notifier).rotate();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        harness.container.read(activeConversationProvider)?.id,
+        harness.chat.id,
+      );
+      final shown = harness.container.read(chatMessagesProvider).last;
+      expect(shown.content, 'Words that came');
+      expect(shown.isStreaming, isFalse);
+      expect(run.run.isCancelled, isTrue);
+      final persisted = (await harness.db.messagesDao.getForChat(
+        harness.chat.id,
+      )).singleWhere((row) => row.id == shown.id);
+      expect(persisted.content, 'Words that came');
+      expect(
+        (jsonDecode(persisted.payload) as Map)['isStreaming'],
+        isFalse,
+      );
+    });
+
+    test('an account change that asks nothing (a first sign-in): the '
+        'on-device chat stays open, and its Direct reply runs to the end and '
+        'is stored', () async {
+      final epoch = NotifierProvider<_EpochState, Object>(
+        () => _EpochState(Object()),
+      );
+      final harness = await _createGatedDirectHarness(
+        'unguarded-change',
+        authEpochState: epoch,
+      );
+      final started = harness.adapter.nextRun();
+      final send = sendMessageWithContainer(
+        harness.container,
+        'Tell me about currents',
+        null,
+      );
+      final run = await started.timeout(const Duration(seconds: 1));
+      addTearDown(run.close);
+      run.add(const DirectContentDelta('First half'));
+      await Future<void>.delayed(Duration.zero);
+
+      resetOpenWebUiAccountState(harness.container);
+      harness.container.read(epoch.notifier).rotate();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        harness.container.read(activeConversationProvider)?.id,
+        harness.chat.id,
+      );
+      expect(harness.container.read(chatMessagesProvider).last.isStreaming,
+          isTrue);
+
+      run.add(const DirectContentDelta(' and the rest'));
+      run.add(const DirectStreamDone());
+      await send.timeout(const Duration(seconds: 1));
+
+      final shown = harness.container.read(chatMessagesProvider).last;
+      expect(shown.content, 'First half and the rest');
+      expect(shown.isStreaming, isFalse);
+      final persisted = (await harness.db.messagesDao.getForChat(
+        harness.chat.id,
+      )).singleWhere((row) => row.id == shown.id);
+      expect(persisted.content, 'First half and the rest');
+    });
   });
 }

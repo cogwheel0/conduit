@@ -62,6 +62,7 @@ import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart'
     show OpenWebUiChatSettingsAccess, kChatParamSystem;
 import 'package:conduit_core/ports/ui_request_port.dart';
+import 'package:conduit_core/providers/account_change_chats.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/primary_account_providers.dart'
     show PrimaryAccountRef, primaryAccountProvider;
@@ -163,18 +164,27 @@ final class TurnsService implements ChatTurns, AddressReplies {
     chatPrompts
       ?..storedPrompt = storedPrompt
       ..resolveStored = resolveStoredPrompt;
-    // A chat belongs to the account it was opened under. On another
-    // account, or none, every scope goes, and a running turn with it.
+    // A chat belongs to the account it is stored in: a change of that
+    // account closes it, its running turn with it. A chat stored in none
+    // stays open, its answer running on ([accountChangeEndsChat]).
     _accountWatches = <ProviderSubscription<Object?>>[
       _container.listen<Object?>(openWebUiAuthSessionEpochProvider, (
         previous,
         next,
       ) {
-        _closeAll(reason: 'account-changed');
+        _closeEndedBy(
+          AccountChange.openWebUiSession,
+          reason: 'account-changed',
+        );
         this.temporary.clear();
       }),
       _container.listen<Object?>(apiServiceProvider, (previous, next) {
-        if (!identical(previous, next)) _closeAll(reason: 'session-changed');
+        if (!identical(previous, next)) {
+          _closeEndedBy(
+            AccountChange.openWebUiClient,
+            reason: 'session-changed',
+          );
+        }
       }),
       // The account in charge of the chats: one LibreChat account after
       // another changes neither Open WebUI's session nor its client.
@@ -183,7 +193,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
         next,
       ) {
         if (previous == null || previous == next) return;
-        _closeAll(reason: 'account-changed');
+        _closeEndedBy(AccountChange.chatsAccount, reason: 'account-changed');
         this.temporary.clear();
       }),
       // The terminal the account selects (`terminal.select`) is every open
@@ -389,11 +399,16 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// does: the ones taken here, never a turn that took a chat's place
   /// while an earlier one was stopped (a Direct answer started after one
   /// finished, say). One that finished or went meanwhile is left.
-  Future<void> _stopRunning({bool Function(_Turn turn)? where}) async {
+  Future<void> _stopRunning({
+    bool Function(_Turn turn)? where,
+    bool Function(_ChatSession session)? inChat,
+  }) async {
     final running = [
       for (final session in _sessions)
         if (session.turn case final turn?
-            when !turn.finished && (where?.call(turn) ?? true))
+            when !turn.finished &&
+                (where?.call(turn) ?? true) &&
+                (inChat?.call(session) ?? true))
           (session, turn),
     ];
     for (final (session, turn) in running) {
@@ -1593,6 +1608,27 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// then the turn is finished.
   Future<void> _stopTurn(_ChatSession session, _Turn turn) async {
     turn.stopped = true;
+    if (turn.clientOwned) {
+      await _stopClientRun(session, turn);
+    } else {
+      await _stopInScope(session);
+    }
+    // Stopped is finished, whatever the transport did with its message.
+    if (!session.scope.isDisposed) _project(session);
+    if (!turn.finished) {
+      _finish(
+        session,
+        turn,
+        turn.clientOwned
+            ? await _settledAnswer(session, turn)
+            : _answerOf(session, turn),
+      );
+    }
+  }
+
+  /// The core's Stop in [session]'s scope.
+  Future<void> _stopInScope(_ChatSession session) async {
+    if (session.scope.isDisposed) return;
     try {
       await session.scope.container.read(stopGenerationSettledProvider)();
     } on Object catch (error, stackTrace) {
@@ -1603,10 +1639,63 @@ final class TurnsService implements ChatTurns, AddressReplies {
         stackTrace: stackTrace,
       );
     }
-    // Stopped is finished, whatever the transport did with its message.
-    if (!session.scope.isDisposed) _project(session);
-    if (!turn.finished) _finish(session, turn, _answerOf(session, turn));
   }
+
+  /// Stops [turn]'s direct or Hermes run and waits for it to store its
+  /// stopped answer, which it does itself once its stream lets go: read
+  /// before then, the answer has none of its words. The core's Stop finds
+  /// the run through the scope's transcript; the registries find it by the
+  /// answer's id too, for a transcript that lost it (an Open WebUI context
+  /// change rebinds a chat not yet synced to nothing).
+  Future<void> _stopClientRun(_ChatSession session, _Turn turn) async {
+    await _stopInScope(session);
+    for (final stop in <Future<void>?>[
+      _container
+          .read(directRunRegistryProvider)
+          .cancelForMessage(turn.messageId),
+      _container.read(hermesRunRegistryProvider).cancelMessage(turn.messageId),
+    ]) {
+      unawaited(stop?.catchError((Object _) {}));
+    }
+    await _sendSettled(turn);
+  }
+
+  /// [turn]'s answer once its run has stored it: as the scope shows it, or
+  /// as stored when the scope's transcript lost it.
+  Future<ChatMessage?> _settledAnswer(_ChatSession session, _Turn turn) async {
+    final shown = _answerOf(session, turn);
+    if (shown != null && !shown.isStreaming) return shown;
+    try {
+      final stored = await _conversation(turn.chatId);
+      return stored.messages
+              .where((message) => message.id == turn.messageId)
+              .lastOrNull ??
+          shown;
+    } on Object {
+      return shown;
+    }
+  }
+
+  /// Once [turn]'s send has settled, or [_clientStopSettles] has passed:
+  /// a run that never lets go must not hold a stop, an account change or a
+  /// quit.
+  Future<void> _sendSettled(_Turn turn) async {
+    final sending = turn.pending?.sending;
+    if (sending == null) return;
+    try {
+      await sending.timeout(_clientStopSettles);
+    } on TimeoutException {
+      DebugLogger.warning(
+        'turn-stop-unsettled',
+        scope: 'daemon/turns',
+        data: <String, Object?>{'chatId': turn.chatId},
+      );
+    } on Object {
+      // Reported with the turn.
+    }
+  }
+
+  static const Duration _clientStopSettles = Duration(seconds: 5);
 
   /// Stop on an answer the core still shows as generating with no turn of
   /// this daemon's behind it: one whose request never went out, which an
@@ -2241,6 +2330,21 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// once the user has agreed to: those running when it was agreed.
   Future<void> stopAll() => _stopRunning();
 
+  /// Whether an answer runs in a chat an account change closes: one an
+  /// account owns ([accountChangeEndsChat]). One in a chat kept on this
+  /// device runs on through the change, so leaving needs no one's leave.
+  bool get answersAnAccountChangeEnds => _sessions.any(
+    (session) =>
+        session.turn?.finished == false &&
+        _endedBy(AccountChange.chatsAccount, session),
+  );
+
+  /// Stops the answers [answersAnAccountChangeEnds] counts, each as Stop
+  /// does, its words so far kept.
+  Future<void> stopAnswersAnAccountChangeEnds() => _stopRunning(
+    inChat: (session) => _endedBy(AccountChange.chatsAccount, session),
+  );
+
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
@@ -2254,7 +2358,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       _close(session);
     }
-    await Future.wait(_syncing.toList());
+    await Future.wait(<Future<void>>[..._closing, ..._syncing]);
   }
 
   // ---------------------------------------------------------------------------
@@ -3896,7 +4000,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     if (!running && session.pending == null) _scheduleLinger(session);
   }
 
-  /// [afterRead]: closed from a provider listener ([_closeAll]), which runs
+  /// [afterRead]: closed from a provider listener ([_closeEndedBy]), which runs
   /// inside the read that noticed the change; what the close reads is read
   /// now, and only the scope's container waits for that read to finish.
   void _close(_ChatSession session, {bool afterRead = false}) {
@@ -3922,46 +4026,50 @@ final class TurnsService implements ChatTurns, AddressReplies {
     _sessions.remove(session);
   }
 
-  void _closeAll({required String reason}) {
+  /// Who owns [session]'s chat ([chatOwnerOf]).
+  ChatOwner _ownerOf(_ChatSession session) => chatOwnerOf(
+    session.scope.isDisposed ? null : session.scope.conversation,
+    chatId: session.chatId,
+  );
+
+  /// Whether [change] closes [session]'s chat ([accountChangeEndsChat]).
+  bool _endedBy(AccountChange change, _ChatSession session) {
+    final turn = session.turn;
+    return accountChangeEndsChat(
+      change,
+      _ownerOf(session),
+      replyBypassesOpenWebUi:
+          turn != null &&
+          !turn.finished &&
+          !answersThroughAddress(
+            running: true,
+            sending: false,
+            transport: turn.transport,
+          ),
+    );
+  }
+
+  /// Closes the chats [change] ends. A direct or Hermes answer running in
+  /// one is stopped first ([_closeAfterStop]); an Open WebUI one ends here,
+  /// its server left to finish it.
+  void _closeEndedBy(AccountChange change, {required String reason}) {
     // Another account's prompts are not this one's to answer.
     _chatPrompts?.clear();
-    if (_sessions.isEmpty) return;
+    final ending = <_ChatSession>[
+      for (final session in _sessions)
+        if (_endedBy(change, session)) session,
+    ];
+    if (ending.isEmpty) return;
     DebugLogger.log(
       'chat-scopes-closed',
       scope: 'daemon/turns',
-      data: <String, Object?>{'reason': reason, 'count': _sessions.length},
+      data: <String, Object?>{
+        'reason': reason,
+        'count': ending.length,
+        'kept': _sessions.length - ending.length,
+      },
     );
-    for (final session in List<_ChatSession>.of(_sessions)) {
-      final turn = session.turn;
-      if (turn != null && !turn.finished) {
-        turn.finished = true;
-        if (!turn.ended.isCompleted) turn.ended.complete();
-        turn.ticker?.cancel();
-        if (hermesSessionOf(turn.chatId) case final sessionId?) {
-          _hermes?.setRunning(sessionId, false);
-        }
-        _remember(turn.messageId);
-        _events
-          ..emit(
-            ConduitEventSpecs.turnFailed,
-            TurnFailed(
-              chatId: turn.chatId,
-              messageId: turn.messageId,
-              code: ConduitErrorCodes.sessionExpired,
-              partialText: turn.text,
-            ),
-            scope: turn.chatId,
-          )
-          ..emit(
-            ConduitEventSpecs.turnFinished,
-            TurnFinished(
-              chatId: turn.chatId,
-              messageId: turn.messageId,
-              ok: false,
-              code: ConduitErrorCodes.sessionExpired,
-            ),
-          );
-      }
+    for (final session in ending) {
       final pending = session.pending;
       if (pending != null && !pending.started.isCompleted) {
         pending.started.completeError(
@@ -3971,8 +4079,72 @@ final class TurnsService implements ChatTurns, AddressReplies {
           ),
         );
       }
+      final turn = session.turn;
+      if (turn != null && !turn.finished && turn.clientOwned) {
+        // No other turn takes the chat while this one settles.
+        _sessions.remove(session);
+        final closing = _closeAfterStop(session, turn);
+        _closing.add(closing);
+        unawaited(closing.whenComplete(() => _closing.remove(closing)));
+        continue;
+      }
+      if (turn != null && !turn.finished) _endExpired(session, turn);
       _close(session, afterRead: true);
     }
+  }
+
+  /// Account changes waiting on a stopped answer to settle before their
+  /// chat's scope goes.
+  final Set<Future<void>> _closing = <Future<void>>{};
+
+  /// Ends [turn], a direct or Hermes answer in a chat an account change
+  /// closed: the core's stop ends its run, which stores the words that came
+  /// as a finished answer, and only then does the scope go, as the run's own
+  /// settling reads it. Out of the listener's read: a scope disposed under
+  /// it breaks that read ([ChatSessionScope.disposeAfterRead]).
+  Future<void> _closeAfterStop(_ChatSession session, _Turn turn) async {
+    await Future<void>.value();
+    turn.stopped = true;
+    await _stopClientRun(session, turn);
+    if (!session.scope.isDisposed) _project(session);
+    if (!turn.finished) {
+      final answer = await _settledAnswer(session, turn);
+      if (answer != null && !answer.isStreaming) turn.text = answer.content;
+      _endExpired(session, turn);
+    }
+    _close(session, afterRead: true);
+  }
+
+  /// Tells the windows [turn] ended because its account's session did, with
+  /// the words it had.
+  void _endExpired(_ChatSession session, _Turn turn) {
+    turn.finished = true;
+    if (!turn.ended.isCompleted) turn.ended.complete();
+    turn.ticker?.cancel();
+    if (hermesSessionOf(turn.chatId) case final sessionId?) {
+      _hermes?.setRunning(sessionId, false);
+    }
+    _remember(turn.messageId);
+    _events
+      ..emit(
+        ConduitEventSpecs.turnFailed,
+        TurnFailed(
+          chatId: turn.chatId,
+          messageId: turn.messageId,
+          code: ConduitErrorCodes.sessionExpired,
+          partialText: turn.text,
+        ),
+        scope: turn.chatId,
+      )
+      ..emit(
+        ConduitEventSpecs.turnFinished,
+        TurnFinished(
+          chatId: turn.chatId,
+          messageId: turn.messageId,
+          ok: false,
+          code: ConduitErrorCodes.sessionExpired,
+        ),
+      );
   }
 
   // ---------------------------------------------------------------------------

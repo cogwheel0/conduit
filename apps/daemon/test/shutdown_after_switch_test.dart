@@ -20,18 +20,15 @@ import '../../../packages/conduit_services/test/support/scripted_openai.dart';
 const String _token = 'cJkVQ1mEo3nT7pZs9YbXwF2gH5LdRaUvNi0KqMtBxCe';
 final String _masterKey = base64.encode(List<int>.filled(32, 7));
 
-/// Stopping the daemon while a Direct reply still streams in a chat an
-/// account change closed: the chat's turn has ended, but the reply runs on
-/// in the core and keeps its database leased. Stopping must cut it off, not
-/// wait for the provider to finish: the runtime's dispose closes the Direct
-/// client pool (with the container) before it waits for the databases.
+/// Stopping the daemon while a Direct reply still streams across an account
+/// change: the chat is kept on this device, so the change leaves it open and
+/// the reply runs on, holding its database lease. Stopping must cut it off,
+/// not wait for the provider to finish.
 ///
-/// One daemon for the file: `CoreRuntime` keeps process-wide state. Not in
-/// `shutdown_test`, whose stop needs its chats still open, and an account
-/// change closes them all.
+/// One daemon for the file: `CoreRuntime` keeps process-wide state.
 void main() {
-  test('stopping the daemon cuts off a Direct reply whose chat an account '
-      'change closed, rather than waiting for the provider', () async {
+  test('stopping the daemon cuts off a Direct reply that ran on across an '
+      'account change, rather than waiting for the provider', () async {
     final tempDir = await Directory.systemTemp.createTemp('conduitd_switch');
     addTearDown(() => tempDir.delete(recursive: true));
     final config = BootstrapConfig(
@@ -118,8 +115,8 @@ void main() {
     );
     await asked;
 
-    // Signing in to an Open WebUI account changes the account's client, and
-    // the daemon closes every open chat with it.
+    // Signing in to an Open WebUI account changes its session and client; a
+    // chat kept on this device is no account's, and stays open.
     await peer.sendRequest(
       ConduitMethods.accountsAdd,
       AddAccount(
@@ -140,8 +137,8 @@ void main() {
             e.event == ConduitEvents.turnFinished &&
             e.payload['chatId'] == accepted.chatId,
       ),
-      isNotEmpty,
-      reason: 'the account change did not close the chat',
+      isEmpty,
+      reason: 'the account change closed a chat it does not own',
     );
 
     // The provider still holds the reply: only a stop that cuts it off
