@@ -137,8 +137,8 @@ public struct AccessRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -186,11 +186,11 @@ public struct AccessGrantDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(principalType, forKey: .principalType)
-    try container.encode(principalId, forKey: .principalId)
-    try container.encode(write, forKey: .write)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(email, forKey: .email)
+    try container.encode(self.principalType, forKey: .principalType)
+    try container.encode(self.principalId, forKey: .principalId)
+    try container.encode(self.write, forKey: .write)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.email, forKey: .email)
   }
 }
 
@@ -276,17 +276,17 @@ public struct AccessState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(grants, forKey: .grants)
-    try container.encode(audience, forKey: .audience)
-    try container.encode(canEdit, forKey: .canEdit)
-    try container.encode(allowUsers, forKey: .allowUsers)
-    try container.encode(allowGroups, forKey: .allowGroups)
-    try container.encode(allowWrite, forKey: .allowWrite)
-    try container.encode(allowPublic, forKey: .allowPublic)
-    try container.encode(allowOpen, forKey: .allowOpen)
-    try container.encodeIfPresent(ownerName, forKey: .ownerName)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.grants, forKey: .grants)
+    try container.encode(self.audience, forKey: .audience)
+    try container.encode(self.canEdit, forKey: .canEdit)
+    try container.encode(self.allowUsers, forKey: .allowUsers)
+    try container.encode(self.allowGroups, forKey: .allowGroups)
+    try container.encode(self.allowWrite, forKey: .allowWrite)
+    try container.encode(self.allowPublic, forKey: .allowPublic)
+    try container.encode(self.allowOpen, forKey: .allowOpen)
+    try container.encodeIfPresent(self.ownerName, forKey: .ownerName)
   }
 }
 
@@ -328,10 +328,10 @@ public struct AccessEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(grants, forKey: .grants)
-    try container.encodeIfPresent(audience, forKey: .audience)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.grants, forKey: .grants)
+    try container.encodeIfPresent(self.audience, forKey: .audience)
   }
 }
 
@@ -372,10 +372,10 @@ public struct AccessPrincipal: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(type, forKey: .type)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(email, forKey: .email)
+    try container.encode(self.type, forKey: .type)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.email, forKey: .email)
   }
 }
 
@@ -400,7 +400,7 @@ public struct AccessPrincipalQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(query, forKey: .query)
+    try container.encode(self.query, forKey: .query)
   }
 }
 
@@ -425,7 +425,7 @@ public struct AccessPrincipals: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(items, forKey: .items)
+    try container.encode(self.items, forKey: .items)
   }
 }
 
@@ -463,9 +463,9 @@ public struct AccountUser: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(name, forKey: .name)
-    try container.encodeIfPresent(email, forKey: .email)
-    try container.encodeIfPresent(avatarUrl, forKey: .avatarUrl)
+    try container.encodeIfPresent(self.name, forKey: .name)
+    try container.encodeIfPresent(self.email, forKey: .email)
+    try container.encodeIfPresent(self.avatarUrl, forKey: .avatarUrl)
   }
 }
 
@@ -534,13 +534,13 @@ public struct AccountSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encode(connection, forKey: .connection)
-    try container.encodeIfPresent(user, forKey: .user)
-    try container.encode(isActive, forKey: .isActive)
-    try container.encode(hasSession, forKey: .hasSession)
-    try container.encodeIfPresent(lastUsedMs, forKey: .lastUsedMs)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encode(self.connection, forKey: .connection)
+    try container.encodeIfPresent(self.user, forKey: .user)
+    try container.encode(self.isActive, forKey: .isActive)
+    try container.encode(self.hasSession, forKey: .hasSession)
+    try container.encodeIfPresent(self.lastUsedMs, forKey: .lastUsedMs)
   }
 }
 
@@ -640,13 +640,13 @@ public struct LibreChatAccountSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(baseUrl, forKey: .baseUrl)
-    try container.encode(title, forKey: .title)
-    try container.encodeIfPresent(user, forKey: .user)
-    try container.encode(isActive, forKey: .isActive)
-    try container.encode(hasSession, forKey: .hasSession)
-    try container.encodeIfPresent(lastUsedMs, forKey: .lastUsedMs)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.baseUrl, forKey: .baseUrl)
+    try container.encode(self.title, forKey: .title)
+    try container.encodeIfPresent(self.user, forKey: .user)
+    try container.encode(self.isActive, forKey: .isActive)
+    try container.encode(self.hasSession, forKey: .hasSession)
+    try container.encodeIfPresent(self.lastUsedMs, forKey: .lastUsedMs)
   }
 }
 
@@ -712,13 +712,13 @@ public struct AccountList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(accounts, forKey: .accounts)
-    try container.encodeIfPresent(activeAccountId, forKey: .activeAccountId)
-    try container.encode(addingAccount, forKey: .addingAccount)
-    try container.encode(libreChatAccounts, forKey: .libreChatAccounts)
-    try container.encode(primary, forKey: .primary)
-    try container.encodeIfPresent(activeLibreChatAccountId, forKey: .activeLibreChatAccountId)
-    try container.encode(libreChatSession, forKey: .libreChatSession)
+    try container.encode(self.accounts, forKey: .accounts)
+    try container.encodeIfPresent(self.activeAccountId, forKey: .activeAccountId)
+    try container.encode(self.addingAccount, forKey: .addingAccount)
+    try container.encode(self.libreChatAccounts, forKey: .libreChatAccounts)
+    try container.encode(self.primary, forKey: .primary)
+    try container.encodeIfPresent(self.activeLibreChatAccountId, forKey: .activeLibreChatAccountId)
+    try container.encode(self.libreChatSession, forKey: .libreChatSession)
   }
 }
 
@@ -807,9 +807,9 @@ public struct AddAccount: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(server, forKey: .server)
-    try container.encodeIfPresent(serverId, forKey: .serverId)
-    try container.encode(force, forKey: .force)
+    try container.encode(self.server, forKey: .server)
+    try container.encodeIfPresent(self.serverId, forKey: .serverId)
+    try container.encode(self.force, forKey: .force)
   }
 }
 
@@ -853,9 +853,9 @@ public struct AccountRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(accountId, forKey: .accountId)
-    try container.encode(force, forKey: .force)
-    try container.encodeIfPresent(askedOver, forKey: .askedOver)
+    try container.encode(self.accountId, forKey: .accountId)
+    try container.encode(self.force, forKey: .force)
+    try container.encodeIfPresent(self.askedOver, forKey: .askedOver)
   }
 }
 
@@ -880,7 +880,7 @@ public struct AccountSignOut: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(force, forKey: .force)
+    try container.encode(self.force, forKey: .force)
   }
 }
 
@@ -961,8 +961,8 @@ public struct AccountChangeResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encode(accounts, forKey: .accounts)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encode(self.accounts, forKey: .accounts)
   }
 }
 
@@ -988,7 +988,7 @@ public struct AccountsChanged: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(activeAccountId, forKey: .activeAccountId)
+    try container.encodeIfPresent(self.activeAccountId, forKey: .activeAccountId)
   }
 }
 
@@ -1165,10 +1165,10 @@ public struct AppleEngineStatus: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(availability, forKey: .availability)
-    try container.encodeIfPresent(reason, forKey: .reason)
-    try container.encodeIfPresent(contextSize, forKey: .contextSize)
-    try container.encodeIfPresent(supportsCurrentLocale, forKey: .supportsCurrentLocale)
+    try container.encode(self.availability, forKey: .availability)
+    try container.encodeIfPresent(self.reason, forKey: .reason)
+    try container.encodeIfPresent(self.contextSize, forKey: .contextSize)
+    try container.encodeIfPresent(self.supportsCurrentLocale, forKey: .supportsCurrentLocale)
   }
 }
 
@@ -1213,11 +1213,11 @@ public struct AppleModelStatus: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(model, forKey: .model)
-    try container.encode(availability, forKey: .availability)
-    try container.encodeIfPresent(reason, forKey: .reason)
-    try container.encodeIfPresent(contextSize, forKey: .contextSize)
-    try container.encodeIfPresent(supportsCurrentLocale, forKey: .supportsCurrentLocale)
+    try container.encode(self.model, forKey: .model)
+    try container.encode(self.availability, forKey: .availability)
+    try container.encodeIfPresent(self.reason, forKey: .reason)
+    try container.encodeIfPresent(self.contextSize, forKey: .contextSize)
+    try container.encodeIfPresent(self.supportsCurrentLocale, forKey: .supportsCurrentLocale)
   }
 }
 
@@ -1245,7 +1245,7 @@ public struct AppleModels: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(models, forKey: .models)
+    try container.encode(self.models, forKey: .models)
   }
 }
 
@@ -1276,8 +1276,8 @@ public struct AppleMessage: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(role, forKey: .role)
-    try container.encode(content, forKey: .content)
+    try container.encode(self.role, forKey: .role)
+    try container.encode(self.content, forKey: .content)
   }
 }
 
@@ -1313,9 +1313,9 @@ public struct AppleToolDefinition: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(description, forKey: .description)
-    try container.encode(inputSchemaJson, forKey: .inputSchemaJson)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.inputSchemaJson, forKey: .inputSchemaJson)
   }
 }
 
@@ -1397,18 +1397,18 @@ public struct AppleGeneration: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(runId, forKey: .runId)
-    try container.encode(model, forKey: .model)
-    try container.encode(messages, forKey: .messages)
-    try container.encode(tools, forKey: .tools)
-    try container.encodeIfPresent(temperature, forKey: .temperature)
-    try container.encodeIfPresent(maximumResponseTokens, forKey: .maximumResponseTokens)
-    try container.encodeIfPresent(topP, forKey: .topP)
-    try container.encodeIfPresent(topK, forKey: .topK)
-    try container.encodeIfPresent(seed, forKey: .seed)
-    try container.encodeIfPresent(greedySampling, forKey: .greedySampling)
-    try container.encodeIfPresent(responseSchemaName, forKey: .responseSchemaName)
-    try container.encodeIfPresent(responseSchemaJson, forKey: .responseSchemaJson)
+    try container.encode(self.runId, forKey: .runId)
+    try container.encode(self.model, forKey: .model)
+    try container.encode(self.messages, forKey: .messages)
+    try container.encode(self.tools, forKey: .tools)
+    try container.encodeIfPresent(self.temperature, forKey: .temperature)
+    try container.encodeIfPresent(self.maximumResponseTokens, forKey: .maximumResponseTokens)
+    try container.encodeIfPresent(self.topP, forKey: .topP)
+    try container.encodeIfPresent(self.topK, forKey: .topK)
+    try container.encodeIfPresent(self.seed, forKey: .seed)
+    try container.encodeIfPresent(self.greedySampling, forKey: .greedySampling)
+    try container.encodeIfPresent(self.responseSchemaName, forKey: .responseSchemaName)
+    try container.encodeIfPresent(self.responseSchemaJson, forKey: .responseSchemaJson)
   }
 }
 
@@ -1518,14 +1518,14 @@ public struct AppleCommand: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(request, forKey: .request)
-    try container.encodeIfPresent(runId, forKey: .runId)
-    try container.encodeIfPresent(callId, forKey: .callId)
-    try container.encodeIfPresent(toolContent, forKey: .toolContent)
-    try container.encode(toolCancelled, forKey: .toolCancelled)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encodeIfPresent(self.request, forKey: .request)
+    try container.encodeIfPresent(self.runId, forKey: .runId)
+    try container.encodeIfPresent(self.callId, forKey: .callId)
+    try container.encodeIfPresent(self.toolContent, forKey: .toolContent)
+    try container.encode(self.toolCancelled, forKey: .toolCancelled)
   }
 }
 
@@ -1803,26 +1803,26 @@ public struct AppleReport: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(ok, forKey: .ok)
-    try container.encodeIfPresent(error, forKey: .error)
-    try container.encodeIfPresent(kind, forKey: .kind)
-    try container.encodeIfPresent(supported, forKey: .supported)
-    try container.encode(runs, forKey: .runs)
-    try container.encodeIfPresent(status, forKey: .status)
-    try container.encodeIfPresent(runId, forKey: .runId)
-    try container.encodeIfPresent(seq, forKey: .seq)
-    try container.encodeIfPresent(order, forKey: .order)
-    try container.encodeIfPresent(content, forKey: .content)
-    try container.encodeIfPresent(inputTokens, forKey: .inputTokens)
-    try container.encodeIfPresent(outputTokens, forKey: .outputTokens)
-    try container.encodeIfPresent(reasoningTokens, forKey: .reasoningTokens)
-    try container.encodeIfPresent(totalTokens, forKey: .totalTokens)
-    try container.encodeIfPresent(callId, forKey: .callId)
-    try container.encodeIfPresent(toolName, forKey: .toolName)
-    try container.encodeIfPresent(argumentsJson, forKey: .argumentsJson)
-    try container.encodeIfPresent(failure, forKey: .failure)
-    try container.encodeIfPresent(reason, forKey: .reason)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.ok, forKey: .ok)
+    try container.encodeIfPresent(self.error, forKey: .error)
+    try container.encodeIfPresent(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.supported, forKey: .supported)
+    try container.encode(self.runs, forKey: .runs)
+    try container.encodeIfPresent(self.status, forKey: .status)
+    try container.encodeIfPresent(self.runId, forKey: .runId)
+    try container.encodeIfPresent(self.seq, forKey: .seq)
+    try container.encodeIfPresent(self.order, forKey: .order)
+    try container.encodeIfPresent(self.content, forKey: .content)
+    try container.encodeIfPresent(self.inputTokens, forKey: .inputTokens)
+    try container.encodeIfPresent(self.outputTokens, forKey: .outputTokens)
+    try container.encodeIfPresent(self.reasoningTokens, forKey: .reasoningTokens)
+    try container.encodeIfPresent(self.totalTokens, forKey: .totalTokens)
+    try container.encodeIfPresent(self.callId, forKey: .callId)
+    try container.encodeIfPresent(self.toolName, forKey: .toolName)
+    try container.encodeIfPresent(self.argumentsJson, forKey: .argumentsJson)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
+    try container.encodeIfPresent(self.reason, forKey: .reason)
   }
 }
 
@@ -1968,16 +1968,16 @@ public struct AuthSnapshot: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(phase, forKey: .phase)
-    try container.encode(isAuthenticated, forKey: .isAuthenticated)
-    try container.encode(isLoading, forKey: .isLoading)
-    try container.encode(hasToken, forKey: .hasToken)
-    try container.encodeIfPresent(user, forKey: .user)
-    try container.encodeIfPresent(errorCode, forKey: .errorCode)
-    try container.encode(errorArgs, forKey: .errorArgs)
-    try container.encode(isReviewerMode, forKey: .isReviewerMode)
-    try container.encodeIfPresent(twoStep, forKey: .twoStep)
-    try container.encode(canRenewProxy, forKey: .canRenewProxy)
+    try container.encode(self.phase, forKey: .phase)
+    try container.encode(self.isAuthenticated, forKey: .isAuthenticated)
+    try container.encode(self.isLoading, forKey: .isLoading)
+    try container.encode(self.hasToken, forKey: .hasToken)
+    try container.encodeIfPresent(self.user, forKey: .user)
+    try container.encodeIfPresent(self.errorCode, forKey: .errorCode)
+    try container.encode(self.errorArgs, forKey: .errorArgs)
+    try container.encode(self.isReviewerMode, forKey: .isReviewerMode)
+    try container.encodeIfPresent(self.twoStep, forKey: .twoStep)
+    try container.encode(self.canRenewProxy, forKey: .canRenewProxy)
   }
 }
 
@@ -2024,11 +2024,11 @@ public struct AuthUser: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(email, forKey: .email)
-    try container.encodeIfPresent(role, forKey: .role)
-    try container.encodeIfPresent(avatarUrl, forKey: .avatarUrl)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.email, forKey: .email)
+    try container.encodeIfPresent(self.role, forKey: .role)
+    try container.encodeIfPresent(self.avatarUrl, forKey: .avatarUrl)
   }
 }
 
@@ -2058,8 +2058,8 @@ public struct PasswordLogin: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(username, forKey: .username)
-    try container.encode(password, forKey: .password)
+    try container.encode(self.username, forKey: .username)
+    try container.encode(self.password, forKey: .password)
   }
 }
 
@@ -2085,7 +2085,7 @@ public struct ApiKeyLogin: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(apiKey, forKey: .apiKey)
+    try container.encode(self.apiKey, forKey: .apiKey)
   }
 }
 
@@ -2143,10 +2143,10 @@ public struct ExternalAuthCompletion: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(origin, forKey: .origin)
-    try container.encode(cookies, forKey: .cookies)
-    try container.encodeIfPresent(token, forKey: .token)
-    try container.encodeIfPresent(account, forKey: .account)
+    try container.encode(self.origin, forKey: .origin)
+    try container.encode(self.cookies, forKey: .cookies)
+    try container.encodeIfPresent(self.token, forKey: .token)
+    try container.encodeIfPresent(self.account, forKey: .account)
   }
 }
 
@@ -2171,7 +2171,7 @@ public struct SavedCredentialsResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(hasSavedCredentials, forKey: .hasSavedCredentials)
+    try container.encode(self.hasSavedCredentials, forKey: .hasSavedCredentials)
   }
 }
 
@@ -2196,7 +2196,7 @@ public struct ReviewerMode: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
+    try container.encode(self.enabled, forKey: .enabled)
   }
 }
 
@@ -2291,10 +2291,10 @@ public struct TwoStepChallenge: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(stage, forKey: .stage)
-    try container.encode(account, forKey: .account)
-    try container.encode(expiresInSeconds, forKey: .expiresInSeconds)
-    try container.encode(recoveryCodes, forKey: .recoveryCodes)
+    try container.encode(self.stage, forKey: .stage)
+    try container.encode(self.account, forKey: .account)
+    try container.encode(self.expiresInSeconds, forKey: .expiresInSeconds)
+    try container.encode(self.recoveryCodes, forKey: .recoveryCodes)
   }
 }
 
@@ -2334,9 +2334,9 @@ public struct TwoStepSetup: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(manualKey, forKey: .manualKey)
-    try container.encodeIfPresent(qrSvg, forKey: .qrSvg)
-    try container.encode(authenticatorUri, forKey: .authenticatorUri)
+    try container.encode(self.manualKey, forKey: .manualKey)
+    try container.encodeIfPresent(self.qrSvg, forKey: .qrSvg)
+    try container.encode(self.authenticatorUri, forKey: .authenticatorUri)
   }
 }
 
@@ -2368,8 +2368,8 @@ public struct TwoStepCode: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(code, forKey: .code)
-    try container.encode(recovery, forKey: .recovery)
+    try container.encode(self.code, forKey: .code)
+    try container.encode(self.recovery, forKey: .recovery)
   }
 }
 
@@ -2395,7 +2395,7 @@ public struct TwoStepResetToken: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(resetToken, forKey: .resetToken)
+    try container.encode(self.resetToken, forKey: .resetToken)
   }
 }
 
@@ -2463,14 +2463,14 @@ public struct AutomationScheduleDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(year, forKey: .year)
-    try container.encode(month, forKey: .month)
-    try container.encode(day, forKey: .day)
-    try container.encode(hour, forKey: .hour)
-    try container.encode(minute, forKey: .minute)
-    try container.encode(days, forKey: .days)
-    try container.encode(rrule, forKey: .rrule)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.year, forKey: .year)
+    try container.encode(self.month, forKey: .month)
+    try container.encode(self.day, forKey: .day)
+    try container.encode(self.hour, forKey: .hour)
+    try container.encode(self.minute, forKey: .minute)
+    try container.encode(self.days, forKey: .days)
+    try container.encode(self.rrule, forKey: .rrule)
   }
 }
 
@@ -2534,14 +2534,14 @@ public struct AutomationSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(active, forKey: .active)
-    try container.encode(schedule, forKey: .schedule)
-    try container.encodeIfPresent(nextRunAt, forKey: .nextRunAt)
-    try container.encodeIfPresent(lastRunAt, forKey: .lastRunAt)
-    try container.encode(lastRunFailed, forKey: .lastRunFailed)
-    try container.encodeIfPresent(agent, forKey: .agent)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.active, forKey: .active)
+    try container.encode(self.schedule, forKey: .schedule)
+    try container.encodeIfPresent(self.nextRunAt, forKey: .nextRunAt)
+    try container.encodeIfPresent(self.lastRunAt, forKey: .lastRunAt)
+    try container.encode(self.lastRunFailed, forKey: .lastRunFailed)
+    try container.encodeIfPresent(self.agent, forKey: .agent)
   }
 }
 
@@ -2606,14 +2606,14 @@ public struct AutomationList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encodeIfPresent(failure, forKey: .failure)
-    try container.encode(stale, forKey: .stale)
-    try container.encode(query, forKey: .query)
-    try container.encode(status, forKey: .status)
-    try container.encode(items, forKey: .items)
-    try container.encode(total, forKey: .total)
-    try container.encode(hasMore, forKey: .hasMore)
+    try container.encode(self.available, forKey: .available)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
+    try container.encode(self.stale, forKey: .stale)
+    try container.encode(self.query, forKey: .query)
+    try container.encode(self.status, forKey: .status)
+    try container.encode(self.items, forKey: .items)
+    try container.encode(self.total, forKey: .total)
+    try container.encode(self.hasMore, forKey: .hasMore)
   }
 }
 
@@ -2650,9 +2650,9 @@ public struct AutomationQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(query, forKey: .query)
-    try container.encodeIfPresent(status, forKey: .status)
-    try container.encode(refresh, forKey: .refresh)
+    try container.encodeIfPresent(self.query, forKey: .query)
+    try container.encodeIfPresent(self.status, forKey: .status)
+    try container.encode(self.refresh, forKey: .refresh)
   }
 }
 
@@ -2677,7 +2677,7 @@ public struct AutomationRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -2733,13 +2733,13 @@ public struct AutomationRunDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(status, forKey: .status)
-    try container.encode(succeeded, forKey: .succeeded)
-    try container.encodeIfPresent(error, forKey: .error)
-    try container.encodeIfPresent(createdAt, forKey: .createdAt)
-    try container.encodeIfPresent(resultChatId, forKey: .resultChatId)
-    try container.encodeIfPresent(resultChannelId, forKey: .resultChannelId)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.status, forKey: .status)
+    try container.encode(self.succeeded, forKey: .succeeded)
+    try container.encodeIfPresent(self.error, forKey: .error)
+    try container.encodeIfPresent(self.createdAt, forKey: .createdAt)
+    try container.encodeIfPresent(self.resultChatId, forKey: .resultChatId)
+    try container.encodeIfPresent(self.resultChannelId, forKey: .resultChannelId)
   }
 }
 
@@ -2843,21 +2843,21 @@ public struct AutomationDetail: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(summary, forKey: .summary)
-    try container.encode(prompt, forKey: .prompt)
-    try container.encode(modelId, forKey: .modelId)
-    try container.encodeIfPresent(modelName, forKey: .modelName)
-    try container.encode(target, forKey: .target)
-    try container.encodeIfPresent(channelId, forKey: .channelId)
-    try container.encodeIfPresent(channelName, forKey: .channelName)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
-    try container.encodeIfPresent(folderName, forKey: .folderName)
-    try container.encode(terminal, forKey: .terminal)
-    try container.encodeIfPresent(terminalId, forKey: .terminalId)
-    try container.encodeIfPresent(terminalName, forKey: .terminalName)
-    try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
-    try container.encodeIfPresent(agent, forKey: .agent)
-    try container.encode(nextRuns, forKey: .nextRuns)
+    try container.encode(self.summary, forKey: .summary)
+    try container.encode(self.prompt, forKey: .prompt)
+    try container.encode(self.modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.modelName, forKey: .modelName)
+    try container.encode(self.target, forKey: .target)
+    try container.encodeIfPresent(self.channelId, forKey: .channelId)
+    try container.encodeIfPresent(self.channelName, forKey: .channelName)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
+    try container.encodeIfPresent(self.folderName, forKey: .folderName)
+    try container.encode(self.terminal, forKey: .terminal)
+    try container.encodeIfPresent(self.terminalId, forKey: .terminalId)
+    try container.encodeIfPresent(self.terminalName, forKey: .terminalName)
+    try container.encodeIfPresent(self.workingDirectory, forKey: .workingDirectory)
+    try container.encodeIfPresent(self.agent, forKey: .agent)
+    try container.encode(self.nextRuns, forKey: .nextRuns)
   }
 }
 
@@ -2887,8 +2887,8 @@ public struct AutomationRunsQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(skip, forKey: .skip)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.skip, forKey: .skip)
   }
 }
 
@@ -2918,8 +2918,8 @@ public struct AutomationRuns: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(items, forKey: .items)
-    try container.encode(hasMore, forKey: .hasMore)
+    try container.encode(self.items, forKey: .items)
+    try container.encode(self.hasMore, forKey: .hasMore)
   }
 }
 
@@ -2949,8 +2949,8 @@ public struct AutomationToggle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(active, forKey: .active)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.active, forKey: .active)
   }
 }
 
@@ -2995,10 +2995,10 @@ public struct AutomationRunProgress: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(phase, forKey: .phase)
-    try container.encodeIfPresent(run, forKey: .run)
-    try container.encodeIfPresent(failure, forKey: .failure)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.phase, forKey: .phase)
+    try container.encodeIfPresent(self.run, forKey: .run)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
   }
 }
 
@@ -3076,16 +3076,16 @@ public struct AutomationFields: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(prompt, forKey: .prompt)
-    try container.encode(modelId, forKey: .modelId)
-    try container.encode(active, forKey: .active)
-    try container.encode(schedule, forKey: .schedule)
-    try container.encode(target, forKey: .target)
-    try container.encodeIfPresent(channelId, forKey: .channelId)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
-    try container.encodeIfPresent(terminalId, forKey: .terminalId)
-    try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.prompt, forKey: .prompt)
+    try container.encode(self.modelId, forKey: .modelId)
+    try container.encode(self.active, forKey: .active)
+    try container.encode(self.schedule, forKey: .schedule)
+    try container.encode(self.target, forKey: .target)
+    try container.encodeIfPresent(self.channelId, forKey: .channelId)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
+    try container.encodeIfPresent(self.terminalId, forKey: .terminalId)
+    try container.encodeIfPresent(self.workingDirectory, forKey: .workingDirectory)
   }
 }
 
@@ -3127,10 +3127,10 @@ public struct AutomationOption: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(detail, forKey: .detail)
-    try container.encode(agent, forKey: .agent)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.detail, forKey: .detail)
+    try container.encode(self.agent, forKey: .agent)
   }
 }
 
@@ -3155,7 +3155,7 @@ public struct AutomationEditorOpen: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
+    try container.encodeIfPresent(self.id, forKey: .id)
   }
 }
 
@@ -3236,16 +3236,16 @@ public struct AutomationEditor: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(token, forKey: .token)
-    try container.encode(isNew, forKey: .isNew)
-    try container.encode(fields, forKey: .fields)
-    try container.encodeIfPresent(models, forKey: .models)
-    try container.encodeIfPresent(channels, forKey: .channels)
-    try container.encodeIfPresent(folders, forKey: .folders)
-    try container.encode(terminal, forKey: .terminal)
-    try container.encodeIfPresent(terminals, forKey: .terminals)
-    try container.encode(agentsUnknown, forKey: .agentsUnknown)
-    try container.encodeIfPresent(agentName, forKey: .agentName)
+    try container.encode(self.token, forKey: .token)
+    try container.encode(self.isNew, forKey: .isNew)
+    try container.encode(self.fields, forKey: .fields)
+    try container.encodeIfPresent(self.models, forKey: .models)
+    try container.encodeIfPresent(self.channels, forKey: .channels)
+    try container.encodeIfPresent(self.folders, forKey: .folders)
+    try container.encode(self.terminal, forKey: .terminal)
+    try container.encodeIfPresent(self.terminals, forKey: .terminals)
+    try container.encode(self.agentsUnknown, forKey: .agentsUnknown)
+    try container.encodeIfPresent(self.agentName, forKey: .agentName)
   }
 }
 
@@ -3288,9 +3288,9 @@ public struct AutomationTerminals: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(terminals, forKey: .terminals)
-    try container.encodeIfPresent(models, forKey: .models)
-    try container.encode(agentsUnknown, forKey: .agentsUnknown)
+    try container.encodeIfPresent(self.terminals, forKey: .terminals)
+    try container.encodeIfPresent(self.models, forKey: .models)
+    try container.encode(self.agentsUnknown, forKey: .agentsUnknown)
   }
 }
 
@@ -3327,9 +3327,9 @@ public struct AutomationDraftEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(token, forKey: .token)
-    try container.encode(fields, forKey: .fields)
-    try container.encodeIfPresent(chooseKind, forKey: .chooseKind)
+    try container.encode(self.token, forKey: .token)
+    try container.encode(self.fields, forKey: .fields)
+    try container.encodeIfPresent(self.chooseKind, forKey: .chooseKind)
   }
 }
 
@@ -3389,12 +3389,12 @@ public struct AutomationDraftState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(fields, forKey: .fields)
-    try container.encode(issues, forKey: .issues)
-    try container.encode(changed, forKey: .changed)
-    try container.encode(saved, forKey: .saved)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encodeIfPresent(failure, forKey: .failure)
+    try container.encode(self.fields, forKey: .fields)
+    try container.encode(self.issues, forKey: .issues)
+    try container.encode(self.changed, forKey: .changed)
+    try container.encode(self.saved, forKey: .saved)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
   }
 }
 
@@ -3610,10 +3610,10 @@ public struct EmbedDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(source, forKey: .source)
-    try container.encode(argsText, forKey: .argsText)
-    try container.encodeIfPresent(app, forKey: .app)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.source, forKey: .source)
+    try container.encode(self.argsText, forKey: .argsText)
+    try container.encodeIfPresent(self.app, forKey: .app)
   }
 }
 
@@ -3848,30 +3848,30 @@ public struct MessageBlockDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(markdown, forKey: .markdown)
-    try container.encodeIfPresent(summary, forKey: .summary)
-    try container.encodeIfPresent(title, forKey: .title)
-    try container.encodeIfPresent(durationSeconds, forKey: .durationSeconds)
-    try container.encodeIfPresent(done, forKey: .done)
-    try container.encodeIfPresent(pending, forKey: .pending)
-    try container.encodeIfPresent(body, forKey: .body)
-    try container.encodeIfPresent(calls, forKey: .calls)
-    try container.encodeIfPresent(code, forKey: .code)
-    try container.encodeIfPresent(language, forKey: .language)
-    try container.encodeIfPresent(output, forKey: .output)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encodeIfPresent(name, forKey: .name)
-    try container.encodeIfPresent(error, forKey: .error)
-    try container.encodeIfPresent(isError, forKey: .isError)
-    try container.encodeIfPresent(type, forKey: .type)
-    try container.encodeIfPresent(statuses, forKey: .statuses)
-    try container.encodeIfPresent(files, forKey: .files)
-    try container.encodeIfPresent(sources, forKey: .sources)
-    try container.encodeIfPresent(followUps, forKey: .followUps)
-    try container.encodeIfPresent(embeds, forKey: .embeds)
-    try container.encodeIfPresent(changedFiles, forKey: .changedFiles)
-    try container.encodeIfPresent(hermesError, forKey: .hermesError)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.markdown, forKey: .markdown)
+    try container.encodeIfPresent(self.summary, forKey: .summary)
+    try container.encodeIfPresent(self.title, forKey: .title)
+    try container.encodeIfPresent(self.durationSeconds, forKey: .durationSeconds)
+    try container.encodeIfPresent(self.done, forKey: .done)
+    try container.encodeIfPresent(self.pending, forKey: .pending)
+    try container.encodeIfPresent(self.body, forKey: .body)
+    try container.encodeIfPresent(self.calls, forKey: .calls)
+    try container.encodeIfPresent(self.code, forKey: .code)
+    try container.encodeIfPresent(self.language, forKey: .language)
+    try container.encodeIfPresent(self.output, forKey: .output)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encodeIfPresent(self.name, forKey: .name)
+    try container.encodeIfPresent(self.error, forKey: .error)
+    try container.encodeIfPresent(self.isError, forKey: .isError)
+    try container.encodeIfPresent(self.type, forKey: .type)
+    try container.encodeIfPresent(self.statuses, forKey: .statuses)
+    try container.encodeIfPresent(self.files, forKey: .files)
+    try container.encodeIfPresent(self.sources, forKey: .sources)
+    try container.encodeIfPresent(self.followUps, forKey: .followUps)
+    try container.encodeIfPresent(self.embeds, forKey: .embeds)
+    try container.encodeIfPresent(self.changedFiles, forKey: .changedFiles)
+    try container.encodeIfPresent(self.hermesError, forKey: .hermesError)
   }
 }
 
@@ -3960,17 +3960,17 @@ public struct ToolCallDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(arguments, forKey: .arguments)
-    try container.encode(result, forKey: .result)
-    try container.encode(done, forKey: .done)
-    try container.encode(pending, forKey: .pending)
-    try container.encodeIfPresent(status, forKey: .status)
-    try container.encode(isError, forKey: .isError)
-    try container.encodeIfPresent(files, forKey: .files)
-    try container.encodeIfPresent(embeds, forKey: .embeds)
-    try container.encode(shownEmbeds, forKey: .shownEmbeds)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.arguments, forKey: .arguments)
+    try container.encode(self.result, forKey: .result)
+    try container.encode(self.done, forKey: .done)
+    try container.encode(self.pending, forKey: .pending)
+    try container.encodeIfPresent(self.status, forKey: .status)
+    try container.encode(self.isError, forKey: .isError)
+    try container.encodeIfPresent(self.files, forKey: .files)
+    try container.encodeIfPresent(self.embeds, forKey: .embeds)
+    try container.encode(self.shownEmbeds, forKey: .shownEmbeds)
   }
 }
 
@@ -4092,15 +4092,15 @@ public struct MessageStatusDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(description, forKey: .description)
-    try container.encodeIfPresent(phrase, forKey: .phrase)
-    try container.encodeIfPresent(count, forKey: .count)
-    try container.encodeIfPresent(query, forKey: .query)
-    try container.encodeIfPresent(action, forKey: .action)
-    try container.encode(done, forKey: .done)
-    try container.encode(queries, forKey: .queries)
-    try container.encode(links, forKey: .links)
-    try container.encode(details, forKey: .details)
+    try container.encode(self.description, forKey: .description)
+    try container.encodeIfPresent(self.phrase, forKey: .phrase)
+    try container.encodeIfPresent(self.count, forKey: .count)
+    try container.encodeIfPresent(self.query, forKey: .query)
+    try container.encodeIfPresent(self.action, forKey: .action)
+    try container.encode(self.done, forKey: .done)
+    try container.encode(self.queries, forKey: .queries)
+    try container.encode(self.links, forKey: .links)
+    try container.encode(self.details, forKey: .details)
   }
 }
 
@@ -4146,11 +4146,11 @@ public struct CalendarWallTime: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(year, forKey: .year)
-    try container.encode(month, forKey: .month)
-    try container.encode(day, forKey: .day)
-    try container.encode(hour, forKey: .hour)
-    try container.encode(minute, forKey: .minute)
+    try container.encode(self.year, forKey: .year)
+    try container.encode(self.month, forKey: .month)
+    try container.encode(self.day, forKey: .day)
+    try container.encode(self.hour, forKey: .hour)
+    try container.encode(self.minute, forKey: .minute)
   }
 }
 
@@ -4223,15 +4223,15 @@ public struct CalendarDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(color, forKey: .color)
-    try container.encode(isDefault, forKey: .isDefault)
-    try container.encode(scheduled, forKey: .scheduled)
-    try container.encode(owned, forKey: .owned)
-    try container.encode(writable, forKey: .writable)
-    try container.encode(canMakeDefault, forKey: .canMakeDefault)
-    try container.encode(visible, forKey: .visible)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.color, forKey: .color)
+    try container.encode(self.isDefault, forKey: .isDefault)
+    try container.encode(self.scheduled, forKey: .scheduled)
+    try container.encode(self.owned, forKey: .owned)
+    try container.encode(self.writable, forKey: .writable)
+    try container.encode(self.canMakeDefault, forKey: .canMakeDefault)
+    try container.encode(self.visible, forKey: .visible)
   }
 }
 
@@ -4268,9 +4268,9 @@ public struct CalendarRowTimeDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(start, forKey: .start)
-    try container.encodeIfPresent(end, forKey: .end)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.start, forKey: .start)
+    try container.encodeIfPresent(self.end, forKey: .end)
   }
 }
 
@@ -4416,28 +4416,28 @@ public struct CalendarItemDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(calendarId, forKey: .calendarId)
-    try container.encode(title, forKey: .title)
-    try container.encodeIfPresent(location, forKey: .location)
-    try container.encodeIfPresent(color, forKey: .color)
-    try container.encode(recurring, forKey: .recurring)
-    try container.encode(allDay, forKey: .allDay)
-    try container.encode(cancelled, forKey: .cancelled)
-    try container.encode(start, forKey: .start)
-    try container.encodeIfPresent(end, forKey: .end)
-    try container.encodeIfPresent(lastDay, forKey: .lastDay)
-    try container.encode(time, forKey: .time)
-    try container.encode(invited, forKey: .invited)
-    try container.encodeIfPresent(answer, forKey: .answer)
-    try container.encode(editable, forKey: .editable)
-    try container.encodeIfPresent(automationId, forKey: .automationId)
-    try container.encodeIfPresent(runId, forKey: .runId)
-    try container.encodeIfPresent(resultChatId, forKey: .resultChatId)
-    try container.encodeIfPresent(resultChannelId, forKey: .resultChannelId)
-    try container.encodeIfPresent(scheduledState, forKey: .scheduledState)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.calendarId, forKey: .calendarId)
+    try container.encode(self.title, forKey: .title)
+    try container.encodeIfPresent(self.location, forKey: .location)
+    try container.encodeIfPresent(self.color, forKey: .color)
+    try container.encode(self.recurring, forKey: .recurring)
+    try container.encode(self.allDay, forKey: .allDay)
+    try container.encode(self.cancelled, forKey: .cancelled)
+    try container.encode(self.start, forKey: .start)
+    try container.encodeIfPresent(self.end, forKey: .end)
+    try container.encodeIfPresent(self.lastDay, forKey: .lastDay)
+    try container.encode(self.time, forKey: .time)
+    try container.encode(self.invited, forKey: .invited)
+    try container.encodeIfPresent(self.answer, forKey: .answer)
+    try container.encode(self.editable, forKey: .editable)
+    try container.encodeIfPresent(self.automationId, forKey: .automationId)
+    try container.encodeIfPresent(self.runId, forKey: .runId)
+    try container.encodeIfPresent(self.resultChatId, forKey: .resultChatId)
+    try container.encodeIfPresent(self.resultChannelId, forKey: .resultChannelId)
+    try container.encodeIfPresent(self.scheduledState, forKey: .scheduledState)
   }
 }
 
@@ -4467,8 +4467,8 @@ public struct CalendarAgendaDay: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(day, forKey: .day)
-    try container.encode(items, forKey: .items)
+    try container.encode(self.day, forKey: .day)
+    try container.encode(self.items, forKey: .items)
   }
 }
 
@@ -4559,18 +4559,18 @@ public struct CalendarAgenda: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encodeIfPresent(failure, forKey: .failure)
-    try container.encode(stale, forKey: .stale)
-    try container.encodeIfPresent(firstDay, forKey: .firstDay)
-    try container.encodeIfPresent(endDay, forKey: .endDay)
-    try container.encode(dayCount, forKey: .dayCount)
-    try container.encodeIfPresent(today, forKey: .today)
-    try container.encode(calendars, forKey: .calendars)
-    try container.encode(filterable, forKey: .filterable)
-    try container.encode(scheduledTasks, forKey: .scheduledTasks)
-    try container.encode(canCreate, forKey: .canCreate)
-    try container.encode(days, forKey: .days)
+    try container.encode(self.available, forKey: .available)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
+    try container.encode(self.stale, forKey: .stale)
+    try container.encodeIfPresent(self.firstDay, forKey: .firstDay)
+    try container.encodeIfPresent(self.endDay, forKey: .endDay)
+    try container.encode(self.dayCount, forKey: .dayCount)
+    try container.encodeIfPresent(self.today, forKey: .today)
+    try container.encode(self.calendars, forKey: .calendars)
+    try container.encode(self.filterable, forKey: .filterable)
+    try container.encode(self.scheduledTasks, forKey: .scheduledTasks)
+    try container.encode(self.canCreate, forKey: .canCreate)
+    try container.encode(self.days, forKey: .days)
   }
 }
 
@@ -4615,10 +4615,10 @@ public struct CalendarAgendaQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(firstDay, forKey: .firstDay)
-    try container.encode(shift, forKey: .shift)
-    try container.encode(today, forKey: .today)
-    try container.encode(refresh, forKey: .refresh)
+    try container.encodeIfPresent(self.firstDay, forKey: .firstDay)
+    try container.encode(self.shift, forKey: .shift)
+    try container.encode(self.today, forKey: .today)
+    try container.encode(self.refresh, forKey: .refresh)
   }
 }
 
@@ -4648,8 +4648,8 @@ public struct CalendarVisibility: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(calendarId, forKey: .calendarId)
-    try container.encode(visible, forKey: .visible)
+    try container.encode(self.calendarId, forKey: .calendarId)
+    try container.encode(self.visible, forKey: .visible)
   }
 }
 
@@ -4674,7 +4674,7 @@ public struct CalendarRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(calendarId, forKey: .calendarId)
+    try container.encode(self.calendarId, forKey: .calendarId)
   }
 }
 
@@ -4705,8 +4705,8 @@ public struct CalendarCreate: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(color, forKey: .color)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.color, forKey: .color)
   }
 }
 
@@ -4731,7 +4731,7 @@ public struct CalendarItemRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
+    try container.encode(self.key, forKey: .key)
   }
 }
 
@@ -4805,15 +4805,15 @@ public struct CalendarEventDetail: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(item, forKey: .item)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encodeIfPresent(calendarName, forKey: .calendarName)
-    try container.encodeIfPresent(calendarColor, forKey: .calendarColor)
-    try container.encode(`repeat`, forKey: .`repeat`)
-    try container.encodeIfPresent(organizer, forKey: .organizer)
-    try container.encode(attendeeCount, forKey: .attendeeCount)
-    try container.encode(canEdit, forKey: .canEdit)
-    try container.encode(status, forKey: .status)
+    try container.encode(self.item, forKey: .item)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encodeIfPresent(self.calendarName, forKey: .calendarName)
+    try container.encodeIfPresent(self.calendarColor, forKey: .calendarColor)
+    try container.encode(self.`repeat`, forKey: .`repeat`)
+    try container.encodeIfPresent(self.organizer, forKey: .organizer)
+    try container.encode(self.attendeeCount, forKey: .attendeeCount)
+    try container.encode(self.canEdit, forKey: .canEdit)
+    try container.encode(self.status, forKey: .status)
   }
 }
 
@@ -4844,8 +4844,8 @@ public struct CalendarRsvpEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
-    try container.encode(answer, forKey: .answer)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.answer, forKey: .answer)
   }
 }
 
@@ -4876,8 +4876,8 @@ public struct CalendarAttendeeDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(userId, forKey: .userId)
-    try container.encodeIfPresent(name, forKey: .name)
+    try container.encode(self.userId, forKey: .userId)
+    try container.encodeIfPresent(self.name, forKey: .name)
   }
 }
 
@@ -4946,15 +4946,15 @@ public struct CalendarEventFields: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(title, forKey: .title)
-    try container.encode(description, forKey: .description)
-    try container.encode(location, forKey: .location)
-    try container.encode(calendarId, forKey: .calendarId)
-    try container.encode(allDay, forKey: .allDay)
-    try container.encode(start, forKey: .start)
-    try container.encodeIfPresent(end, forKey: .end)
-    try container.encode(`repeat`, forKey: .`repeat`)
-    try container.encode(attendees, forKey: .attendees)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.location, forKey: .location)
+    try container.encode(self.calendarId, forKey: .calendarId)
+    try container.encode(self.allDay, forKey: .allDay)
+    try container.encode(self.start, forKey: .start)
+    try container.encodeIfPresent(self.end, forKey: .end)
+    try container.encode(self.`repeat`, forKey: .`repeat`)
+    try container.encode(self.attendees, forKey: .attendees)
   }
 }
 
@@ -4985,8 +4985,8 @@ public struct CalendarEditorOpen: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(key, forKey: .key)
-    try container.encodeIfPresent(day, forKey: .day)
+    try container.encodeIfPresent(self.key, forKey: .key)
+    try container.encodeIfPresent(self.day, forKey: .day)
   }
 }
 
@@ -5040,12 +5040,12 @@ public struct CalendarEditor: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(token, forKey: .token)
-    try container.encode(isNew, forKey: .isNew)
-    try container.encode(series, forKey: .series)
-    try container.encodeIfPresent(rule, forKey: .rule)
-    try container.encode(fields, forKey: .fields)
-    try container.encode(calendars, forKey: .calendars)
+    try container.encode(self.token, forKey: .token)
+    try container.encode(self.isNew, forKey: .isNew)
+    try container.encode(self.series, forKey: .series)
+    try container.encodeIfPresent(self.rule, forKey: .rule)
+    try container.encode(self.fields, forKey: .fields)
+    try container.encode(self.calendars, forKey: .calendars)
   }
 }
 
@@ -5082,9 +5082,9 @@ public struct CalendarDraftEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(token, forKey: .token)
-    try container.encode(fields, forKey: .fields)
-    try container.encodeIfPresent(movedStart, forKey: .movedStart)
+    try container.encode(self.token, forKey: .token)
+    try container.encode(self.fields, forKey: .fields)
+    try container.encodeIfPresent(self.movedStart, forKey: .movedStart)
   }
 }
 
@@ -5129,10 +5129,10 @@ public struct CalendarDraftState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(fields, forKey: .fields)
-    try container.encode(issues, forKey: .issues)
-    try container.encode(changed, forKey: .changed)
-    try container.encode(saved, forKey: .saved)
+    try container.encode(self.fields, forKey: .fields)
+    try container.encode(self.issues, forKey: .issues)
+    try container.encode(self.changed, forKey: .changed)
+    try container.encode(self.saved, forKey: .saved)
   }
 }
 
@@ -5551,25 +5551,25 @@ public struct CallState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(phase, forKey: .phase)
-    try container.encode(call, forKey: .call)
-    try container.encodeIfPresent(mode, forKey: .mode)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encodeIfPresent(modelName, forKey: .modelName)
-    try container.encode(transcript, forKey: .transcript)
-    try container.encode(reply, forKey: .reply)
-    try container.encode(level, forKey: .level)
-    try container.encode(muted, forKey: .muted)
-    try container.encode(canPause, forKey: .canPause)
-    try container.encode(canResume, forKey: .canResume)
-    try container.encodeIfPresent(startedAtMs, forKey: .startedAtMs)
-    try container.encodeIfPresent(errorKind, forKey: .errorKind)
-    try container.encodeIfPresent(error, forKey: .error)
-    try container.encodeIfPresent(notice, forKey: .notice)
-    try container.encode(noticeCount, forKey: .noticeCount)
-    try container.encodeIfPresent(standardReason, forKey: .standardReason)
-    try container.encodeIfPresent(refusal, forKey: .refusal)
+    try container.encode(self.phase, forKey: .phase)
+    try container.encode(self.call, forKey: .call)
+    try container.encodeIfPresent(self.mode, forKey: .mode)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.modelName, forKey: .modelName)
+    try container.encode(self.transcript, forKey: .transcript)
+    try container.encode(self.reply, forKey: .reply)
+    try container.encode(self.level, forKey: .level)
+    try container.encode(self.muted, forKey: .muted)
+    try container.encode(self.canPause, forKey: .canPause)
+    try container.encode(self.canResume, forKey: .canResume)
+    try container.encodeIfPresent(self.startedAtMs, forKey: .startedAtMs)
+    try container.encodeIfPresent(self.errorKind, forKey: .errorKind)
+    try container.encodeIfPresent(self.error, forKey: .error)
+    try container.encodeIfPresent(self.notice, forKey: .notice)
+    try container.encode(self.noticeCount, forKey: .noticeCount)
+    try container.encodeIfPresent(self.standardReason, forKey: .standardReason)
+    try container.encodeIfPresent(self.refusal, forKey: .refusal)
   }
 }
 
@@ -5611,10 +5611,10 @@ public struct CallStart: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
-    try container.encode(temporary, forKey: .temporary)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
+    try container.encode(self.temporary, forKey: .temporary)
   }
 }
 
@@ -5729,12 +5729,12 @@ public struct CallCommand: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(listen, forKey: .listen)
-    try container.encode(continuous, forKey: .continuous)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encodeIfPresent(path, forKey: .path)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.listen, forKey: .listen)
+    try container.encode(self.continuous, forKey: .continuous)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.path, forKey: .path)
   }
 }
 
@@ -5897,16 +5897,16 @@ public struct CallReport: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(ok, forKey: .ok)
-    try container.encodeIfPresent(error, forKey: .error)
-    try container.encodeIfPresent(value, forKey: .value)
-    try container.encodeIfPresent(kind, forKey: .kind)
-    try container.encode(listen, forKey: .listen)
-    try container.encodeIfPresent(text, forKey: .text)
-    try container.encode(done, forKey: .done)
-    try container.encodeIfPresent(level, forKey: .level)
-    try container.encodeIfPresent(failure, forKey: .failure)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.ok, forKey: .ok)
+    try container.encodeIfPresent(self.error, forKey: .error)
+    try container.encodeIfPresent(self.value, forKey: .value)
+    try container.encodeIfPresent(self.kind, forKey: .kind)
+    try container.encode(self.listen, forKey: .listen)
+    try container.encodeIfPresent(self.text, forKey: .text)
+    try container.encode(self.done, forKey: .done)
+    try container.encodeIfPresent(self.level, forKey: .level)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
   }
 }
 
@@ -6113,39 +6113,39 @@ public struct Capabilities: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(workspace, forKey: .workspace)
-    try container.encode(notes, forKey: .notes)
-    try container.encode(channels, forKey: .channels)
-    try container.encode(hermes, forKey: .hermes)
-    try container.encode(terminal, forKey: .terminal)
-    try container.encode(calendar, forKey: .calendar)
-    try container.encode(automations, forKey: .automations)
-    try container.encode(scheduledTasks, forKey: .scheduledTasks)
-    try container.encode(hermesOnly, forKey: .hermesOnly)
-    try container.encode(workspaceModels, forKey: .workspaceModels)
-    try container.encode(workspaceKnowledge, forKey: .workspaceKnowledge)
-    try container.encode(workspacePrompts, forKey: .workspacePrompts)
-    try container.encode(workspaceTools, forKey: .workspaceTools)
-    try container.encode(workspaceSkills, forKey: .workspaceSkills)
-    try container.encode(folders, forKey: .folders)
-    try container.encode(webhooks, forKey: .webhooks)
-    try container.encode(memories, forKey: .memories)
-    try container.encode(codeInterpreter, forKey: .codeInterpreter)
-    try container.encode(imageGeneration, forKey: .imageGeneration)
-    try container.encode(webSearch, forKey: .webSearch)
-    try container.encode(directConnections, forKey: .directConnections)
-    try container.encode(mcp, forKey: .mcp)
-    try container.encode(serverStt, forKey: .serverStt)
-    try container.encode(onDeviceStt, forKey: .onDeviceStt)
-    try container.encode(serverTts, forKey: .serverTts)
-    try container.encode(deviceTts, forKey: .deviceTts)
-    try container.encode(appleOnDeviceModels, forKey: .appleOnDeviceModels)
-    try container.encode(applePcc, forKey: .applePcc)
-    try container.encode(branchNavigation, forKey: .branchNavigation)
-    try container.encode(messageRating, forKey: .messageRating)
-    try container.encode(tags, forKey: .tags)
-    try container.encode(bulkSelection, forKey: .bulkSelection)
-    try container.encodeIfPresent(libreChat, forKey: .libreChat)
+    try container.encode(self.workspace, forKey: .workspace)
+    try container.encode(self.notes, forKey: .notes)
+    try container.encode(self.channels, forKey: .channels)
+    try container.encode(self.hermes, forKey: .hermes)
+    try container.encode(self.terminal, forKey: .terminal)
+    try container.encode(self.calendar, forKey: .calendar)
+    try container.encode(self.automations, forKey: .automations)
+    try container.encode(self.scheduledTasks, forKey: .scheduledTasks)
+    try container.encode(self.hermesOnly, forKey: .hermesOnly)
+    try container.encode(self.workspaceModels, forKey: .workspaceModels)
+    try container.encode(self.workspaceKnowledge, forKey: .workspaceKnowledge)
+    try container.encode(self.workspacePrompts, forKey: .workspacePrompts)
+    try container.encode(self.workspaceTools, forKey: .workspaceTools)
+    try container.encode(self.workspaceSkills, forKey: .workspaceSkills)
+    try container.encode(self.folders, forKey: .folders)
+    try container.encode(self.webhooks, forKey: .webhooks)
+    try container.encode(self.memories, forKey: .memories)
+    try container.encode(self.codeInterpreter, forKey: .codeInterpreter)
+    try container.encode(self.imageGeneration, forKey: .imageGeneration)
+    try container.encode(self.webSearch, forKey: .webSearch)
+    try container.encode(self.directConnections, forKey: .directConnections)
+    try container.encode(self.mcp, forKey: .mcp)
+    try container.encode(self.serverStt, forKey: .serverStt)
+    try container.encode(self.onDeviceStt, forKey: .onDeviceStt)
+    try container.encode(self.serverTts, forKey: .serverTts)
+    try container.encode(self.deviceTts, forKey: .deviceTts)
+    try container.encode(self.appleOnDeviceModels, forKey: .appleOnDeviceModels)
+    try container.encode(self.applePcc, forKey: .applePcc)
+    try container.encode(self.branchNavigation, forKey: .branchNavigation)
+    try container.encode(self.messageRating, forKey: .messageRating)
+    try container.encode(self.tags, forKey: .tags)
+    try container.encode(self.bulkSelection, forKey: .bulkSelection)
+    try container.encodeIfPresent(self.libreChat, forKey: .libreChat)
   }
 }
 
@@ -6227,18 +6227,18 @@ public struct LibreChatFeatures: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(prompts, forKey: .prompts)
-    try container.encode(memories, forKey: .memories)
-    try container.encode(createMemories, forKey: .createMemories)
-    try container.encode(updateMemories, forKey: .updateMemories)
-    try container.encode(optOutMemories, forKey: .optOutMemories)
-    try container.encode(webSearch, forKey: .webSearch)
-    try container.encode(codeInterpreter, forKey: .codeInterpreter)
-    try container.encode(fileSearch, forKey: .fileSearch)
-    try container.encode(mcpServers, forKey: .mcpServers)
-    try container.encode(agents, forKey: .agents)
-    try container.encode(sharedLinks, forKey: .sharedLinks)
-    try container.encode(temporaryChat, forKey: .temporaryChat)
+    try container.encode(self.prompts, forKey: .prompts)
+    try container.encode(self.memories, forKey: .memories)
+    try container.encode(self.createMemories, forKey: .createMemories)
+    try container.encode(self.updateMemories, forKey: .updateMemories)
+    try container.encode(self.optOutMemories, forKey: .optOutMemories)
+    try container.encode(self.webSearch, forKey: .webSearch)
+    try container.encode(self.codeInterpreter, forKey: .codeInterpreter)
+    try container.encode(self.fileSearch, forKey: .fileSearch)
+    try container.encode(self.mcpServers, forKey: .mcpServers)
+    try container.encode(self.agents, forKey: .agents)
+    try container.encode(self.sharedLinks, forKey: .sharedLinks)
+    try container.encode(self.temporaryChat, forKey: .temporaryChat)
   }
 }
 
@@ -6376,20 +6376,20 @@ public struct ChannelSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encode(`private`, forKey: .`private`)
-    try container.encode(unread, forKey: .unread)
-    try container.encodeIfPresent(lastMessageAtMs, forKey: .lastMessageAtMs)
-    try container.encode(manager, forKey: .manager)
-    try container.encode(canPost, forKey: .canPost)
-    try container.encodeIfPresent(userCount, forKey: .userCount)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(title, forKey: .title)
-    try container.encode(muted, forKey: .muted)
-    try container.encode(canDelete, forKey: .canDelete)
-    try container.encode(canLeave, forKey: .canLeave)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encode(self.`private`, forKey: .`private`)
+    try container.encode(self.unread, forKey: .unread)
+    try container.encodeIfPresent(self.lastMessageAtMs, forKey: .lastMessageAtMs)
+    try container.encode(self.manager, forKey: .manager)
+    try container.encode(self.canPost, forKey: .canPost)
+    try container.encodeIfPresent(self.userCount, forKey: .userCount)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.muted, forKey: .muted)
+    try container.encode(self.canDelete, forKey: .canDelete)
+    try container.encode(self.canLeave, forKey: .canLeave)
   }
 }
 
@@ -6427,9 +6427,9 @@ public struct ChannelList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channels, forKey: .channels)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(canCreate, forKey: .canCreate)
+    try container.encode(self.channels, forKey: .channels)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.canCreate, forKey: .canCreate)
   }
 }
 
@@ -6459,8 +6459,8 @@ public struct ChannelUser: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -6502,10 +6502,10 @@ public struct ChannelReaction: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(count, forKey: .count)
-    try container.encode(mine, forKey: .mine)
-    try container.encode(names, forKey: .names)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.count, forKey: .count)
+    try container.encode(self.mine, forKey: .mine)
+    try container.encode(self.names, forKey: .names)
   }
 }
 
@@ -6631,25 +6631,25 @@ public struct ChannelMessageDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encodeIfPresent(user, forKey: .user)
-    try container.encode(content, forKey: .content)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encode(pinned, forKey: .pinned)
-    try container.encode(replyCount, forKey: .replyCount)
-    try container.encode(createdAtMs, forKey: .createdAtMs)
-    try container.encodeIfPresent(editedAtMs, forKey: .editedAtMs)
-    try container.encode(reactions, forKey: .reactions)
-    try container.encode(mine, forKey: .mine)
-    try container.encode(senderKey, forKey: .senderKey)
-    try container.encode(senderKind, forKey: .senderKind)
-    try container.encode(display, forKey: .display)
-    try container.encode(files, forKey: .files)
-    try container.encodeIfPresent(app, forKey: .app)
-    try container.encodeIfPresent(replyToId, forKey: .replyToId)
-    try container.encodeIfPresent(replyTo, forKey: .replyTo)
-    try container.encodeIfPresent(latestReplyAtMs, forKey: .latestReplyAtMs)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encodeIfPresent(self.user, forKey: .user)
+    try container.encode(self.content, forKey: .content)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encode(self.pinned, forKey: .pinned)
+    try container.encode(self.replyCount, forKey: .replyCount)
+    try container.encode(self.createdAtMs, forKey: .createdAtMs)
+    try container.encodeIfPresent(self.editedAtMs, forKey: .editedAtMs)
+    try container.encode(self.reactions, forKey: .reactions)
+    try container.encode(self.mine, forKey: .mine)
+    try container.encode(self.senderKey, forKey: .senderKey)
+    try container.encode(self.senderKind, forKey: .senderKind)
+    try container.encode(self.display, forKey: .display)
+    try container.encode(self.files, forKey: .files)
+    try container.encodeIfPresent(self.app, forKey: .app)
+    try container.encodeIfPresent(self.replyToId, forKey: .replyToId)
+    try container.encodeIfPresent(self.replyTo, forKey: .replyTo)
+    try container.encodeIfPresent(self.latestReplyAtMs, forKey: .latestReplyAtMs)
   }
 }
 
@@ -6685,9 +6685,9 @@ public struct ChannelMessagesQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encode(older, forKey: .older)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encode(self.older, forKey: .older)
   }
 }
 
@@ -6727,10 +6727,10 @@ public struct ChannelMessages: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encode(messages, forKey: .messages)
-    try container.encode(hasOlder, forKey: .hasOlder)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encode(self.messages, forKey: .messages)
+    try container.encode(self.hasOlder, forKey: .hasOlder)
   }
 }
 
@@ -6786,12 +6786,12 @@ public struct ChannelPost: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(content, forKey: .content)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encode(mentions, forKey: .mentions)
-    try container.encode(files, forKey: .files)
-    try container.encodeIfPresent(replyToId, forKey: .replyToId)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.content, forKey: .content)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encode(self.mentions, forKey: .mentions)
+    try container.encode(self.files, forKey: .files)
+    try container.encodeIfPresent(self.replyToId, forKey: .replyToId)
   }
 }
 
@@ -6821,8 +6821,8 @@ public struct ChannelMessageRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(messageId, forKey: .messageId)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.messageId, forKey: .messageId)
   }
 }
 
@@ -6857,9 +6857,9 @@ public struct ChannelMessageEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(content, forKey: .content)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.content, forKey: .content)
   }
 }
 
@@ -6899,10 +6899,10 @@ public struct ChannelReact: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(emoji, forKey: .emoji)
-    try container.encode(add, forKey: .add)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.emoji, forKey: .emoji)
+    try container.encode(self.add, forKey: .add)
   }
 }
 
@@ -6937,9 +6937,9 @@ public struct ChannelPin: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(pinned, forKey: .pinned)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.pinned, forKey: .pinned)
   }
 }
 
@@ -6979,10 +6979,10 @@ public struct ChannelEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encode(`private`, forKey: .`private`)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encode(self.`private`, forKey: .`private`)
   }
 }
 
@@ -7007,7 +7007,7 @@ public struct ChannelRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -7037,8 +7037,8 @@ public struct ChannelTyping: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(typing, forKey: .typing)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.typing, forKey: .typing)
   }
 }
 
@@ -7068,8 +7068,8 @@ public struct ChannelTypingUsers: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(names, forKey: .names)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.names, forKey: .names)
   }
 }
 
@@ -7124,12 +7124,12 @@ public struct ChannelMessagesChanged: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encode(upserts, forKey: .upserts)
-    try container.encode(removed, forKey: .removed)
-    try container.encode(full, forKey: .full)
-    try container.encodeIfPresent(hasOlder, forKey: .hasOlder)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encode(self.upserts, forKey: .upserts)
+    try container.encode(self.removed, forKey: .removed)
+    try container.encode(self.full, forKey: .full)
+    try container.encodeIfPresent(self.hasOlder, forKey: .hasOlder)
   }
 }
 
@@ -7154,7 +7154,7 @@ public struct ChannelMembers: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(users, forKey: .users)
+    try container.encode(self.users, forKey: .users)
   }
 }
 
@@ -7237,11 +7237,11 @@ public struct ChannelFileDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(image, forKey: .image)
-    try container.encodeIfPresent(size, forKey: .size)
-    try container.encodeIfPresent(contentType, forKey: .contentType)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.image, forKey: .image)
+    try container.encodeIfPresent(self.size, forKey: .size)
+    try container.encodeIfPresent(self.contentType, forKey: .contentType)
   }
 }
 
@@ -7272,8 +7272,8 @@ public struct ChannelReplyPreview: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -7310,9 +7310,9 @@ public struct ChannelAppFieldDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(value, forKey: .value)
-    try container.encode(inline, forKey: .inline)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.value, forKey: .value)
+    try container.encode(self.inline, forKey: .inline)
   }
 }
 
@@ -7375,14 +7375,14 @@ public struct ChannelAppEmbedDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(title, forKey: .title)
-    try container.encode(description, forKey: .description)
-    try container.encodeIfPresent(url, forKey: .url)
-    try container.encodeIfPresent(color, forKey: .color)
-    try container.encodeIfPresent(authorName, forKey: .authorName)
-    try container.encodeIfPresent(footerText, forKey: .footerText)
-    try container.encodeIfPresent(thumbnailUrl, forKey: .thumbnailUrl)
-    try container.encode(fields, forKey: .fields)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.description, forKey: .description)
+    try container.encodeIfPresent(self.url, forKey: .url)
+    try container.encodeIfPresent(self.color, forKey: .color)
+    try container.encodeIfPresent(self.authorName, forKey: .authorName)
+    try container.encodeIfPresent(self.footerText, forKey: .footerText)
+    try container.encodeIfPresent(self.thumbnailUrl, forKey: .thumbnailUrl)
+    try container.encode(self.fields, forKey: .fields)
   }
 }
 
@@ -7417,9 +7417,9 @@ public struct ChannelAppActionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(label, forKey: .label)
-    try container.encodeIfPresent(actionId, forKey: .actionId)
-    try container.encodeIfPresent(url, forKey: .url)
+    try container.encode(self.label, forKey: .label)
+    try container.encodeIfPresent(self.actionId, forKey: .actionId)
+    try container.encodeIfPresent(self.url, forKey: .url)
   }
 }
 
@@ -7454,9 +7454,9 @@ public struct ChannelAppContentDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(appId, forKey: .appId)
-    try container.encode(embeds, forKey: .embeds)
-    try container.encode(actions, forKey: .actions)
+    try container.encode(self.appId, forKey: .appId)
+    try container.encode(self.embeds, forKey: .embeds)
+    try container.encode(self.actions, forKey: .actions)
   }
 }
 
@@ -7550,12 +7550,12 @@ public struct ChannelAppReplyDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(title, forKey: .title)
-    try container.encode(content, forKey: .content)
-    try container.encode(filename, forKey: .filename)
-    try container.encode(embeds, forKey: .embeds)
-    try container.encode(actions, forKey: .actions)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.filename, forKey: .filename)
+    try container.encode(self.embeds, forKey: .embeds)
+    try container.encode(self.actions, forKey: .actions)
   }
 }
 
@@ -7608,12 +7608,12 @@ public struct ChannelAppReplyEvent: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encode(appId, forKey: .appId)
-    try container.encodeIfPresent(appName, forKey: .appName)
-    try container.encode(reply, forKey: .reply)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encode(self.appId, forKey: .appId)
+    try container.encodeIfPresent(self.appName, forKey: .appName)
+    try container.encode(self.reply, forKey: .reply)
   }
 }
 
@@ -7653,10 +7653,10 @@ public struct ChannelAppAction: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(actionId, forKey: .actionId)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.actionId, forKey: .actionId)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
   }
 }
 
@@ -7682,7 +7682,7 @@ public struct ChannelAppActionResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(reply, forKey: .reply)
+    try container.encodeIfPresent(self.reply, forKey: .reply)
   }
 }
 
@@ -7719,9 +7719,9 @@ public struct ChannelDetails: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channel, forKey: .channel)
-    try container.encode(canManageMembers, forKey: .canManageMembers)
-    try container.encode(moderator, forKey: .moderator)
+    try container.encode(self.channel, forKey: .channel)
+    try container.encode(self.canManageMembers, forKey: .canManageMembers)
+    try container.encode(self.moderator, forKey: .moderator)
   }
 }
 
@@ -7747,7 +7747,7 @@ public struct ChannelFocus: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
+    try container.encodeIfPresent(self.id, forKey: .id)
   }
 }
 
@@ -7777,8 +7777,8 @@ public struct ChannelMute: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(muted, forKey: .muted)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.muted, forKey: .muted)
   }
 }
 
@@ -7809,8 +7809,8 @@ public struct ChannelMentionQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(query, forKey: .query)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.query, forKey: .query)
   }
 }
 
@@ -7863,12 +7863,12 @@ public struct ChannelMemberDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(email, forKey: .email)
-    try container.encodeIfPresent(role, forKey: .role)
-    try container.encode(active, forKey: .active)
-    try container.encode(me, forKey: .me)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.email, forKey: .email)
+    try container.encodeIfPresent(self.role, forKey: .role)
+    try container.encode(self.active, forKey: .active)
+    try container.encode(self.me, forKey: .me)
   }
 }
 
@@ -7904,9 +7904,9 @@ public struct ChannelMemberQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(query, forKey: .query)
-    try container.encode(more, forKey: .more)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.query, forKey: .query)
+    try container.encode(self.more, forKey: .more)
   }
 }
 
@@ -8018,16 +8018,16 @@ public struct ChannelMemberPage: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(query, forKey: .query)
-    try container.encode(phase, forKey: .phase)
-    try container.encode(members, forKey: .members)
-    try container.encodeIfPresent(total, forKey: .total)
-    try container.encode(hasMore, forKey: .hasMore)
-    try container.encode(loadMoreFailed, forKey: .loadMoreFailed)
-    try container.encode(canManage, forKey: .canManage)
-    try container.encode(allowUsers, forKey: .allowUsers)
-    try container.encode(allowGroups, forKey: .allowGroups)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.query, forKey: .query)
+    try container.encode(self.phase, forKey: .phase)
+    try container.encode(self.members, forKey: .members)
+    try container.encodeIfPresent(self.total, forKey: .total)
+    try container.encode(self.hasMore, forKey: .hasMore)
+    try container.encode(self.loadMoreFailed, forKey: .loadMoreFailed)
+    try container.encode(self.canManage, forKey: .canManage)
+    try container.encode(self.allowUsers, forKey: .allowUsers)
+    try container.encode(self.allowGroups, forKey: .allowGroups)
   }
 }
 
@@ -8062,9 +8062,9 @@ public struct ChannelMembersAdd: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(userIds, forKey: .userIds)
-    try container.encode(groupIds, forKey: .groupIds)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.userIds, forKey: .userIds)
+    try container.encode(self.groupIds, forKey: .groupIds)
   }
 }
 
@@ -8094,8 +8094,8 @@ public struct ChannelMemberRemove: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(userId, forKey: .userId)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.userId, forKey: .userId)
   }
 }
 
@@ -8172,8 +8172,8 @@ public struct ChannelMemberChange: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(result, forKey: .result)
-    try container.encode(page, forKey: .page)
+    try container.encode(self.result, forKey: .result)
+    try container.encode(self.page, forKey: .page)
   }
 }
 
@@ -8235,13 +8235,13 @@ public struct ChannelPosted: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(channelId, forKey: .channelId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(author, forKey: .author)
-    try container.encode(channelTitle, forKey: .channelTitle)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(alert, forKey: .alert)
-    try container.encode(mention, forKey: .mention)
+    try container.encode(self.channelId, forKey: .channelId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.author, forKey: .author)
+    try container.encode(self.channelTitle, forKey: .channelTitle)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.alert, forKey: .alert)
+    try container.encode(self.mention, forKey: .mention)
   }
 }
 
@@ -8319,8 +8319,8 @@ public struct ChatPromptOptionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(label, forKey: .label)
-    try container.encode(description, forKey: .description)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.description, forKey: .description)
   }
 }
 
@@ -8371,11 +8371,11 @@ public struct ChatPromptQuestionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(header, forKey: .header)
-    try container.encode(question, forKey: .question)
-    try container.encode(options, forKey: .options)
-    try container.encode(allowOther, forKey: .allowOther)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.header, forKey: .header)
+    try container.encode(self.question, forKey: .question)
+    try container.encode(self.options, forKey: .options)
+    try container.encode(self.allowOther, forKey: .allowOther)
   }
 }
 
@@ -8443,13 +8443,13 @@ public struct ChatPromptDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(title, forKey: .title)
-    try container.encode(message, forKey: .message)
-    try container.encode(questions, forKey: .questions)
-    try container.encodeIfPresent(expiresAtMs, forKey: .expiresAtMs)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.message, forKey: .message)
+    try container.encode(self.questions, forKey: .questions)
+    try container.encodeIfPresent(self.expiresAtMs, forKey: .expiresAtMs)
   }
 }
 
@@ -8474,7 +8474,7 @@ public struct ChatPromptRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
+    try container.encode(self.chatId, forKey: .chatId)
   }
 }
 
@@ -8505,8 +8505,8 @@ public struct ChatPromptState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    if let value = prompt {
+    try container.encode(self.chatId, forKey: .chatId)
+    if let value = self.prompt {
       try container.encode(value, forKey: .prompt)
     } else {
       try container.encodeNil(forKey: .prompt)
@@ -8548,9 +8548,9 @@ public struct ChatPromptAnswerItem: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(questionId, forKey: .questionId)
-    try container.encodeIfPresent(optionIndex, forKey: .optionIndex)
-    try container.encodeIfPresent(text, forKey: .text)
+    try container.encode(self.questionId, forKey: .questionId)
+    try container.encodeIfPresent(self.optionIndex, forKey: .optionIndex)
+    try container.encodeIfPresent(self.text, forKey: .text)
   }
 }
 
@@ -8585,9 +8585,9 @@ public struct ChatPromptAnswer: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(promptId, forKey: .promptId)
-    try container.encode(answers, forKey: .answers)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.promptId, forKey: .promptId)
+    try container.encode(self.answers, forKey: .answers)
   }
 }
 
@@ -8623,9 +8623,9 @@ public struct ChatPromptDecision: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(promptId, forKey: .promptId)
-    try container.encode(approved, forKey: .approved)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.promptId, forKey: .promptId)
+    try container.encode(self.approved, forKey: .approved)
   }
 }
 
@@ -8810,12 +8810,12 @@ public struct ChatSettingsQuery: Codable, Equatable, Sendable {
   /// null for the account's selection.
   public var modelId: String?
   /// A new chat's settings so far, as the last answer returned them.
-  public var draft: JSONValue
+  public var draft: [String: JSONValue]
 
   public init(
     chatId: String? = nil,
     modelId: String? = nil,
-    draft: JSONValue = .object([:])
+    draft: [String: JSONValue] = [:]
   ) {
     self.chatId = chatId
     self.modelId = modelId
@@ -8832,14 +8832,14 @@ public struct ChatSettingsQuery: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.chatId = try container.decodeIfPresent(String.self, forKey: .chatId)
     self.modelId = try container.decodeIfPresent(String.self, forKey: .modelId)
-    self.draft = try container.decodeIfPresent(JSONValue.self, forKey: .draft) ?? .object([:])
+    self.draft = try container.decodeIfPresent([String: JSONValue].self, forKey: .draft) ?? [:]
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encode(draft, forKey: .draft)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encode(self.draft, forKey: .draft)
   }
 }
 
@@ -8911,15 +8911,15 @@ public struct ChatSettingField: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(mode, forKey: .mode)
-    try container.encode(text, forKey: .text)
-    try container.encode(choices, forKey: .choices)
-    try container.encode(allowsCustom, forKey: .allowsCustom)
-    try container.encodeIfPresent(min, forKey: .min)
-    try container.encodeIfPresent(max, forKey: .max)
-    try container.encodeIfPresent(error, forKey: .error)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.mode, forKey: .mode)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.choices, forKey: .choices)
+    try container.encode(self.allowsCustom, forKey: .allowsCustom)
+    try container.encodeIfPresent(self.min, forKey: .min)
+    try container.encodeIfPresent(self.max, forKey: .max)
+    try container.encodeIfPresent(self.error, forKey: .error)
   }
 }
 
@@ -8950,8 +8950,8 @@ public struct ChatSettingApplied: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
-    try container.encodeIfPresent(value, forKey: .value)
+    try container.encode(self.key, forKey: .key)
+    try container.encodeIfPresent(self.value, forKey: .value)
   }
 }
 
@@ -8974,7 +8974,7 @@ public struct ChatSettingsState: Codable, Equatable, Sendable {
   public var applied: [ChatSettingApplied]
   /// The chat's settings as saved. For a new chat, what the window keeps
   /// and sends with its first message.
-  public var params: JSONValue
+  public var params: [String: JSONValue]
   /// The edit changes something.
   public var dirty: Bool
   /// Some field of the edit cannot be saved.
@@ -8992,7 +8992,7 @@ public struct ChatSettingsState: Codable, Equatable, Sendable {
     parameters: [ChatSettingField] = [],
     otherKept: Bool = false,
     applied: [ChatSettingApplied] = [],
-    params: JSONValue = .object([:]),
+    params: [String: JSONValue] = [:],
     dirty: Bool = false,
     hasErrors: Bool = false,
     saved: Bool = false
@@ -9039,7 +9039,7 @@ public struct ChatSettingsState: Codable, Equatable, Sendable {
     self.parameters = try container.decodeIfPresent([ChatSettingField].self, forKey: .parameters) ?? []
     self.otherKept = try container.decodeIfPresent(Bool.self, forKey: .otherKept) ?? false
     self.applied = try container.decodeIfPresent([ChatSettingApplied].self, forKey: .applied) ?? []
-    self.params = try container.decodeIfPresent(JSONValue.self, forKey: .params) ?? .object([:])
+    self.params = try container.decodeIfPresent([String: JSONValue].self, forKey: .params) ?? [:]
     self.dirty = try container.decodeIfPresent(Bool.self, forKey: .dirty) ?? false
     self.hasErrors = try container.decodeIfPresent(Bool.self, forKey: .hasErrors) ?? false
     self.saved = try container.decodeIfPresent(Bool.self, forKey: .saved) ?? false
@@ -9047,19 +9047,19 @@ public struct ChatSettingsState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encode(entry, forKey: .entry)
-    try container.encode(advanced, forKey: .advanced)
-    try container.encode(canEditSystemPrompt, forKey: .canEditSystemPrompt)
-    try container.encode(canEditParameters, forKey: .canEditParameters)
-    try container.encode(systemPrompt, forKey: .systemPrompt)
-    try container.encode(parameters, forKey: .parameters)
-    try container.encode(otherKept, forKey: .otherKept)
-    try container.encode(applied, forKey: .applied)
-    try container.encode(params, forKey: .params)
-    try container.encode(dirty, forKey: .dirty)
-    try container.encode(hasErrors, forKey: .hasErrors)
-    try container.encode(saved, forKey: .saved)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encode(self.entry, forKey: .entry)
+    try container.encode(self.advanced, forKey: .advanced)
+    try container.encode(self.canEditSystemPrompt, forKey: .canEditSystemPrompt)
+    try container.encode(self.canEditParameters, forKey: .canEditParameters)
+    try container.encode(self.systemPrompt, forKey: .systemPrompt)
+    try container.encode(self.parameters, forKey: .parameters)
+    try container.encode(self.otherKept, forKey: .otherKept)
+    try container.encode(self.applied, forKey: .applied)
+    try container.encode(self.params, forKey: .params)
+    try container.encode(self.dirty, forKey: .dirty)
+    try container.encode(self.hasErrors, forKey: .hasErrors)
+    try container.encode(self.saved, forKey: .saved)
   }
 }
 
@@ -9094,9 +9094,9 @@ public struct ChatSettingFieldEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
-    try container.encode(mode, forKey: .mode)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.mode, forKey: .mode)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -9106,13 +9106,13 @@ public struct ChatSettingFieldEdit: Codable, Equatable, Sendable {
 public struct ChatSettingsEdit: Codable, Equatable, Sendable {
   public var chatId: String?
   public var modelId: String?
-  public var draft: JSONValue
+  public var draft: [String: JSONValue]
   public var fields: [ChatSettingFieldEdit]
 
   public init(
     chatId: String? = nil,
     modelId: String? = nil,
-    draft: JSONValue = .object([:]),
+    draft: [String: JSONValue] = [:],
     fields: [ChatSettingFieldEdit] = []
   ) {
     self.chatId = chatId
@@ -9132,16 +9132,16 @@ public struct ChatSettingsEdit: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.chatId = try container.decodeIfPresent(String.self, forKey: .chatId)
     self.modelId = try container.decodeIfPresent(String.self, forKey: .modelId)
-    self.draft = try container.decodeIfPresent(JSONValue.self, forKey: .draft) ?? .object([:])
+    self.draft = try container.decodeIfPresent([String: JSONValue].self, forKey: .draft) ?? [:]
     self.fields = try container.decodeIfPresent([ChatSettingFieldEdit].self, forKey: .fields) ?? []
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encode(draft, forKey: .draft)
-    try container.encode(fields, forKey: .fields)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encode(self.draft, forKey: .draft)
+    try container.encode(self.fields, forKey: .fields)
   }
 }
 
@@ -9236,18 +9236,18 @@ public struct ChatSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(title, forKey: .title)
-    try container.encode(updatedAtMs, forKey: .updatedAtMs)
-    try container.encode(pinned, forKey: .pinned)
-    try container.encode(archived, forKey: .archived)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encode(tags, forKey: .tags)
-    try container.encode(shared, forKey: .shared)
-    try container.encode(readOnly, forKey: .readOnly)
-    try container.encode(unread, forKey: .unread)
-    try container.encode(menu, forKey: .menu)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.updatedAtMs, forKey: .updatedAtMs)
+    try container.encode(self.pinned, forKey: .pinned)
+    try container.encode(self.archived, forKey: .archived)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encode(self.tags, forKey: .tags)
+    try container.encode(self.shared, forKey: .shared)
+    try container.encode(self.readOnly, forKey: .readOnly)
+    try container.encode(self.unread, forKey: .unread)
+    try container.encode(self.menu, forKey: .menu)
   }
 }
 
@@ -9306,12 +9306,12 @@ public struct ChatMenuAbilities: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(share, forKey: .share)
-    try container.encode(duplicate, forKey: .duplicate)
-    try container.encode(move, forKey: .move)
-    try container.encode(markUnread, forKey: .markUnread)
-    try container.encode(generateTitle, forKey: .generateTitle)
-    try container.encode(export, forKey: .export)
+    try container.encode(self.share, forKey: .share)
+    try container.encode(self.duplicate, forKey: .duplicate)
+    try container.encode(self.move, forKey: .move)
+    try container.encode(self.markUnread, forKey: .markUnread)
+    try container.encode(self.generateTitle, forKey: .generateTitle)
+    try container.encode(self.export, forKey: .export)
   }
 }
 
@@ -9386,14 +9386,14 @@ public struct FolderSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encode(expanded, forKey: .expanded)
-    try container.encode(shared, forKey: .shared)
-    try container.encodeIfPresent(ownerName, forKey: .ownerName)
-    try container.encode(canWrite, forKey: .canWrite)
-    try container.encodeIfPresent(icon, forKey: .icon)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encode(self.expanded, forKey: .expanded)
+    try container.encode(self.shared, forKey: .shared)
+    try container.encodeIfPresent(self.ownerName, forKey: .ownerName)
+    try container.encode(self.canWrite, forKey: .canWrite)
+    try container.encodeIfPresent(self.icon, forKey: .icon)
   }
 }
 
@@ -9454,12 +9454,12 @@ public struct ChatList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chats, forKey: .chats)
-    try container.encode(hasMore, forKey: .hasMore)
-    try container.encode(archivedCount, forKey: .archivedCount)
-    try container.encode(archivedVisible, forKey: .archivedVisible)
-    try container.encode(folders, forKey: .folders)
-    try container.encode(foldersEnabled, forKey: .foldersEnabled)
+    try container.encode(self.chats, forKey: .chats)
+    try container.encode(self.hasMore, forKey: .hasMore)
+    try container.encode(self.archivedCount, forKey: .archivedCount)
+    try container.encode(self.archivedVisible, forKey: .archivedVisible)
+    try container.encode(self.folders, forKey: .folders)
+    try container.encode(self.foldersEnabled, forKey: .foldersEnabled)
   }
 }
 
@@ -9641,29 +9641,29 @@ public struct ChatMessageDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(role, forKey: .role)
-    try container.encode(content, forKey: .content)
-    try container.encode(timestampMs, forKey: .timestampMs)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(modelName, forKey: .modelName)
-    try container.encode(streaming, forKey: .streaming)
-    try container.encodeIfPresent(errorCode, forKey: .errorCode)
-    try container.encode(versions, forKey: .versions)
-    try container.encode(sources, forKey: .sources)
-    try container.encodeIfPresent(usage, forKey: .usage)
-    try container.encodeIfPresent(rating, forKey: .rating)
-    try container.encode(files, forKey: .files)
-    try container.encode(blocks, forKey: .blocks)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encodeIfPresent(slot, forKey: .slot)
-    try container.encodeIfPresent(merged, forKey: .merged)
-    try container.encode(retryWithoutEffort, forKey: .retryWithoutEffort)
-    try container.encode(comparison, forKey: .comparison)
-    try container.encode(mergeableIds, forKey: .mergeableIds)
-    try container.encode(siblingIds, forKey: .siblingIds)
-    try container.encodeIfPresent(queued, forKey: .queued)
-    try container.encode(held, forKey: .held)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.role, forKey: .role)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.timestampMs, forKey: .timestampMs)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encodeIfPresent(self.modelName, forKey: .modelName)
+    try container.encode(self.streaming, forKey: .streaming)
+    try container.encodeIfPresent(self.errorCode, forKey: .errorCode)
+    try container.encode(self.versions, forKey: .versions)
+    try container.encode(self.sources, forKey: .sources)
+    try container.encodeIfPresent(self.usage, forKey: .usage)
+    try container.encodeIfPresent(self.rating, forKey: .rating)
+    try container.encode(self.files, forKey: .files)
+    try container.encode(self.blocks, forKey: .blocks)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encodeIfPresent(self.slot, forKey: .slot)
+    try container.encodeIfPresent(self.merged, forKey: .merged)
+    try container.encode(self.retryWithoutEffort, forKey: .retryWithoutEffort)
+    try container.encode(self.comparison, forKey: .comparison)
+    try container.encode(self.mergeableIds, forKey: .mergeableIds)
+    try container.encode(self.siblingIds, forKey: .siblingIds)
+    try container.encodeIfPresent(self.queued, forKey: .queued)
+    try container.encode(self.held, forKey: .held)
   }
 }
 
@@ -9702,9 +9702,9 @@ public struct ComparisonSlotDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(index, forKey: .index)
-    try container.encode(answerIds, forKey: .answerIds)
-    try container.encodeIfPresent(model, forKey: .model)
+    try container.encode(self.index, forKey: .index)
+    try container.encode(self.answerIds, forKey: .answerIds)
+    try container.encodeIfPresent(self.model, forKey: .model)
   }
 }
 
@@ -9766,12 +9766,12 @@ public struct ChatSourceDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(label, forKey: .label)
-    try container.encodeIfPresent(url, forKey: .url)
-    try container.encodeIfPresent(snippet, forKey: .snippet)
-    try container.encodeIfPresent(inlineLabel, forKey: .inlineLabel)
-    try container.encodeIfPresent(inlineTitle, forKey: .inlineTitle)
-    try container.encodeIfPresent(type, forKey: .type)
+    try container.encode(self.label, forKey: .label)
+    try container.encodeIfPresent(self.url, forKey: .url)
+    try container.encodeIfPresent(self.snippet, forKey: .snippet)
+    try container.encodeIfPresent(self.inlineLabel, forKey: .inlineLabel)
+    try container.encodeIfPresent(self.inlineTitle, forKey: .inlineTitle)
+    try container.encodeIfPresent(self.type, forKey: .type)
   }
 }
 
@@ -9822,11 +9822,11 @@ public struct ChatFileDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(image, forKey: .image)
-    try container.encodeIfPresent(contentType, forKey: .contentType)
-    try container.encodeIfPresent(dataUrl, forKey: .dataUrl)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.image, forKey: .image)
+    try container.encodeIfPresent(self.contentType, forKey: .contentType)
+    try container.encodeIfPresent(self.dataUrl, forKey: .dataUrl)
   }
 }
 
@@ -9916,18 +9916,18 @@ public struct ChatUsageDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(generationPerSecond, forKey: .generationPerSecond)
-    try container.encodeIfPresent(generationTokens, forKey: .generationTokens)
-    try container.encodeIfPresent(promptPerSecond, forKey: .promptPerSecond)
-    try container.encodeIfPresent(promptTokens, forKey: .promptTokens)
-    try container.encodeIfPresent(reasoningTokens, forKey: .reasoningTokens)
-    try container.encodeIfPresent(totalTokens, forKey: .totalTokens)
-    try container.encodeIfPresent(totalSeconds, forKey: .totalSeconds)
-    try container.encodeIfPresent(queueSeconds, forKey: .queueSeconds)
-    try container.encodeIfPresent(loadSeconds, forKey: .loadSeconds)
-    try container.encodeIfPresent(contextLength, forKey: .contextLength)
-    try container.encodeIfPresent(contextTokens, forKey: .contextTokens)
-    try container.encode(incomplete, forKey: .incomplete)
+    try container.encodeIfPresent(self.generationPerSecond, forKey: .generationPerSecond)
+    try container.encodeIfPresent(self.generationTokens, forKey: .generationTokens)
+    try container.encodeIfPresent(self.promptPerSecond, forKey: .promptPerSecond)
+    try container.encodeIfPresent(self.promptTokens, forKey: .promptTokens)
+    try container.encodeIfPresent(self.reasoningTokens, forKey: .reasoningTokens)
+    try container.encodeIfPresent(self.totalTokens, forKey: .totalTokens)
+    try container.encodeIfPresent(self.totalSeconds, forKey: .totalSeconds)
+    try container.encodeIfPresent(self.queueSeconds, forKey: .queueSeconds)
+    try container.encodeIfPresent(self.loadSeconds, forKey: .loadSeconds)
+    try container.encodeIfPresent(self.contextLength, forKey: .contextLength)
+    try container.encodeIfPresent(self.contextTokens, forKey: .contextTokens)
+    try container.encode(self.incomplete, forKey: .incomplete)
   }
 }
 
@@ -10016,18 +10016,18 @@ public struct ChatMessageVersionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(content, forKey: .content)
-    try container.encode(timestampMs, forKey: .timestampMs)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(modelName, forKey: .modelName)
-    try container.encode(sources, forKey: .sources)
-    try container.encodeIfPresent(usage, forKey: .usage)
-    try container.encode(blocks, forKey: .blocks)
-    try container.encodeIfPresent(slot, forKey: .slot)
-    try container.encodeIfPresent(merged, forKey: .merged)
-    try container.encode(streaming, forKey: .streaming)
-    try container.encodeIfPresent(errorCode, forKey: .errorCode)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.timestampMs, forKey: .timestampMs)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encodeIfPresent(self.modelName, forKey: .modelName)
+    try container.encode(self.sources, forKey: .sources)
+    try container.encodeIfPresent(self.usage, forKey: .usage)
+    try container.encode(self.blocks, forKey: .blocks)
+    try container.encodeIfPresent(self.slot, forKey: .slot)
+    try container.encodeIfPresent(self.merged, forKey: .merged)
+    try container.encode(self.streaming, forKey: .streaming)
+    try container.encodeIfPresent(self.errorCode, forKey: .errorCode)
   }
 }
 
@@ -10104,15 +10104,15 @@ public struct ChatDetail: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(summary, forKey: .summary)
-    try container.encode(messages, forKey: .messages)
-    try container.encodeIfPresent(systemPrompt, forKey: .systemPrompt)
-    try container.encode(readOnly, forKey: .readOnly)
-    try container.encode(abilities, forKey: .abilities)
-    try container.encode(temporary, forKey: .temporary)
-    try container.encodeIfPresent(shareId, forKey: .shareId)
-    try container.encode(tasks, forKey: .tasks)
-    try container.encodeIfPresent(hermes, forKey: .hermes)
+    try container.encode(self.summary, forKey: .summary)
+    try container.encode(self.messages, forKey: .messages)
+    try container.encodeIfPresent(self.systemPrompt, forKey: .systemPrompt)
+    try container.encode(self.readOnly, forKey: .readOnly)
+    try container.encode(self.abilities, forKey: .abilities)
+    try container.encode(self.temporary, forKey: .temporary)
+    try container.encodeIfPresent(self.shareId, forKey: .shareId)
+    try container.encode(self.tasks, forKey: .tasks)
+    try container.encodeIfPresent(self.hermes, forKey: .hermes)
   }
 }
 
@@ -10226,20 +10226,20 @@ public struct ChatAbilities: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(fork, forKey: .fork)
-    try container.encode(export, forKey: .export)
-    try container.encode(merge, forKey: .merge)
-    try container.encode(branch, forKey: .branch)
-    try container.encode(deleteMessages, forKey: .deleteMessages)
-    try container.encode(markUnread, forKey: .markUnread)
-    try container.encode(generateTitle, forKey: .generateTitle)
-    try container.encode(share, forKey: .share)
-    try container.encode(saveTemporary, forKey: .saveTemporary)
-    try container.encode(compare, forKey: .compare)
-    try container.encode(branchFromHere, forKey: .branchFromHere)
-    try container.encode(undoLastTurn, forKey: .undoLastTurn)
-    try container.encode(hermesWork, forKey: .hermesWork)
-    try container.encode(hermesContext, forKey: .hermesContext)
+    try container.encode(self.fork, forKey: .fork)
+    try container.encode(self.export, forKey: .export)
+    try container.encode(self.merge, forKey: .merge)
+    try container.encode(self.branch, forKey: .branch)
+    try container.encode(self.deleteMessages, forKey: .deleteMessages)
+    try container.encode(self.markUnread, forKey: .markUnread)
+    try container.encode(self.generateTitle, forKey: .generateTitle)
+    try container.encode(self.share, forKey: .share)
+    try container.encode(self.saveTemporary, forKey: .saveTemporary)
+    try container.encode(self.compare, forKey: .compare)
+    try container.encode(self.branchFromHere, forKey: .branchFromHere)
+    try container.encode(self.undoLastTurn, forKey: .undoLastTurn)
+    try container.encode(self.hermesWork, forKey: .hermesWork)
+    try container.encode(self.hermesContext, forKey: .hermesContext)
   }
 }
 
@@ -10285,10 +10285,10 @@ public struct QueuedCompletionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(failed, forKey: .failed)
-    try container.encode(offline, forKey: .offline)
-    try container.encodeIfPresent(error, forKey: .error)
-    try container.encode(reasoningEffortRejected, forKey: .reasoningEffortRejected)
+    try container.encode(self.failed, forKey: .failed)
+    try container.encode(self.offline, forKey: .offline)
+    try container.encodeIfPresent(self.error, forKey: .error)
+    try container.encode(self.reasoningEffortRejected, forKey: .reasoningEffortRejected)
   }
 }
 
@@ -10324,9 +10324,9 @@ public struct ChatTaskDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(content, forKey: .content)
-    try container.encode(status, forKey: .status)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.status, forKey: .status)
   }
 }
 
@@ -10377,12 +10377,12 @@ public struct ChatTreeNode: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encode(role, forKey: .role)
-    try container.encode(preview, forKey: .preview)
-    try container.encode(timestampMs, forKey: .timestampMs)
-    try container.encodeIfPresent(model, forKey: .model)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encode(self.role, forKey: .role)
+    try container.encode(self.preview, forKey: .preview)
+    try container.encode(self.timestampMs, forKey: .timestampMs)
+    try container.encodeIfPresent(self.model, forKey: .model)
   }
 }
 
@@ -10421,9 +10421,9 @@ public struct ChatTree: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(nodes, forKey: .nodes)
-    try container.encodeIfPresent(currentId, forKey: .currentId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.nodes, forKey: .nodes)
+    try container.encodeIfPresent(self.currentId, forKey: .currentId)
   }
 }
 
@@ -10461,9 +10461,9 @@ public struct ChatCurrent: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encodeIfPresent(alternativeTo, forKey: .alternativeTo)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encodeIfPresent(self.alternativeTo, forKey: .alternativeTo)
   }
 }
 
@@ -10488,7 +10488,7 @@ public struct FolderRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(folderId, forKey: .folderId)
+    try container.encode(self.folderId, forKey: .folderId)
   }
 }
 
@@ -10520,8 +10520,8 @@ public struct FolderIconChoice: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(alias, forKey: .alias)
-    try container.encode(emoji, forKey: .emoji)
+    try container.encode(self.alias, forKey: .alias)
+    try container.encode(self.emoji, forKey: .emoji)
   }
 }
 
@@ -10551,8 +10551,8 @@ public struct FolderModelChoice: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -10594,10 +10594,10 @@ public struct FolderKnowledgeItem: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(type, forKey: .type)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(missing, forKey: .missing)
+    try container.encode(self.type, forKey: .type)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.missing, forKey: .missing)
   }
 }
 
@@ -10701,20 +10701,20 @@ public struct FolderSettings: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(icon, forKey: .icon)
-    try container.encode(systemPrompt, forKey: .systemPrompt)
-    try container.encode(modelIds, forKey: .modelIds)
-    try container.encode(knowledge, forKey: .knowledge)
-    try container.encode(shared, forKey: .shared)
-    try container.encodeIfPresent(ownerName, forKey: .ownerName)
-    try container.encode(canRename, forKey: .canRename)
-    try container.encode(canWrite, forKey: .canWrite)
-    try container.encode(canEditSystemPrompt, forKey: .canEditSystemPrompt)
-    try container.encode(canShare, forKey: .canShare)
-    try container.encode(iconChoices, forKey: .iconChoices)
-    try container.encode(modelChoices, forKey: .modelChoices)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.icon, forKey: .icon)
+    try container.encode(self.systemPrompt, forKey: .systemPrompt)
+    try container.encode(self.modelIds, forKey: .modelIds)
+    try container.encode(self.knowledge, forKey: .knowledge)
+    try container.encode(self.shared, forKey: .shared)
+    try container.encodeIfPresent(self.ownerName, forKey: .ownerName)
+    try container.encode(self.canRename, forKey: .canRename)
+    try container.encode(self.canWrite, forKey: .canWrite)
+    try container.encode(self.canEditSystemPrompt, forKey: .canEditSystemPrompt)
+    try container.encode(self.canShare, forKey: .canShare)
+    try container.encode(self.iconChoices, forKey: .iconChoices)
+    try container.encode(self.modelChoices, forKey: .modelChoices)
   }
 }
 
@@ -10765,12 +10765,12 @@ public struct FolderUpdate: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(name, forKey: .name)
-    try container.encodeIfPresent(icon, forKey: .icon)
-    try container.encodeIfPresent(systemPrompt, forKey: .systemPrompt)
-    try container.encodeIfPresent(modelIds, forKey: .modelIds)
-    try container.encodeIfPresent(knowledge, forKey: .knowledge)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.name, forKey: .name)
+    try container.encodeIfPresent(self.icon, forKey: .icon)
+    try container.encodeIfPresent(self.systemPrompt, forKey: .systemPrompt)
+    try container.encodeIfPresent(self.modelIds, forKey: .modelIds)
+    try container.encodeIfPresent(self.knowledge, forKey: .knowledge)
   }
 }
 
@@ -10808,9 +10808,9 @@ public struct FolderDraftModel: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(folderId, forKey: .folderId)
-    try container.encode(modelIds, forKey: .modelIds)
-    try container.encode(missing, forKey: .missing)
+    try container.encode(self.folderId, forKey: .folderId)
+    try container.encode(self.modelIds, forKey: .modelIds)
+    try container.encode(self.missing, forKey: .missing)
   }
 }
 
@@ -10847,8 +10847,8 @@ public struct FolderContents: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(folder, forKey: .folder)
-    try container.encode(chats, forKey: .chats)
+    try container.encode(self.folder, forKey: .folder)
+    try container.encode(self.chats, forKey: .chats)
   }
 }
 
@@ -10881,8 +10881,8 @@ public struct CreateFolder: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
   }
 }
 
@@ -10913,8 +10913,8 @@ public struct FolderCreated: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(folder, forKey: .folder)
-    try container.encode(list, forKey: .list)
+    try container.encode(self.folder, forKey: .folder)
+    try container.encode(self.list, forKey: .list)
   }
 }
 
@@ -10944,8 +10944,8 @@ public struct RenameFolder: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -10976,8 +10976,8 @@ public struct ChatSystemPrompt: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(prompt, forKey: .prompt)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.prompt, forKey: .prompt)
   }
 }
 
@@ -11010,8 +11010,8 @@ public struct TagDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -11037,7 +11037,7 @@ public struct TagList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(tags, forKey: .tags)
+    try container.encode(self.tags, forKey: .tags)
   }
 }
 
@@ -11113,9 +11113,9 @@ public struct BulkChats: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatIds, forKey: .chatIds)
-    try container.encode(action, forKey: .action)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
+    try container.encode(self.chatIds, forKey: .chatIds)
+    try container.encode(self.action, forKey: .action)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
   }
 }
 
@@ -11149,8 +11149,8 @@ public struct BulkChatsResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(list, forKey: .list)
-    try container.encode(failed, forKey: .failed)
+    try container.encode(self.list, forKey: .list)
+    try container.encode(self.failed, forKey: .failed)
   }
 }
 
@@ -11181,8 +11181,8 @@ public struct MoveChat: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
   }
 }
 
@@ -11212,8 +11212,8 @@ public struct ChatTagEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -11238,7 +11238,7 @@ public struct ChatRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -11268,8 +11268,8 @@ public struct ChatSearchQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(query, forKey: .query)
-    try container.encode(limit, forKey: .limit)
+    try container.encode(self.query, forKey: .query)
+    try container.encode(self.limit, forKey: .limit)
   }
 }
 
@@ -11312,10 +11312,10 @@ public struct ChatSearchHit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(title, forKey: .title)
-    try container.encodeIfPresent(snippet, forKey: .snippet)
-    try container.encode(updatedAtMs, forKey: .updatedAtMs)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.title, forKey: .title)
+    try container.encodeIfPresent(self.snippet, forKey: .snippet)
+    try container.encode(self.updatedAtMs, forKey: .updatedAtMs)
   }
 }
 
@@ -11352,8 +11352,8 @@ public struct ChatSearchResults: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(hits, forKey: .hits)
-    try container.encode(complete, forKey: .complete)
+    try container.encode(self.hits, forKey: .hits)
+    try container.encode(self.complete, forKey: .complete)
   }
 }
 
@@ -11383,8 +11383,8 @@ public struct RenameChat: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(title, forKey: .title)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.title, forKey: .title)
   }
 }
 
@@ -11418,8 +11418,8 @@ public struct SetChatFlag: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(value, forKey: .value)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.value, forKey: .value)
   }
 }
 
@@ -11496,9 +11496,9 @@ public struct ShareChat: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(publish, forKey: .publish)
-    try container.encodeIfPresent(audience, forKey: .audience)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.publish, forKey: .publish)
+    try container.encodeIfPresent(self.audience, forKey: .audience)
   }
 }
 
@@ -11542,10 +11542,10 @@ public struct ChatShare: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encodeIfPresent(shareId, forKey: .shareId)
-    try container.encodeIfPresent(url, forKey: .url)
-    try container.encodeIfPresent(audience, forKey: .audience)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.shareId, forKey: .shareId)
+    try container.encodeIfPresent(self.url, forKey: .url)
+    try container.encodeIfPresent(self.audience, forKey: .audience)
   }
 }
 
@@ -11570,7 +11570,7 @@ public struct ArchivedVisibility: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(visible, forKey: .visible)
+    try container.encode(self.visible, forKey: .visible)
   }
 }
 
@@ -11601,7 +11601,7 @@ public struct ChatsChanged: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
   }
 }
 
@@ -11636,8 +11636,8 @@ public struct RouteRemap: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(fromId, forKey: .fromId)
-    try container.encode(toId, forKey: .toId)
+    try container.encode(self.fromId, forKey: .fromId)
+    try container.encode(self.toId, forKey: .toId)
   }
 }
 
@@ -11695,11 +11695,11 @@ public struct SyncState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(running, forKey: .running)
-    try container.encodeIfPresent(progress, forKey: .progress)
-    try container.encode(everCompleted, forKey: .everCompleted)
-    try container.encodeIfPresent(lastError, forKey: .lastError)
-    try container.encode(online, forKey: .online)
+    try container.encode(self.running, forKey: .running)
+    try container.encodeIfPresent(self.progress, forKey: .progress)
+    try container.encode(self.everCompleted, forKey: .everCompleted)
+    try container.encodeIfPresent(self.lastError, forKey: .lastError)
+    try container.encode(self.online, forKey: .online)
   }
 }
 
@@ -11728,7 +11728,7 @@ public struct ChatResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    if let value = chat {
+    if let value = self.chat {
       try container.encode(value, forKey: .chat)
     } else {
       try container.encodeNil(forKey: .chat)
@@ -11763,8 +11763,8 @@ public struct ForkChat: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
   }
 }
 
@@ -11789,7 +11789,7 @@ public struct ChatForked: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
+    try container.encode(self.chatId, forKey: .chatId)
   }
 }
 
@@ -11855,8 +11855,8 @@ public struct ExportChat: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(format, forKey: .format)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.format, forKey: .format)
   }
 }
 
@@ -11899,10 +11899,10 @@ public struct ChatExportFile: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(fileName, forKey: .fileName)
-    try container.encode(content, forKey: .content)
-    try container.encode(mimeType, forKey: .mimeType)
-    try container.encode(hasUnsyncedChanges, forKey: .hasUnsyncedChanges)
+    try container.encode(self.fileName, forKey: .fileName)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.mimeType, forKey: .mimeType)
+    try container.encode(self.hasUnsyncedChanges, forKey: .hasUnsyncedChanges)
   }
 }
 
@@ -11972,8 +11972,8 @@ public struct GeneratedTitle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encodeIfPresent(title, forKey: .title)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encodeIfPresent(self.title, forKey: .title)
   }
 }
 
@@ -12012,9 +12012,9 @@ public struct MarkUnread: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(unread, forKey: .unread)
-    try container.encode(explicit, forKey: .explicit)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.unread, forKey: .unread)
+    try container.encode(self.explicit, forKey: .explicit)
   }
 }
 
@@ -12081,8 +12081,8 @@ public struct ShownChat: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(view, forKey: .view)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
+    try container.encode(self.view, forKey: .view)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
   }
 }
 
@@ -12124,10 +12124,10 @@ public struct ToolSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encode(device, forKey: .device)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encode(self.device, forKey: .device)
   }
 }
 
@@ -12298,26 +12298,26 @@ public struct ComposerOptions: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(webSearch, forKey: .webSearch)
-    try container.encode(imageGeneration, forKey: .imageGeneration)
-    try container.encode(tools, forKey: .tools)
-    try container.encode(mcpTools, forKey: .mcpTools)
-    try container.encode(filters, forKey: .filters)
-    try container.encode(filterDefaults, forKey: .filterDefaults)
-    try container.encode(codeInterpreter, forKey: .codeInterpreter)
-    try container.encodeIfPresent(codeInterpreterBlock, forKey: .codeInterpreterBlock)
-    try container.encode(attachments, forKey: .attachments)
-    try container.encode(skills, forKey: .skills)
-    try container.encode(context, forKey: .context)
-    try container.encode(notes, forKey: .notes)
-    try container.encode(mentions, forKey: .mentions)
-    try container.encode(steer, forKey: .steer)
-    try container.encode(imageConversions, forKey: .imageConversions)
-    try container.encode(compareModels, forKey: .compareModels)
-    try container.encode(quickPills, forKey: .quickPills)
-    try container.encode(voiceCall, forKey: .voiceCall)
-    try container.encode(agentChat, forKey: .agentChat)
-    try container.encode(ownEffortControl, forKey: .ownEffortControl)
+    try container.encode(self.webSearch, forKey: .webSearch)
+    try container.encode(self.imageGeneration, forKey: .imageGeneration)
+    try container.encode(self.tools, forKey: .tools)
+    try container.encode(self.mcpTools, forKey: .mcpTools)
+    try container.encode(self.filters, forKey: .filters)
+    try container.encode(self.filterDefaults, forKey: .filterDefaults)
+    try container.encode(self.codeInterpreter, forKey: .codeInterpreter)
+    try container.encodeIfPresent(self.codeInterpreterBlock, forKey: .codeInterpreterBlock)
+    try container.encode(self.attachments, forKey: .attachments)
+    try container.encode(self.skills, forKey: .skills)
+    try container.encode(self.context, forKey: .context)
+    try container.encode(self.notes, forKey: .notes)
+    try container.encode(self.mentions, forKey: .mentions)
+    try container.encode(self.steer, forKey: .steer)
+    try container.encode(self.imageConversions, forKey: .imageConversions)
+    try container.encode(self.compareModels, forKey: .compareModels)
+    try container.encode(self.quickPills, forKey: .quickPills)
+    try container.encode(self.voiceCall, forKey: .voiceCall)
+    try container.encode(self.agentChat, forKey: .agentChat)
+    try container.encode(self.ownEffortControl, forKey: .ownEffortControl)
   }
 }
 
@@ -12351,8 +12351,8 @@ public struct ComposerOptionsQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
   }
 }
 
@@ -12387,9 +12387,9 @@ public struct KnowledgeSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(description, forKey: .description)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.description, forKey: .description)
   }
 }
 
@@ -12414,7 +12414,7 @@ public struct KnowledgeQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(query, forKey: .query)
+    try container.encode(self.query, forKey: .query)
   }
 }
 
@@ -12439,7 +12439,7 @@ public struct KnowledgeList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(items, forKey: .items)
+    try container.encode(self.items, forKey: .items)
   }
 }
 
@@ -12493,11 +12493,11 @@ public struct AttachmentAvailability: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(files, forKey: .files)
-    try container.encode(serverFiles, forKey: .serverFiles)
-    try container.encode(images, forKey: .images)
-    try container.encode(webPage, forKey: .webPage)
-    try container.encode(mcpContent, forKey: .mcpContent)
+    try container.encode(self.files, forKey: .files)
+    try container.encode(self.serverFiles, forKey: .serverFiles)
+    try container.encode(self.images, forKey: .images)
+    try container.encode(self.webPage, forKey: .webPage)
+    try container.encode(self.mcpContent, forKey: .mcpContent)
   }
 }
 
@@ -12523,7 +12523,7 @@ public struct ComposerSearch: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(query, forKey: .query)
+    try container.encode(self.query, forKey: .query)
   }
 }
 
@@ -12559,9 +12559,9 @@ public struct MentionTarget: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(detail, forKey: .detail)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.detail, forKey: .detail)
   }
 }
 
@@ -12591,8 +12591,8 @@ public struct MentionList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(users, forKey: .users)
-    try container.encode(channels, forKey: .channels)
+    try container.encode(self.users, forKey: .users)
+    try container.encode(self.channels, forKey: .channels)
   }
 }
 
@@ -12627,9 +12627,9 @@ public struct SkillSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(description, forKey: .description)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.description, forKey: .description)
   }
 }
 
@@ -12654,7 +12654,7 @@ public struct SkillList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(items, forKey: .items)
+    try container.encode(self.items, forKey: .items)
   }
 }
 
@@ -12737,11 +12737,11 @@ public struct ContextSuggestion: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(subtitle, forKey: .subtitle)
-    try container.encodeIfPresent(collectionName, forKey: .collectionName)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.subtitle, forKey: .subtitle)
+    try container.encodeIfPresent(self.collectionName, forKey: .collectionName)
   }
 }
 
@@ -12767,7 +12767,7 @@ public struct ContextSuggestions: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(items, forKey: .items)
+    try container.encode(self.items, forKey: .items)
   }
 }
 
@@ -12867,13 +12867,13 @@ public struct ContextAttachmentDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(url, forKey: .url)
-    try container.encodeIfPresent(content, forKey: .content)
-    try container.encodeIfPresent(collectionName, forKey: .collectionName)
-    try container.encodeIfPresent(fileId, forKey: .fileId)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.url, forKey: .url)
+    try container.encodeIfPresent(self.content, forKey: .content)
+    try container.encodeIfPresent(self.collectionName, forKey: .collectionName)
+    try container.encodeIfPresent(self.fileId, forKey: .fileId)
   }
 }
 
@@ -12898,7 +12898,7 @@ public struct FetchUrl: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
+    try container.encode(self.url, forKey: .url)
   }
 }
 
@@ -12930,8 +12930,8 @@ public struct FetchedUrl: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(attachment, forKey: .attachment)
-    try container.encodeIfPresent(error, forKey: .error)
+    try container.encodeIfPresent(self.attachment, forKey: .attachment)
+    try container.encodeIfPresent(self.error, forKey: .error)
   }
 }
 
@@ -12976,11 +12976,11 @@ public struct ServerFile: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(size, forKey: .size)
-    try container.encodeIfPresent(contentType, forKey: .contentType)
-    try container.encodeIfPresent(updatedAtMs, forKey: .updatedAtMs)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.size, forKey: .size)
+    try container.encodeIfPresent(self.contentType, forKey: .contentType)
+    try container.encodeIfPresent(self.updatedAtMs, forKey: .updatedAtMs)
   }
 }
 
@@ -13005,7 +13005,7 @@ public struct ServerFileList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(items, forKey: .items)
+    try container.encode(self.items, forKey: .items)
   }
 }
 
@@ -13093,12 +13093,12 @@ public struct ComposerMentionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(start, forKey: .start)
-    try container.encode(end, forKey: .end)
-    try container.encode(id, forKey: .id)
-    try container.encode(label, forKey: .label)
-    try container.encode(idType, forKey: .idType)
-    try container.encode(kind, forKey: .kind)
+    try container.encode(self.start, forKey: .start)
+    try container.encode(self.end, forKey: .end)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.idType, forKey: .idType)
+    try container.encode(self.kind, forKey: .kind)
   }
 }
 
@@ -13130,8 +13130,8 @@ public struct ComposerInsertText: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -13237,7 +13237,7 @@ public struct ComputerScope: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
+    try container.encode(self.chatId, forKey: .chatId)
   }
 }
 
@@ -13275,9 +13275,9 @@ public struct ComputerStatus: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(desktop, forKey: .desktop)
-    try container.encode(browser, forKey: .browser)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.desktop, forKey: .desktop)
+    try container.encode(self.browser, forKey: .browser)
   }
 }
 
@@ -13320,10 +13320,10 @@ public struct ComputerOpen: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(surface, forKey: .surface)
-    try container.encodeIfPresent(tabId, forKey: .tabId)
-    try container.encode(newTab, forKey: .newTab)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.surface, forKey: .surface)
+    try container.encodeIfPresent(self.tabId, forKey: .tabId)
+    try container.encode(self.newTab, forKey: .newTab)
   }
 }
 
@@ -13395,15 +13395,15 @@ public struct ComputerView: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(surface, forKey: .surface)
-    try container.encode(state, forKey: .state)
-    try container.encodeIfPresent(handle, forKey: .handle)
-    try container.encodeIfPresent(streamUrl, forKey: .streamUrl)
-    try container.encode(transport, forKey: .transport)
-    try container.encode(audio, forKey: .audio)
-    try container.encodeIfPresent(tabId, forKey: .tabId)
-    try container.encode(title, forKey: .title)
-    try container.encode(url, forKey: .url)
+    try container.encode(self.surface, forKey: .surface)
+    try container.encode(self.state, forKey: .state)
+    try container.encodeIfPresent(self.handle, forKey: .handle)
+    try container.encodeIfPresent(self.streamUrl, forKey: .streamUrl)
+    try container.encode(self.transport, forKey: .transport)
+    try container.encode(self.audio, forKey: .audio)
+    try container.encodeIfPresent(self.tabId, forKey: .tabId)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.url, forKey: .url)
   }
 }
 
@@ -13443,10 +13443,10 @@ public struct ComputerTab: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(title, forKey: .title)
-    try container.encode(url, forKey: .url)
-    try container.encode(selected, forKey: .selected)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.selected, forKey: .selected)
   }
 }
 
@@ -13471,7 +13471,7 @@ public struct ComputerTabs: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(tabs, forKey: .tabs)
+    try container.encode(self.tabs, forKey: .tabs)
   }
 }
 
@@ -13501,8 +13501,8 @@ public struct ComputerTabRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(tabId, forKey: .tabId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.tabId, forKey: .tabId)
   }
 }
 
@@ -13533,8 +13533,8 @@ public struct ComputerShortcut: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(handle, forKey: .handle)
-    try container.encode(key, forKey: .key)
+    try container.encode(self.handle, forKey: .handle)
+    try container.encode(self.key, forKey: .key)
   }
 }
 
@@ -13559,7 +13559,7 @@ public struct ComputerHandleRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(handle, forKey: .handle)
+    try container.encode(self.handle, forKey: .handle)
   }
 }
 
@@ -13629,14 +13629,14 @@ public struct ChatDataSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encode(serverChats, forKey: .serverChats)
-    try container.encode(localOnly, forKey: .localOnly)
-    try container.encode(unsent, forKey: .unsent)
-    try container.encode(running, forKey: .running)
-    try container.encode(canExport, forKey: .canExport)
-    try container.encode(canImport, forKey: .canImport)
-    try container.encode(canDelete, forKey: .canDelete)
+    try container.encode(self.available, forKey: .available)
+    try container.encode(self.serverChats, forKey: .serverChats)
+    try container.encode(self.localOnly, forKey: .localOnly)
+    try container.encode(self.unsent, forKey: .unsent)
+    try container.encode(self.running, forKey: .running)
+    try container.encode(self.canExport, forKey: .canExport)
+    try container.encode(self.canImport, forKey: .canImport)
+    try container.encode(self.canDelete, forKey: .canDelete)
   }
 }
 
@@ -13663,7 +13663,7 @@ public struct DataExportRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(path, forKey: .path)
+    try container.encode(self.path, forKey: .path)
   }
 }
 
@@ -13688,7 +13688,7 @@ public struct DataImportRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(path, forKey: .path)
+    try container.encode(self.path, forKey: .path)
   }
 }
 
@@ -13715,7 +13715,7 @@ public struct DataDeleteAll: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(discardUnsent, forKey: .discardUnsent)
+    try container.encode(self.discardUnsent, forKey: .discardUnsent)
   }
 }
 
@@ -13772,11 +13772,11 @@ public struct DataActionResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(failure, forKey: .failure)
-    try container.encode(count, forKey: .count)
-    try container.encode(stored, forKey: .stored)
-    try container.encode(messages, forKey: .messages)
-    try container.encodeIfPresent(index, forKey: .index)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
+    try container.encode(self.count, forKey: .count)
+    try container.encode(self.stored, forKey: .stored)
+    try container.encode(self.messages, forKey: .messages)
+    try container.encodeIfPresent(self.index, forKey: .index)
   }
 }
 
@@ -13849,15 +13849,15 @@ public struct ConnectionHealth: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encode(connected, forKey: .connected)
-    try container.encode(transport, forKey: .transport)
-    try container.encodeIfPresent(latencyMs, forKey: .latencyMs)
-    try container.encode(quality, forKey: .quality)
-    try container.encodeIfPresent(lastHeartbeatMs, forKey: .lastHeartbeatMs)
-    try container.encode(reconnects, forKey: .reconnects)
-    try container.encode(allowPolling, forKey: .allowPolling)
-    try container.encode(allowWebsocket, forKey: .allowWebsocket)
+    try container.encode(self.available, forKey: .available)
+    try container.encode(self.connected, forKey: .connected)
+    try container.encode(self.transport, forKey: .transport)
+    try container.encodeIfPresent(self.latencyMs, forKey: .latencyMs)
+    try container.encode(self.quality, forKey: .quality)
+    try container.encodeIfPresent(self.lastHeartbeatMs, forKey: .lastHeartbeatMs)
+    try container.encode(self.reconnects, forKey: .reconnects)
+    try container.encode(self.allowPolling, forKey: .allowPolling)
+    try container.encode(self.allowWebsocket, forKey: .allowWebsocket)
   }
 }
 
@@ -13886,7 +13886,7 @@ public struct DictationTarget: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
   }
 }
 
@@ -13958,14 +13958,14 @@ public struct DictationStatus: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(engine, forKey: .engine)
-    try container.encode(serverAvailable, forKey: .serverAvailable)
-    try container.encodeIfPresent(serverSource, forKey: .serverSource)
-    try container.encode(localAvailable, forKey: .localAvailable)
-    try container.encode(localReady, forKey: .localReady)
-    try container.encodeIfPresent(localModel, forKey: .localModel)
-    try container.encodeIfPresent(language, forKey: .language)
-    try container.encode(silenceMs, forKey: .silenceMs)
+    try container.encode(self.engine, forKey: .engine)
+    try container.encode(self.serverAvailable, forKey: .serverAvailable)
+    try container.encodeIfPresent(self.serverSource, forKey: .serverSource)
+    try container.encode(self.localAvailable, forKey: .localAvailable)
+    try container.encode(self.localReady, forKey: .localReady)
+    try container.encodeIfPresent(self.localModel, forKey: .localModel)
+    try container.encodeIfPresent(self.language, forKey: .language)
+    try container.encode(self.silenceMs, forKey: .silenceMs)
   }
 }
 
@@ -14175,26 +14175,26 @@ public struct DirectConnectionSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(baseUrl, forKey: .baseUrl)
-    try container.encode(apiMode, forKey: .apiMode)
-    try container.encodeIfPresent(apiVersion, forKey: .apiVersion)
-    try container.encode(apiKeyHeader, forKey: .apiKeyHeader)
-    try container.encodeIfPresent(modelIdPrefix, forKey: .modelIdPrefix)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(hasApiKey, forKey: .hasApiKey)
-    try container.encode(customHeaderNames, forKey: .customHeaderNames)
-    try container.encode(manualModelIds, forKey: .manualModelIds)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encode(openRouter, forKey: .openRouter)
-    try container.encode(ollamaCloud, forKey: .ollamaCloud)
-    try container.encode(openWebUi, forKey: .openWebUi)
-    try container.encode(compatible, forKey: .compatible)
-    try container.encode(tags, forKey: .tags)
-    try container.encodeIfPresent(certificateLabel, forKey: .certificateLabel)
-    try container.encodeIfPresent(privateKeyLabel, forKey: .privateKeyLabel)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.baseUrl, forKey: .baseUrl)
+    try container.encode(self.apiMode, forKey: .apiMode)
+    try container.encodeIfPresent(self.apiVersion, forKey: .apiVersion)
+    try container.encode(self.apiKeyHeader, forKey: .apiKeyHeader)
+    try container.encodeIfPresent(self.modelIdPrefix, forKey: .modelIdPrefix)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.hasApiKey, forKey: .hasApiKey)
+    try container.encode(self.customHeaderNames, forKey: .customHeaderNames)
+    try container.encode(self.manualModelIds, forKey: .manualModelIds)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encode(self.openRouter, forKey: .openRouter)
+    try container.encode(self.ollamaCloud, forKey: .ollamaCloud)
+    try container.encode(self.openWebUi, forKey: .openWebUi)
+    try container.encode(self.compatible, forKey: .compatible)
+    try container.encode(self.tags, forKey: .tags)
+    try container.encodeIfPresent(self.certificateLabel, forKey: .certificateLabel)
+    try container.encodeIfPresent(self.privateKeyLabel, forKey: .privateKeyLabel)
   }
 }
 
@@ -14262,13 +14262,13 @@ public struct DirectConnectionList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(connections, forKey: .connections)
-    try container.encode(localHistory, forKey: .localHistory)
-    try container.encode(openWebUiAvailable, forKey: .openWebUiAvailable)
-    try container.encode(openWebUiMovedToTether, forKey: .openWebUiMovedToTether)
-    try container.encode(preferred, forKey: .preferred)
-    try container.encode(usable, forKey: .usable)
-    try container.encode(openWebUiLoadFailed, forKey: .openWebUiLoadFailed)
+    try container.encode(self.connections, forKey: .connections)
+    try container.encode(self.localHistory, forKey: .localHistory)
+    try container.encode(self.openWebUiAvailable, forKey: .openWebUiAvailable)
+    try container.encode(self.openWebUiMovedToTether, forKey: .openWebUiMovedToTether)
+    try container.encode(self.preferred, forKey: .preferred)
+    try container.encode(self.usable, forKey: .usable)
+    try container.encode(self.openWebUiLoadFailed, forKey: .openWebUiLoadFailed)
   }
 }
 
@@ -14400,26 +14400,26 @@ public struct DirectConnectionEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(baseUrl, forKey: .baseUrl)
-    try container.encode(apiMode, forKey: .apiMode)
-    try container.encodeIfPresent(apiVersion, forKey: .apiVersion)
-    try container.encode(apiKeyHeader, forKey: .apiKeyHeader)
-    try container.encodeIfPresent(modelIdPrefix, forKey: .modelIdPrefix)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(openWebUi, forKey: .openWebUi)
-    try container.encodeIfPresent(apiKey, forKey: .apiKey)
-    try container.encodeIfPresent(customHeaders, forKey: .customHeaders)
-    try container.encode(manualModelIds, forKey: .manualModelIds)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encode(tags, forKey: .tags)
-    try container.encodeIfPresent(certificatePem, forKey: .certificatePem)
-    try container.encodeIfPresent(certificateLabel, forKey: .certificateLabel)
-    try container.encodeIfPresent(privateKeyPem, forKey: .privateKeyPem)
-    try container.encodeIfPresent(privateKeyLabel, forKey: .privateKeyLabel)
-    try container.encodeIfPresent(privateKeyPassword, forKey: .privateKeyPassword)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.baseUrl, forKey: .baseUrl)
+    try container.encode(self.apiMode, forKey: .apiMode)
+    try container.encodeIfPresent(self.apiVersion, forKey: .apiVersion)
+    try container.encode(self.apiKeyHeader, forKey: .apiKeyHeader)
+    try container.encodeIfPresent(self.modelIdPrefix, forKey: .modelIdPrefix)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.openWebUi, forKey: .openWebUi)
+    try container.encodeIfPresent(self.apiKey, forKey: .apiKey)
+    try container.encodeIfPresent(self.customHeaders, forKey: .customHeaders)
+    try container.encode(self.manualModelIds, forKey: .manualModelIds)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encode(self.tags, forKey: .tags)
+    try container.encodeIfPresent(self.certificatePem, forKey: .certificatePem)
+    try container.encodeIfPresent(self.certificateLabel, forKey: .certificateLabel)
+    try container.encodeIfPresent(self.privateKeyPem, forKey: .privateKeyPem)
+    try container.encodeIfPresent(self.privateKeyLabel, forKey: .privateKeyLabel)
+    try container.encodeIfPresent(self.privateKeyPassword, forKey: .privateKeyPassword)
   }
 }
 
@@ -14454,9 +14454,9 @@ public struct DirectTestResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(reachable, forKey: .reachable)
-    try container.encodeIfPresent(modelCount, forKey: .modelCount)
-    try container.encodeIfPresent(message, forKey: .message)
+    try container.encode(self.reachable, forKey: .reachable)
+    try container.encodeIfPresent(self.modelCount, forKey: .modelCount)
+    try container.encodeIfPresent(self.message, forKey: .message)
   }
 }
 
@@ -14481,7 +14481,7 @@ public struct DirectRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -14511,8 +14511,8 @@ public struct DirectEnable: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(enabled, forKey: .enabled)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.enabled, forKey: .enabled)
   }
 }
 
@@ -14537,7 +14537,7 @@ public struct DirectHistory: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(localOnly, forKey: .localOnly)
+    try container.encode(self.localOnly, forKey: .localOnly)
   }
 }
 
@@ -14595,12 +14595,12 @@ public struct OllamaModelStatus: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(loaded, forKey: .loaded)
-    try container.encodeIfPresent(keepAlive, forKey: .keepAlive)
-    try container.encodeIfPresent(thinking, forKey: .thinking)
-    try container.encodeIfPresent(logo, forKey: .logo)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.loaded, forKey: .loaded)
+    try container.encodeIfPresent(self.keepAlive, forKey: .keepAlive)
+    try container.encodeIfPresent(self.thinking, forKey: .thinking)
+    try container.encodeIfPresent(self.logo, forKey: .logo)
   }
 }
 
@@ -14637,9 +14637,9 @@ public struct OllamaModelList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(models, forKey: .models)
-    try container.encode(lifecycle, forKey: .lifecycle)
-    try container.encode(cloud, forKey: .cloud)
+    try container.encode(self.models, forKey: .models)
+    try container.encode(self.lifecycle, forKey: .lifecycle)
+    try container.encode(self.cloud, forKey: .cloud)
   }
 }
 
@@ -14675,9 +14675,9 @@ public struct OllamaModelAction: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(model, forKey: .model)
-    try container.encodeIfPresent(value, forKey: .value)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.model, forKey: .model)
+    try container.encodeIfPresent(self.value, forKey: .value)
   }
 }
 
@@ -14702,7 +14702,7 @@ public struct DirectPreferred: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(preferred, forKey: .preferred)
+    try container.encode(self.preferred, forKey: .preferred)
   }
 }
 
@@ -14759,12 +14759,12 @@ public struct DirectContextModel: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(connection, forKey: .connection)
-    try container.encode(limit, forKey: .limit)
-    try container.encode(ollama, forKey: .ollama)
-    try container.encodeIfPresent(logo, forKey: .logo)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
+    try container.encode(self.limit, forKey: .limit)
+    try container.encode(self.ollama, forKey: .ollama)
+    try container.encodeIfPresent(self.logo, forKey: .logo)
   }
 }
 
@@ -14809,10 +14809,10 @@ public struct DirectOptions: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(imagesPerRequest, forKey: .imagesPerRequest)
-    try container.encode(imagesPerRequestChoices, forKey: .imagesPerRequestChoices)
-    try container.encode(contextModels, forKey: .contextModels)
-    try container.encode(contextLimitChoices, forKey: .contextLimitChoices)
+    try container.encode(self.imagesPerRequest, forKey: .imagesPerRequest)
+    try container.encode(self.imagesPerRequestChoices, forKey: .imagesPerRequestChoices)
+    try container.encode(self.contextModels, forKey: .contextModels)
+    try container.encode(self.contextLimitChoices, forKey: .contextLimitChoices)
   }
 }
 
@@ -14837,7 +14837,7 @@ public struct DirectImagesPerRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(count, forKey: .count)
+    try container.encode(self.count, forKey: .count)
   }
 }
 
@@ -14867,8 +14867,8 @@ public struct DirectContextLimit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(modelId, forKey: .modelId)
-    try container.encode(tokens, forKey: .tokens)
+    try container.encode(self.modelId, forKey: .modelId)
+    try container.encode(self.tokens, forKey: .tokens)
   }
 }
 
@@ -14895,13 +14895,13 @@ public struct EventEnvelope: Codable, Equatable, Sendable {
   /// Event-specific body. Deliberately untyped at this layer: each family
   /// decodes its own payload with its own DTO, so adding an event never
   /// touches this file.
-  public var payload: JSONValue
+  public var payload: [String: JSONValue]
 
   public init(
     event: String,
     seq: Int,
     scope: String? = nil,
-    payload: JSONValue = .object([:])
+    payload: [String: JSONValue] = [:]
   ) {
     self.event = event
     self.seq = seq
@@ -14921,15 +14921,15 @@ public struct EventEnvelope: Codable, Equatable, Sendable {
     self.event = try container.decode(String.self, forKey: .event)
     self.seq = try container.decode(Int.self, forKey: .seq)
     self.scope = try container.decodeIfPresent(String.self, forKey: .scope)
-    self.payload = try container.decodeIfPresent(JSONValue.self, forKey: .payload) ?? .object([:])
+    self.payload = try container.decodeIfPresent([String: JSONValue].self, forKey: .payload) ?? [:]
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(event, forKey: .event)
-    try container.encode(seq, forKey: .seq)
-    try container.encodeIfPresent(scope, forKey: .scope)
-    try container.encode(payload, forKey: .payload)
+    try container.encode(self.event, forKey: .event)
+    try container.encode(self.seq, forKey: .seq)
+    try container.encodeIfPresent(self.scope, forKey: .scope)
+    try container.encode(self.payload, forKey: .payload)
   }
 }
 
@@ -14966,8 +14966,8 @@ public struct EventSubscription: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(events, forKey: .events)
-    try container.encode(scopes, forKey: .scopes)
+    try container.encode(self.events, forKey: .events)
+    try container.encode(self.scopes, forKey: .scopes)
   }
 }
 
@@ -15014,10 +15014,10 @@ public struct UploadedFile: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(size, forKey: .size)
-    try container.encodeIfPresent(contentType, forKey: .contentType)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.size, forKey: .size)
+    try container.encodeIfPresent(self.contentType, forKey: .contentType)
   }
 }
 
@@ -15068,11 +15068,11 @@ public struct HandoffRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(requestId, forKey: .requestId)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(modelId, forKey: .modelId)
-    try container.encode(modelName, forKey: .modelName)
-    try container.encode(prompt, forKey: .prompt)
+    try container.encode(self.requestId, forKey: .requestId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.modelId, forKey: .modelId)
+    try container.encode(self.modelName, forKey: .modelName)
+    try container.encode(self.prompt, forKey: .prompt)
   }
 }
 
@@ -15102,8 +15102,8 @@ public struct HandoffAnswer: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(requestId, forKey: .requestId)
-    try container.encode(accept, forKey: .accept)
+    try container.encode(self.requestId, forKey: .requestId)
+    try container.encode(self.accept, forKey: .accept)
   }
 }
 
@@ -15140,9 +15140,9 @@ public struct HandoffAnswered: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(`open`, forKey: .`open`)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encodeIfPresent(prompt, forKey: .prompt)
+    try container.encode(self.`open`, forKey: .`open`)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.prompt, forKey: .prompt)
   }
 }
 
@@ -15168,7 +15168,7 @@ public struct HandoffSettled: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(requestId, forKey: .requestId)
+    try container.encode(self.requestId, forKey: .requestId)
   }
 }
 
@@ -15265,11 +15265,11 @@ public struct HandshakeRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(protocolVersion, forKey: .protocolVersion)
-    try container.encode(clientName, forKey: .clientName)
-    try container.encode(clientVersion, forKey: .clientVersion)
-    try container.encode(windowKind, forKey: .windowKind)
-    try container.encode(locale, forKey: .locale)
+    try container.encode(self.protocolVersion, forKey: .protocolVersion)
+    try container.encode(self.clientName, forKey: .clientName)
+    try container.encode(self.clientVersion, forKey: .clientVersion)
+    try container.encode(self.windowKind, forKey: .windowKind)
+    try container.encode(self.locale, forKey: .locale)
   }
 }
 
@@ -15317,11 +15317,11 @@ public struct DaemonPaths: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(userData, forKey: .userData)
-    try container.encode(database, forKey: .database)
-    try container.encode(cache, forKey: .cache)
-    try container.encode(logs, forKey: .logs)
-    try container.encode(staging, forKey: .staging)
+    try container.encode(self.userData, forKey: .userData)
+    try container.encode(self.database, forKey: .database)
+    try container.encode(self.cache, forKey: .cache)
+    try container.encode(self.logs, forKey: .logs)
+    try container.encode(self.staging, forKey: .staging)
   }
 }
 
@@ -15383,13 +15383,13 @@ public struct HandshakeResponse: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(protocolVersion, forKey: .protocolVersion)
-    try container.encode(daemonVersion, forKey: .daemonVersion)
-    try container.encode(sessionId, forKey: .sessionId)
-    try container.encode(capabilities, forKey: .capabilities)
-    try container.encode(paths, forKey: .paths)
-    try container.encode(platform, forKey: .platform)
-    try container.encode(needsOnboarding, forKey: .needsOnboarding)
+    try container.encode(self.protocolVersion, forKey: .protocolVersion)
+    try container.encode(self.daemonVersion, forKey: .daemonVersion)
+    try container.encode(self.sessionId, forKey: .sessionId)
+    try container.encode(self.capabilities, forKey: .capabilities)
+    try container.encode(self.paths, forKey: .paths)
+    try container.encode(self.platform, forKey: .platform)
+    try container.encode(self.needsOnboarding, forKey: .needsOnboarding)
   }
 }
 
@@ -15465,16 +15465,16 @@ public struct HermesSettings: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(baseUrl, forKey: .baseUrl)
-    try container.encode(mode, forKey: .mode)
-    try container.encode(hasApiKey, forKey: .hasApiKey)
-    try container.encode(hasSessionKey, forKey: .hasSessionKey)
-    try container.encode(desktopProfile, forKey: .desktopProfile)
-    try container.encode(desktopAuthKind, forKey: .desktopAuthKind)
-    try container.encode(desktopSignedIn, forKey: .desktopSignedIn)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encode(usable, forKey: .usable)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.baseUrl, forKey: .baseUrl)
+    try container.encode(self.mode, forKey: .mode)
+    try container.encode(self.hasApiKey, forKey: .hasApiKey)
+    try container.encode(self.hasSessionKey, forKey: .hasSessionKey)
+    try container.encode(self.desktopProfile, forKey: .desktopProfile)
+    try container.encode(self.desktopAuthKind, forKey: .desktopAuthKind)
+    try container.encode(self.desktopSignedIn, forKey: .desktopSignedIn)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encode(self.usable, forKey: .usable)
   }
 }
 
@@ -15552,16 +15552,16 @@ public struct HermesSettingsEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(baseUrl, forKey: .baseUrl)
-    try container.encode(mode, forKey: .mode)
-    try container.encodeIfPresent(apiKey, forKey: .apiKey)
-    try container.encodeIfPresent(sessionKey, forKey: .sessionKey)
-    try container.encode(desktopProfile, forKey: .desktopProfile)
-    try container.encode(desktopAuthKind, forKey: .desktopAuthKind)
-    try container.encodeIfPresent(legacyToken, forKey: .legacyToken)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encode(onboarding, forKey: .onboarding)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.baseUrl, forKey: .baseUrl)
+    try container.encode(self.mode, forKey: .mode)
+    try container.encodeIfPresent(self.apiKey, forKey: .apiKey)
+    try container.encodeIfPresent(self.sessionKey, forKey: .sessionKey)
+    try container.encode(self.desktopProfile, forKey: .desktopProfile)
+    try container.encode(self.desktopAuthKind, forKey: .desktopAuthKind)
+    try container.encodeIfPresent(self.legacyToken, forKey: .legacyToken)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encode(self.onboarding, forKey: .onboarding)
   }
 }
 
@@ -15592,8 +15592,8 @@ public struct HermesTestResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(ok, forKey: .ok)
-    try container.encodeIfPresent(reason, forKey: .reason)
+    try container.encode(self.ok, forKey: .ok)
+    try container.encodeIfPresent(self.reason, forKey: .reason)
   }
 }
 
@@ -15653,14 +15653,14 @@ public struct HermesCapabilitiesDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(runApproval, forKey: .runApproval)
-    try container.encode(skills, forKey: .skills)
-    try container.encode(toolsets, forKey: .toolsets)
-    try container.encode(jobs, forKey: .jobs)
-    try container.encode(jobsAdmin, forKey: .jobsAdmin)
-    try container.encode(sessions, forKey: .sessions)
-    try container.encode(inputImages, forKey: .inputImages)
-    try container.encode(inputFiles, forKey: .inputFiles)
+    try container.encode(self.runApproval, forKey: .runApproval)
+    try container.encode(self.skills, forKey: .skills)
+    try container.encode(self.toolsets, forKey: .toolsets)
+    try container.encode(self.jobs, forKey: .jobs)
+    try container.encode(self.jobsAdmin, forKey: .jobsAdmin)
+    try container.encode(self.sessions, forKey: .sessions)
+    try container.encode(self.inputImages, forKey: .inputImages)
+    try container.encode(self.inputFiles, forKey: .inputFiles)
   }
 }
 
@@ -15671,7 +15671,7 @@ public struct HermesStatus: Codable, Equatable, Sendable {
   public var capabilities: HermesCapabilitiesDto
   /// The server's detailed health, as it reports it: sessions, agents,
   /// resources.
-  public var details: JSONValue
+  public var details: [String: JSONValue]
   /// The Hermes connection this answer is for: a new value whenever the
   /// connection changes (see [HermesChanged.connection]).
   public var connection: String?
@@ -15680,7 +15680,7 @@ public struct HermesStatus: Codable, Equatable, Sendable {
     configured: Bool = false,
     reachable: Bool = false,
     capabilities: HermesCapabilitiesDto = HermesCapabilitiesDto(),
-    details: JSONValue = .object([:]),
+    details: [String: JSONValue] = [:],
     connection: String? = nil
   ) {
     self.configured = configured
@@ -15703,17 +15703,17 @@ public struct HermesStatus: Codable, Equatable, Sendable {
     self.configured = try container.decodeIfPresent(Bool.self, forKey: .configured) ?? false
     self.reachable = try container.decodeIfPresent(Bool.self, forKey: .reachable) ?? false
     self.capabilities = try container.decodeIfPresent(HermesCapabilitiesDto.self, forKey: .capabilities) ?? HermesCapabilitiesDto()
-    self.details = try container.decodeIfPresent(JSONValue.self, forKey: .details) ?? .object([:])
+    self.details = try container.decodeIfPresent([String: JSONValue].self, forKey: .details) ?? [:]
     self.connection = try container.decodeIfPresent(String.self, forKey: .connection)
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(configured, forKey: .configured)
-    try container.encode(reachable, forKey: .reachable)
-    try container.encode(capabilities, forKey: .capabilities)
-    try container.encode(details, forKey: .details)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.configured, forKey: .configured)
+    try container.encode(self.reachable, forKey: .reachable)
+    try container.encode(self.capabilities, forKey: .capabilities)
+    try container.encode(self.details, forKey: .details)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -15744,7 +15744,7 @@ public struct HermesChanged: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -15821,16 +15821,16 @@ public struct HermesSessionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(title, forKey: .title)
-    try container.encodeIfPresent(preview, forKey: .preview)
-    try container.encodeIfPresent(updatedAtMs, forKey: .updatedAtMs)
-    try container.encode(pinned, forKey: .pinned)
-    try container.encode(archived, forKey: .archived)
-    try container.encode(hidden, forKey: .hidden)
-    try container.encodeIfPresent(source, forKey: .source)
-    try container.encode(running, forKey: .running)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.title, forKey: .title)
+    try container.encodeIfPresent(self.preview, forKey: .preview)
+    try container.encodeIfPresent(self.updatedAtMs, forKey: .updatedAtMs)
+    try container.encode(self.pinned, forKey: .pinned)
+    try container.encode(self.archived, forKey: .archived)
+    try container.encode(self.hidden, forKey: .hidden)
+    try container.encodeIfPresent(self.source, forKey: .source)
+    try container.encode(self.running, forKey: .running)
   }
 }
 
@@ -15877,10 +15877,10 @@ public struct HermesSessions: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(sessions, forKey: .sessions)
-    try container.encode(archived, forKey: .archived)
-    try container.encode(archivedFailed, forKey: .archivedFailed)
-    try container.encode(hiddenScheduledRuns, forKey: .hiddenScheduledRuns)
+    try container.encode(self.sessions, forKey: .sessions)
+    try container.encode(self.archived, forKey: .archived)
+    try container.encode(self.archivedFailed, forKey: .archivedFailed)
+    try container.encode(self.hiddenScheduledRuns, forKey: .hiddenScheduledRuns)
   }
 }
 
@@ -15905,7 +15905,7 @@ public struct HermesRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -15940,8 +15940,8 @@ public struct HermesJobRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -15970,7 +15970,7 @@ public struct HermesSignInRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -16000,8 +16000,8 @@ public struct HermesRename: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(title, forKey: .title)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.title, forKey: .title)
   }
 }
 
@@ -16043,10 +16043,10 @@ public struct HermesSessionUpdate: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(pinned, forKey: .pinned)
-    try container.encodeIfPresent(archived, forKey: .archived)
-    try container.encodeIfPresent(hidden, forKey: .hidden)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.pinned, forKey: .pinned)
+    try container.encodeIfPresent(self.archived, forKey: .archived)
+    try container.encodeIfPresent(self.hidden, forKey: .hidden)
   }
 }
 
@@ -16081,8 +16081,8 @@ public struct HermesContinue: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(copy, forKey: .copy)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.copy, forKey: .copy)
   }
 }
 
@@ -16113,8 +16113,8 @@ public struct HermesBranch: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
   }
 }
 
@@ -16162,10 +16162,10 @@ public struct HermesChatDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(sessionId, forKey: .sessionId)
-    try container.encode(readOnly, forKey: .readOnly)
-    try container.encode(owner, forKey: .owner)
-    try container.encodeIfPresent(bot, forKey: .bot)
+    try container.encode(self.sessionId, forKey: .sessionId)
+    try container.encode(self.readOnly, forKey: .readOnly)
+    try container.encode(self.owner, forKey: .owner)
+    try container.encodeIfPresent(self.bot, forKey: .bot)
   }
 }
 
@@ -16282,12 +16282,12 @@ public struct HermesCadenceDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(every, forKey: .every)
-    try container.encodeIfPresent(hour, forKey: .hour)
-    try container.encodeIfPresent(minute, forKey: .minute)
-    try container.encodeIfPresent(weekday, forKey: .weekday)
-    try container.encodeIfPresent(day, forKey: .day)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.every, forKey: .every)
+    try container.encodeIfPresent(self.hour, forKey: .hour)
+    try container.encodeIfPresent(self.minute, forKey: .minute)
+    try container.encodeIfPresent(self.weekday, forKey: .weekday)
+    try container.encodeIfPresent(self.day, forKey: .day)
   }
 }
 
@@ -16419,25 +16419,25 @@ public struct HermesJobDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(name, forKey: .name)
-    try container.encode(prompt, forKey: .prompt)
-    try container.encode(schedule, forKey: .schedule)
-    try container.encodeIfPresent(scheduleText, forKey: .scheduleText)
-    try container.encodeIfPresent(cadence, forKey: .cadence)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encodeIfPresent(lastStatus, forKey: .lastStatus)
-    try container.encodeIfPresent(lastError, forKey: .lastError)
-    try container.encodeIfPresent(lastRunAtMs, forKey: .lastRunAtMs)
-    try container.encodeIfPresent(nextRunAtMs, forKey: .nextRunAtMs)
-    try container.encodeIfPresent(state, forKey: .state)
-    try container.encode(deliver, forKey: .deliver)
-    try container.encodeIfPresent(lastDeliveryError, forKey: .lastDeliveryError)
-    try container.encode(catchUp, forKey: .catchUp)
-    try container.encode(running, forKey: .running)
-    try container.encode(stopping, forKey: .stopping)
-    try container.encodeIfPresent(lastCancelReason, forKey: .lastCancelReason)
-    try container.encode(deliveryKnown, forKey: .deliveryKnown)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.name, forKey: .name)
+    try container.encode(self.prompt, forKey: .prompt)
+    try container.encode(self.schedule, forKey: .schedule)
+    try container.encodeIfPresent(self.scheduleText, forKey: .scheduleText)
+    try container.encodeIfPresent(self.cadence, forKey: .cadence)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encodeIfPresent(self.lastStatus, forKey: .lastStatus)
+    try container.encodeIfPresent(self.lastError, forKey: .lastError)
+    try container.encodeIfPresent(self.lastRunAtMs, forKey: .lastRunAtMs)
+    try container.encodeIfPresent(self.nextRunAtMs, forKey: .nextRunAtMs)
+    try container.encodeIfPresent(self.state, forKey: .state)
+    try container.encode(self.deliver, forKey: .deliver)
+    try container.encodeIfPresent(self.lastDeliveryError, forKey: .lastDeliveryError)
+    try container.encode(self.catchUp, forKey: .catchUp)
+    try container.encode(self.running, forKey: .running)
+    try container.encode(self.stopping, forKey: .stopping)
+    try container.encodeIfPresent(self.lastCancelReason, forKey: .lastCancelReason)
+    try container.encode(self.deliveryKnown, forKey: .deliveryKnown)
   }
 }
 
@@ -16498,12 +16498,12 @@ public struct HermesJobs: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(jobs, forKey: .jobs)
-    try container.encode(writable, forKey: .writable)
-    try container.encode(scheduling, forKey: .scheduling)
-    try container.encode(notices, forKey: .notices)
-    try container.encodeIfPresent(savedId, forKey: .savedId)
-    try container.encode(listFailed, forKey: .listFailed)
+    try container.encode(self.jobs, forKey: .jobs)
+    try container.encode(self.writable, forKey: .writable)
+    try container.encode(self.scheduling, forKey: .scheduling)
+    try container.encode(self.notices, forKey: .notices)
+    try container.encodeIfPresent(self.savedId, forKey: .savedId)
+    try container.encode(self.listFailed, forKey: .listFailed)
   }
 }
 
@@ -16565,13 +16565,13 @@ public struct HermesJobEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encodeIfPresent(name, forKey: .name)
-    try container.encode(prompt, forKey: .prompt)
-    try container.encode(schedule, forKey: .schedule)
-    try container.encodeIfPresent(deliver, forKey: .deliver)
-    try container.encodeIfPresent(catchUp, forKey: .catchUp)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encodeIfPresent(self.name, forKey: .name)
+    try container.encode(self.prompt, forKey: .prompt)
+    try container.encode(self.schedule, forKey: .schedule)
+    try container.encodeIfPresent(self.deliver, forKey: .deliver)
+    try container.encodeIfPresent(self.catchUp, forKey: .catchUp)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -16609,9 +16609,9 @@ public struct HermesJobToggle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -16640,8 +16640,8 @@ public struct HermesSkillDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(description, forKey: .description)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.description, forKey: .description)
   }
 }
 
@@ -16685,11 +16685,11 @@ public struct HermesToolsetDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(label, forKey: .label)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(tools, forKey: .tools)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.label, forKey: .label)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.tools, forKey: .tools)
   }
 }
 
@@ -16728,9 +16728,9 @@ public struct HermesCatalog: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(skills, forKey: .skills)
-    try container.encode(toolsets, forKey: .toolsets)
-    try container.encode(commands, forKey: .commands)
+    try container.encode(self.skills, forKey: .skills)
+    try container.encode(self.toolsets, forKey: .toolsets)
+    try container.encode(self.commands, forKey: .commands)
   }
 }
 
@@ -16779,10 +16779,10 @@ public struct HermesDeliveryTargetDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(target, forKey: .target)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(name, forKey: .name)
-    try container.encode(available, forKey: .available)
+    try container.encode(self.target, forKey: .target)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.available, forKey: .available)
   }
 }
 
@@ -16816,8 +16816,8 @@ public struct HermesDeliveryOptions: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encode(options, forKey: .options)
+    try container.encode(self.available, forKey: .available)
+    try container.encode(self.options, forKey: .options)
   }
 }
 
@@ -16851,8 +16851,8 @@ public struct HermesJobNotice: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(jobId, forKey: .jobId)
-    try container.encode(kind, forKey: .kind)
+    try container.encode(self.jobId, forKey: .jobId)
+    try container.encode(self.kind, forKey: .kind)
   }
 }
 
@@ -16960,21 +16960,21 @@ public struct HermesConnectionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(baseUrl, forKey: .baseUrl)
-    try container.encode(mode, forKey: .mode)
-    try container.encode(desktopAuthKind, forKey: .desktopAuthKind)
-    try container.encode(desktopProfile, forKey: .desktopProfile)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encode(active, forKey: .active)
-    try container.encode(plainHttp, forKey: .plainHttp)
-    try container.encode(hasApiKey, forKey: .hasApiKey)
-    try container.encode(hasLegacyToken, forKey: .hasLegacyToken)
-    try container.encode(desktopSignedIn, forKey: .desktopSignedIn)
-    try container.encode(accessHeaderNames, forKey: .accessHeaderNames)
-    try container.encode(hasMemoryKey, forKey: .hasMemoryKey)
-    try container.encode(dashboardSignedIn, forKey: .dashboardSignedIn)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.baseUrl, forKey: .baseUrl)
+    try container.encode(self.mode, forKey: .mode)
+    try container.encode(self.desktopAuthKind, forKey: .desktopAuthKind)
+    try container.encode(self.desktopProfile, forKey: .desktopProfile)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encode(self.active, forKey: .active)
+    try container.encode(self.plainHttp, forKey: .plainHttp)
+    try container.encode(self.hasApiKey, forKey: .hasApiKey)
+    try container.encode(self.hasLegacyToken, forKey: .hasLegacyToken)
+    try container.encode(self.desktopSignedIn, forKey: .desktopSignedIn)
+    try container.encode(self.accessHeaderNames, forKey: .accessHeaderNames)
+    try container.encode(self.hasMemoryKey, forKey: .hasMemoryKey)
+    try container.encode(self.dashboardSignedIn, forKey: .dashboardSignedIn)
   }
 }
 
@@ -17030,12 +17030,12 @@ public struct HermesConnections: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encodeIfPresent(activeId, forKey: .activeId)
-    try container.encode(connections, forKey: .connections)
-    try container.encode(canAdd, forKey: .canAdd)
-    try container.encodeIfPresent(savedId, forKey: .savedId)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encodeIfPresent(self.activeId, forKey: .activeId)
+    try container.encode(self.connections, forKey: .connections)
+    try container.encode(self.canAdd, forKey: .canAdd)
+    try container.encodeIfPresent(self.savedId, forKey: .savedId)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -17129,18 +17129,18 @@ public struct HermesConnectionEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encodeIfPresent(name, forKey: .name)
-    try container.encode(baseUrl, forKey: .baseUrl)
-    try container.encode(mode, forKey: .mode)
-    try container.encode(desktopAuthKind, forKey: .desktopAuthKind)
-    try container.encode(desktopProfile, forKey: .desktopProfile)
-    try container.encodeIfPresent(apiKey, forKey: .apiKey)
-    try container.encodeIfPresent(legacyToken, forKey: .legacyToken)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encode(allowPlainHttp, forKey: .allowPlainHttp)
-    try container.encodeIfPresent(accessHeaders, forKey: .accessHeaders)
-    try container.encodeIfPresent(memoryKey, forKey: .memoryKey)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encodeIfPresent(self.name, forKey: .name)
+    try container.encode(self.baseUrl, forKey: .baseUrl)
+    try container.encode(self.mode, forKey: .mode)
+    try container.encode(self.desktopAuthKind, forKey: .desktopAuthKind)
+    try container.encode(self.desktopProfile, forKey: .desktopProfile)
+    try container.encodeIfPresent(self.apiKey, forKey: .apiKey)
+    try container.encodeIfPresent(self.legacyToken, forKey: .legacyToken)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encode(self.allowPlainHttp, forKey: .allowPlainHttp)
+    try container.encodeIfPresent(self.accessHeaders, forKey: .accessHeaders)
+    try container.encodeIfPresent(self.memoryKey, forKey: .memoryKey)
   }
 }
 
@@ -17181,9 +17181,9 @@ public struct HermesAccessHeaderEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(value, forKey: .value)
-    try container.encodeIfPresent(savedName, forKey: .savedName)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.value, forKey: .value)
+    try container.encodeIfPresent(self.savedName, forKey: .savedName)
   }
 }
 
@@ -17225,9 +17225,9 @@ public struct HermesProfiles: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(profiles, forKey: .profiles)
-    try container.encodeIfPresent(selected, forKey: .selected)
-    try container.encodeIfPresent(issue, forKey: .issue)
+    try container.encode(self.profiles, forKey: .profiles)
+    try container.encodeIfPresent(self.selected, forKey: .selected)
+    try container.encodeIfPresent(self.issue, forKey: .issue)
   }
 }
 
@@ -17256,7 +17256,7 @@ public struct HermesConnectionRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -17290,8 +17290,8 @@ public struct HermesDashboardStart: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -17329,9 +17329,9 @@ public struct HermesToolsetToggle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -17373,9 +17373,9 @@ public struct HermesDashboardPlan: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(loginUrl, forKey: .loginUrl)
-    try container.encode(origin, forKey: .origin)
-    try container.encode(supported, forKey: .supported)
+    try container.encode(self.loginUrl, forKey: .loginUrl)
+    try container.encode(self.origin, forKey: .origin)
+    try container.encode(self.supported, forKey: .supported)
   }
 }
 
@@ -17433,13 +17433,13 @@ public struct HermesCookieDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(value, forKey: .value)
-    try container.encode(domain, forKey: .domain)
-    try container.encode(path, forKey: .path)
-    try container.encode(secure, forKey: .secure)
-    try container.encode(httpOnly, forKey: .httpOnly)
-    try container.encodeIfPresent(expiresMs, forKey: .expiresMs)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.value, forKey: .value)
+    try container.encode(self.domain, forKey: .domain)
+    try container.encode(self.path, forKey: .path)
+    try container.encode(self.secure, forKey: .secure)
+    try container.encode(self.httpOnly, forKey: .httpOnly)
+    try container.encodeIfPresent(self.expiresMs, forKey: .expiresMs)
   }
 }
 
@@ -17486,10 +17486,10 @@ public struct HermesDashboardCookies: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(cookies, forKey: .cookies)
-    try container.encodeIfPresent(connection, forKey: .connection)
-    try container.encodeIfPresent(attempt, forKey: .attempt)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.cookies, forKey: .cookies)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
+    try container.encodeIfPresent(self.attempt, forKey: .attempt)
   }
 }
 
@@ -17514,7 +17514,7 @@ public struct HermesDashboardCancel: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(attempt, forKey: .attempt)
+    try container.encode(self.attempt, forKey: .attempt)
   }
 }
 
@@ -17547,8 +17547,8 @@ public struct HermesDashboardResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(signedIn, forKey: .signedIn)
-    try container.encodeIfPresent(connections, forKey: .connections)
+    try container.encode(self.signedIn, forKey: .signedIn)
+    try container.encodeIfPresent(self.connections, forKey: .connections)
   }
 }
 
@@ -17587,9 +17587,9 @@ public struct HermesConnectionTestResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(ok, forKey: .ok)
-    try container.encodeIfPresent(reason, forKey: .reason)
-    try container.encodeIfPresent(suggestedName, forKey: .suggestedName)
+    try container.encode(self.ok, forKey: .ok)
+    try container.encodeIfPresent(self.reason, forKey: .reason)
+    try container.encodeIfPresent(self.suggestedName, forKey: .suggestedName)
   }
 }
 
@@ -17614,7 +17614,7 @@ public struct HermesToggle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
+    try container.encode(self.enabled, forKey: .enabled)
   }
 }
 
@@ -17669,12 +17669,12 @@ public struct HermesMcpServerDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(description, forKey: .description)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encodeIfPresent(auth, forKey: .auth)
-    try container.encode(tools, forKey: .tools)
-    try container.encodeIfPresent(toolFilter, forKey: .toolFilter)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encodeIfPresent(self.auth, forKey: .auth)
+    try container.encode(self.tools, forKey: .tools)
+    try container.encodeIfPresent(self.toolFilter, forKey: .toolFilter)
   }
 }
 
@@ -17719,10 +17719,10 @@ public struct HermesMcpServers: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encode(servers, forKey: .servers)
-    try container.encode(canSetApiKey, forKey: .canSetApiKey)
-    try container.encode(listFailed, forKey: .listFailed)
+    try container.encode(self.available, forKey: .available)
+    try container.encode(self.servers, forKey: .servers)
+    try container.encode(self.canSetApiKey, forKey: .canSetApiKey)
+    try container.encode(self.listFailed, forKey: .listFailed)
   }
 }
 
@@ -17760,9 +17760,9 @@ public struct HermesMcpCatalogCredentialDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(prompt, forKey: .prompt)
-    try container.encode(required, forKey: .required)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.prompt, forKey: .prompt)
+    try container.encode(self.required, forKey: .required)
   }
 }
 
@@ -17823,13 +17823,13 @@ public struct HermesMcpCatalogEntryDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(description, forKey: .description)
-    try container.encodeIfPresent(authType, forKey: .authType)
-    try container.encode(credentials, forKey: .credentials)
-    try container.encode(canAdd, forKey: .canAdd)
-    try container.encode(fromDashboard, forKey: .fromDashboard)
-    try container.encode(oauth, forKey: .oauth)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.description, forKey: .description)
+    try container.encodeIfPresent(self.authType, forKey: .authType)
+    try container.encode(self.credentials, forKey: .credentials)
+    try container.encode(self.canAdd, forKey: .canAdd)
+    try container.encode(self.fromDashboard, forKey: .fromDashboard)
+    try container.encode(self.oauth, forKey: .oauth)
   }
 }
 
@@ -17855,7 +17855,7 @@ public struct HermesMcpCatalog: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(entries, forKey: .entries)
+    try container.encode(self.entries, forKey: .entries)
   }
 }
 
@@ -17910,12 +17910,12 @@ public struct HermesMcpAdd: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(url, forKey: .url)
-    try container.encodeIfPresent(command, forKey: .command)
-    try container.encode(args, forKey: .args)
-    try container.encodeIfPresent(apiKey, forKey: .apiKey)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.url, forKey: .url)
+    try container.encodeIfPresent(self.command, forKey: .command)
+    try container.encode(self.args, forKey: .args)
+    try container.encodeIfPresent(self.apiKey, forKey: .apiKey)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -17948,8 +17948,8 @@ public struct HermesMcpRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -17989,9 +17989,9 @@ public struct HermesMcpCatalogAdd: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(credentials, forKey: .credentials)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.credentials, forKey: .credentials)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18032,9 +18032,9 @@ public struct HermesMcpCatalogAdded: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(servers, forKey: .servers)
-    try container.encode(stillInstalling, forKey: .stillInstalling)
-    try container.encode(signIn, forKey: .signIn)
+    try container.encode(self.servers, forKey: .servers)
+    try container.encode(self.stillInstalling, forKey: .stillInstalling)
+    try container.encode(self.signIn, forKey: .signIn)
   }
 }
 
@@ -18072,9 +18072,9 @@ public struct HermesMcpApiKey: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(apiKey, forKey: .apiKey)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.apiKey, forKey: .apiKey)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18112,9 +18112,9 @@ public struct HermesMcpToggle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18165,12 +18165,12 @@ public struct HermesMcpTestResultDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(ok, forKey: .ok)
-    try container.encode(tools, forKey: .tools)
-    try container.encode(resources, forKey: .resources)
-    try container.encode(prompts, forKey: .prompts)
-    try container.encodeIfPresent(error, forKey: .error)
-    try container.encode(toolNames, forKey: .toolNames)
+    try container.encode(self.ok, forKey: .ok)
+    try container.encode(self.tools, forKey: .tools)
+    try container.encode(self.resources, forKey: .resources)
+    try container.encode(self.prompts, forKey: .prompts)
+    try container.encodeIfPresent(self.error, forKey: .error)
+    try container.encode(self.toolNames, forKey: .toolNames)
   }
 }
 
@@ -18247,15 +18247,15 @@ public struct HermesBotDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(title, forKey: .title)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encodeIfPresent(preview, forKey: .preview)
-    try container.encodeIfPresent(sessionId, forKey: .sessionId)
-    try container.encode(hasAvatar, forKey: .hasAvatar)
-    try container.encode(shape, forKey: .shape)
-    try container.encode(color, forKey: .color)
-    try container.encodeIfPresent(lastActiveMs, forKey: .lastActiveMs)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.title, forKey: .title)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encodeIfPresent(self.preview, forKey: .preview)
+    try container.encodeIfPresent(self.sessionId, forKey: .sessionId)
+    try container.encode(self.hasAvatar, forKey: .hasAvatar)
+    try container.encode(self.shape, forKey: .shape)
+    try container.encode(self.color, forKey: .color)
+    try container.encodeIfPresent(self.lastActiveMs, forKey: .lastActiveMs)
   }
 }
 
@@ -18293,9 +18293,9 @@ public struct HermesBots: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encode(bots, forKey: .bots)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.available, forKey: .available)
+    try container.encode(self.bots, forKey: .bots)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18327,8 +18327,8 @@ public struct HermesBotRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18359,8 +18359,8 @@ public struct HermesBotAvatar: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(image, forKey: .image)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.image, forKey: .image)
   }
 }
 
@@ -18403,10 +18403,10 @@ public struct HermesRoomMemberDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(memberId, forKey: .memberId)
-    try container.encode(profile, forKey: .profile)
-    try container.encode(handle, forKey: .handle)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.memberId, forKey: .memberId)
+    try container.encode(self.profile, forKey: .profile)
+    try container.encode(self.handle, forKey: .handle)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -18465,13 +18465,13 @@ public struct HermesRoomDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(members, forKey: .members)
-    try container.encodeIfPresent(updatedAtMs, forKey: .updatedAtMs)
-    try container.encode(unread, forKey: .unread)
-    try container.encode(working, forKey: .working)
-    try container.encode(needsYou, forKey: .needsYou)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.members, forKey: .members)
+    try container.encodeIfPresent(self.updatedAtMs, forKey: .updatedAtMs)
+    try container.encode(self.unread, forKey: .unread)
+    try container.encode(self.working, forKey: .working)
+    try container.encode(self.needsYou, forKey: .needsYou)
   }
 }
 
@@ -18528,12 +18528,12 @@ public struct HermesRooms: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encode(canCreate, forKey: .canCreate)
-    try container.encode(seatable, forKey: .seatable)
-    try container.encode(rooms, forKey: .rooms)
-    try container.encode(failed, forKey: .failed)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.available, forKey: .available)
+    try container.encode(self.canCreate, forKey: .canCreate)
+    try container.encode(self.seatable, forKey: .seatable)
+    try container.encode(self.rooms, forKey: .rooms)
+    try container.encode(self.failed, forKey: .failed)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18565,8 +18565,8 @@ public struct HermesRoomRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(roomId, forKey: .roomId)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.roomId, forKey: .roomId)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18604,9 +18604,9 @@ public struct HermesRoomCreate: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(bots, forKey: .bots)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.bots, forKey: .bots)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18643,9 +18643,9 @@ public struct HermesRoomRename: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(roomId, forKey: .roomId)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.roomId, forKey: .roomId)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18727,10 +18727,10 @@ public struct HermesRoomContextDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(purpose, forKey: .purpose)
-    try container.encode(notes, forKey: .notes)
-    try container.encodeIfPresent(routing, forKey: .routing)
-    try container.encodeIfPresent(leadMemberId, forKey: .leadMemberId)
+    try container.encode(self.purpose, forKey: .purpose)
+    try container.encode(self.notes, forKey: .notes)
+    try container.encodeIfPresent(self.routing, forKey: .routing)
+    try container.encodeIfPresent(self.leadMemberId, forKey: .leadMemberId)
   }
 }
 
@@ -18767,9 +18767,9 @@ public struct HermesRoomContextEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(roomId, forKey: .roomId)
-    try container.encode(context, forKey: .context)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.roomId, forKey: .roomId)
+    try container.encode(self.context, forKey: .context)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18806,9 +18806,9 @@ public struct HermesRoomMessage: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(roomId, forKey: .roomId)
-    try container.encode(text, forKey: .text)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.roomId, forKey: .roomId)
+    try container.encode(self.text, forKey: .text)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18849,9 +18849,9 @@ public struct HermesRoomSendResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(sent, forKey: .sent)
-    try container.encode(refused, forKey: .refused)
-    try container.encodeIfPresent(detail, forKey: .detail)
+    try container.encode(self.sent, forKey: .sent)
+    try container.encode(self.refused, forKey: .refused)
+    try container.encodeIfPresent(self.detail, forKey: .detail)
   }
 }
 
@@ -18876,7 +18876,7 @@ public struct HermesRoomStopped: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(stopped, forKey: .stopped)
+    try container.encode(self.stopped, forKey: .stopped)
   }
 }
 
@@ -18914,9 +18914,9 @@ public struct HermesRoomContinue: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(roomId, forKey: .roomId)
-    try container.encode(discussionEventId, forKey: .discussionEventId)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.roomId, forKey: .roomId)
+    try container.encode(self.discussionEventId, forKey: .discussionEventId)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -18964,11 +18964,11 @@ public struct HermesRoomAnswer: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(roomId, forKey: .roomId)
-    try container.encode(taskId, forKey: .taskId)
-    try container.encode(executionGeneration, forKey: .executionGeneration)
-    try container.encodeIfPresent(choice, forKey: .choice)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.roomId, forKey: .roomId)
+    try container.encode(self.taskId, forKey: .taskId)
+    try container.encode(self.executionGeneration, forKey: .executionGeneration)
+    try container.encodeIfPresent(self.choice, forKey: .choice)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -19250,25 +19250,25 @@ public struct HermesRoomItemDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(key, forKey: .key)
-    try container.encode(seq, forKey: .seq)
-    try container.encode(own, forKey: .own)
-    try container.encode(scheduled, forKey: .scheduled)
-    try container.encode(author, forKey: .author)
-    try container.encodeIfPresent(memberId, forKey: .memberId)
-    try container.encode(text, forKey: .text)
-    try container.encode(continued, forKey: .continued)
-    try container.encodeIfPresent(createdAtMs, forKey: .createdAtMs)
-    try container.encodeIfPresent(notice, forKey: .notice)
-    try container.encodeIfPresent(memberName, forKey: .memberName)
-    try container.encodeIfPresent(detail, forKey: .detail)
-    try container.encodeIfPresent(route, forKey: .route)
-    try container.encode(names, forKey: .names)
-    try container.encodeIfPresent(lead, forKey: .lead)
-    try container.encodeIfPresent(discussionEventId, forKey: .discussionEventId)
-    try container.encode(messageCount, forKey: .messageCount)
-    try container.encode(actionable, forKey: .actionable)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.seq, forKey: .seq)
+    try container.encode(self.own, forKey: .own)
+    try container.encode(self.scheduled, forKey: .scheduled)
+    try container.encode(self.author, forKey: .author)
+    try container.encodeIfPresent(self.memberId, forKey: .memberId)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.continued, forKey: .continued)
+    try container.encodeIfPresent(self.createdAtMs, forKey: .createdAtMs)
+    try container.encodeIfPresent(self.notice, forKey: .notice)
+    try container.encodeIfPresent(self.memberName, forKey: .memberName)
+    try container.encodeIfPresent(self.detail, forKey: .detail)
+    try container.encodeIfPresent(self.route, forKey: .route)
+    try container.encode(self.names, forKey: .names)
+    try container.encodeIfPresent(self.lead, forKey: .lead)
+    try container.encodeIfPresent(self.discussionEventId, forKey: .discussionEventId)
+    try container.encode(self.messageCount, forKey: .messageCount)
+    try container.encode(self.actionable, forKey: .actionable)
   }
 }
 
@@ -19372,11 +19372,11 @@ public struct HermesRoomMemberStatusDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(memberId, forKey: .memberId)
-    try container.encode(state, forKey: .state)
-    try container.encodeIfPresent(elapsedMs, forKey: .elapsedMs)
-    try container.encodeIfPresent(tool, forKey: .tool)
-    try container.encodeIfPresent(reason, forKey: .reason)
+    try container.encode(self.memberId, forKey: .memberId)
+    try container.encode(self.state, forKey: .state)
+    try container.encodeIfPresent(self.elapsedMs, forKey: .elapsedMs)
+    try container.encodeIfPresent(self.tool, forKey: .tool)
+    try container.encodeIfPresent(self.reason, forKey: .reason)
   }
 }
 
@@ -19431,12 +19431,12 @@ public struct HermesRoomActionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(memberId, forKey: .memberId)
-    try container.encode(taskId, forKey: .taskId)
-    try container.encode(executionGeneration, forKey: .executionGeneration)
-    try container.encodeIfPresent(summary, forKey: .summary)
-    try container.encode(choices, forKey: .choices)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.memberId, forKey: .memberId)
+    try container.encode(self.taskId, forKey: .taskId)
+    try container.encode(self.executionGeneration, forKey: .executionGeneration)
+    try container.encodeIfPresent(self.summary, forKey: .summary)
+    try container.encode(self.choices, forKey: .choices)
   }
 }
 
@@ -19543,21 +19543,21 @@ public struct HermesRoomView: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(roomId, forKey: .roomId)
-    try container.encode(loaded, forKey: .loaded)
-    try container.encodeIfPresent(room, forKey: .room)
-    try container.encodeIfPresent(context, forKey: .context)
-    try container.encode(gone, forKey: .gone)
-    try container.encode(readFailed, forKey: .readFailed)
-    try container.encode(running, forKey: .running)
-    try container.encode(working, forKey: .working)
-    try container.encode(sending, forKey: .sending)
-    try container.encodeIfPresent(unsentText, forKey: .unsentText)
-    try container.encode(routingModes, forKey: .routingModes)
-    try container.encode(items, forKey: .items)
-    try container.encode(members, forKey: .members)
-    try container.encode(actions, forKey: .actions)
-    try container.encodeIfPresent(connection, forKey: .connection)
+    try container.encode(self.roomId, forKey: .roomId)
+    try container.encode(self.loaded, forKey: .loaded)
+    try container.encodeIfPresent(self.room, forKey: .room)
+    try container.encodeIfPresent(self.context, forKey: .context)
+    try container.encode(self.gone, forKey: .gone)
+    try container.encode(self.readFailed, forKey: .readFailed)
+    try container.encode(self.running, forKey: .running)
+    try container.encode(self.working, forKey: .working)
+    try container.encode(self.sending, forKey: .sending)
+    try container.encodeIfPresent(self.unsentText, forKey: .unsentText)
+    try container.encode(self.routingModes, forKey: .routingModes)
+    try container.encode(self.items, forKey: .items)
+    try container.encode(self.members, forKey: .members)
+    try container.encode(self.actions, forKey: .actions)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
   }
 }
 
@@ -19594,8 +19594,8 @@ public struct HermesWorkWatch: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encodeIfPresent(subagentId, forKey: .subagentId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.subagentId, forKey: .subagentId)
   }
 }
 
@@ -19662,13 +19662,13 @@ public struct HermesWork: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(loaded, forKey: .loaded)
-    try container.encode(subagents, forKey: .subagents)
-    try container.encode(processes, forKey: .processes)
-    try container.encodeIfPresent(plan, forKey: .plan)
-    try container.encodeIfPresent(output, forKey: .output)
-    try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.loaded, forKey: .loaded)
+    try container.encode(self.subagents, forKey: .subagents)
+    try container.encode(self.processes, forKey: .processes)
+    try container.encodeIfPresent(self.plan, forKey: .plan)
+    try container.encodeIfPresent(self.output, forKey: .output)
+    try container.encodeIfPresent(self.workingDirectory, forKey: .workingDirectory)
   }
 }
 
@@ -19751,17 +19751,17 @@ public struct HermesSubagentDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(goal, forKey: .goal)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encode(depth, forKey: .depth)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(startedAtMs, forKey: .startedAtMs)
-    try container.encodeIfPresent(status, forKey: .status)
-    try container.encode(running, forKey: .running)
-    try container.encode(toolCount, forKey: .toolCount)
-    try container.encodeIfPresent(lastTool, forKey: .lastTool)
-    try container.encode(acceptingSteer, forKey: .acceptingSteer)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.goal, forKey: .goal)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encode(self.depth, forKey: .depth)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encodeIfPresent(self.startedAtMs, forKey: .startedAtMs)
+    try container.encodeIfPresent(self.status, forKey: .status)
+    try container.encode(self.running, forKey: .running)
+    try container.encode(self.toolCount, forKey: .toolCount)
+    try container.encodeIfPresent(self.lastTool, forKey: .lastTool)
+    try container.encode(self.acceptingSteer, forKey: .acceptingSteer)
   }
 }
 
@@ -19814,12 +19814,12 @@ public struct HermesProcessDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(command, forKey: .command)
-    try container.encode(running, forKey: .running)
-    try container.encodeIfPresent(startedAtMs, forKey: .startedAtMs)
-    try container.encodeIfPresent(exitCode, forKey: .exitCode)
-    try container.encodeIfPresent(output, forKey: .output)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.command, forKey: .command)
+    try container.encode(self.running, forKey: .running)
+    try container.encodeIfPresent(self.startedAtMs, forKey: .startedAtMs)
+    try container.encodeIfPresent(self.exitCode, forKey: .exitCode)
+    try container.encodeIfPresent(self.output, forKey: .output)
   }
 }
 
@@ -19868,11 +19868,11 @@ public struct HermesPlanDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(items, forKey: .items)
-    try container.encode(done, forKey: .done)
-    try container.encode(active, forKey: .active)
-    try container.encodeIfPresent(currentId, forKey: .currentId)
-    try container.encode(revision, forKey: .revision)
+    try container.encode(self.items, forKey: .items)
+    try container.encode(self.done, forKey: .done)
+    try container.encode(self.active, forKey: .active)
+    try container.encodeIfPresent(self.currentId, forKey: .currentId)
+    try container.encode(self.revision, forKey: .revision)
   }
 }
 
@@ -19914,10 +19914,10 @@ public struct HermesPlanItemDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(content, forKey: .content)
-    try container.encode(status, forKey: .status)
-    try container.encode(depth, forKey: .depth)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.status, forKey: .status)
+    try container.encode(self.depth, forKey: .depth)
   }
 }
 
@@ -19971,12 +19971,12 @@ public struct HermesSubagentOutputDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(subagentId, forKey: .subagentId)
-    try container.encode(loaded, forKey: .loaded)
-    try container.encode(failed, forKey: .failed)
-    try container.encode(available, forKey: .available)
-    try container.encode(text, forKey: .text)
-    try container.encode(truncated, forKey: .truncated)
+    try container.encode(self.subagentId, forKey: .subagentId)
+    try container.encode(self.loaded, forKey: .loaded)
+    try container.encode(self.failed, forKey: .failed)
+    try container.encode(self.available, forKey: .available)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.truncated, forKey: .truncated)
   }
 }
 
@@ -20001,7 +20001,7 @@ public struct HermesWorkChat: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
+    try container.encode(self.chatId, forKey: .chatId)
   }
 }
 
@@ -20037,9 +20037,9 @@ public struct HermesSteerSubagent: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(subagentId, forKey: .subagentId)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.subagentId, forKey: .subagentId)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -20069,8 +20069,8 @@ public struct HermesSubagentRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(subagentId, forKey: .subagentId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.subagentId, forKey: .subagentId)
   }
 }
 
@@ -20100,8 +20100,8 @@ public struct HermesProcessRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(processId, forKey: .processId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.processId, forKey: .processId)
   }
 }
 
@@ -20178,9 +20178,9 @@ public struct HermesProcessKill: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(status, forKey: .status)
-    try container.encodeIfPresent(output, forKey: .output)
-    try container.encodeIfPresent(error, forKey: .error)
+    try container.encode(self.status, forKey: .status)
+    try container.encodeIfPresent(self.output, forKey: .output)
+    try container.encodeIfPresent(self.error, forKey: .error)
   }
 }
 
@@ -20205,7 +20205,7 @@ public struct HermesContextRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
+    try container.encode(self.chatId, forKey: .chatId)
   }
 }
 
@@ -20300,19 +20300,19 @@ public struct HermesContextReportDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(contextUsed, forKey: .contextUsed)
-    try container.encodeIfPresent(contextMax, forKey: .contextMax)
-    try container.encode(contextEstimated, forKey: .contextEstimated)
-    try container.encodeIfPresent(estimatedTotal, forKey: .estimatedTotal)
-    try container.encode(categories, forKey: .categories)
-    try container.encode(totals, forKey: .totals)
-    try container.encode(planGauges, forKey: .planGauges)
-    try container.encode(creditsLines, forKey: .creditsLines)
-    try container.encodeIfPresent(usageBars, forKey: .usageBars)
-    try container.encodeIfPresent(providerPlan, forKey: .providerPlan)
-    try container.encode(canCompact, forKey: .canCompact)
-    try container.encode(compacting, forKey: .compacting)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encodeIfPresent(self.contextUsed, forKey: .contextUsed)
+    try container.encodeIfPresent(self.contextMax, forKey: .contextMax)
+    try container.encode(self.contextEstimated, forKey: .contextEstimated)
+    try container.encodeIfPresent(self.estimatedTotal, forKey: .estimatedTotal)
+    try container.encode(self.categories, forKey: .categories)
+    try container.encode(self.totals, forKey: .totals)
+    try container.encode(self.planGauges, forKey: .planGauges)
+    try container.encode(self.creditsLines, forKey: .creditsLines)
+    try container.encodeIfPresent(self.usageBars, forKey: .usageBars)
+    try container.encodeIfPresent(self.providerPlan, forKey: .providerPlan)
+    try container.encode(self.canCompact, forKey: .canCompact)
+    try container.encode(self.compacting, forKey: .compacting)
   }
 }
 
@@ -20350,9 +20350,9 @@ public struct HermesContextCategoryDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(label, forKey: .label)
-    try container.encode(tokens, forKey: .tokens)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.tokens, forKey: .tokens)
   }
 }
 
@@ -20428,17 +20428,17 @@ public struct HermesTokenTotalsDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(input, forKey: .input)
-    try container.encodeIfPresent(output, forKey: .output)
-    try container.encodeIfPresent(reasoning, forKey: .reasoning)
-    try container.encodeIfPresent(cacheRead, forKey: .cacheRead)
-    try container.encodeIfPresent(cacheWrite, forKey: .cacheWrite)
-    try container.encodeIfPresent(cacheHitPercent, forKey: .cacheHitPercent)
-    try container.encodeIfPresent(total, forKey: .total)
-    try container.encodeIfPresent(calls, forKey: .calls)
-    try container.encodeIfPresent(compressions, forKey: .compressions)
-    try container.encodeIfPresent(costUsd, forKey: .costUsd)
-    try container.encode(costEstimated, forKey: .costEstimated)
+    try container.encodeIfPresent(self.input, forKey: .input)
+    try container.encodeIfPresent(self.output, forKey: .output)
+    try container.encodeIfPresent(self.reasoning, forKey: .reasoning)
+    try container.encodeIfPresent(self.cacheRead, forKey: .cacheRead)
+    try container.encodeIfPresent(self.cacheWrite, forKey: .cacheWrite)
+    try container.encodeIfPresent(self.cacheHitPercent, forKey: .cacheHitPercent)
+    try container.encodeIfPresent(self.total, forKey: .total)
+    try container.encodeIfPresent(self.calls, forKey: .calls)
+    try container.encodeIfPresent(self.compressions, forKey: .compressions)
+    try container.encodeIfPresent(self.costUsd, forKey: .costUsd)
+    try container.encode(self.costEstimated, forKey: .costEstimated)
   }
 }
 
@@ -20482,10 +20482,10 @@ public struct HermesPlanGaugeDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(title, forKey: .title)
-    try container.encode(usedFraction, forKey: .usedFraction)
-    try container.encodeIfPresent(resetsAtMs, forKey: .resetsAtMs)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.title, forKey: .title)
+    try container.encode(self.usedFraction, forKey: .usedFraction)
+    try container.encodeIfPresent(self.resetsAtMs, forKey: .resetsAtMs)
   }
 }
 
@@ -20538,12 +20538,12 @@ public struct HermesUsageBarDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(fill, forKey: .fill)
-    try container.encodeIfPresent(remaining, forKey: .remaining)
-    try container.encodeIfPresent(total, forKey: .total)
-    try container.encodeIfPresent(spent, forKey: .spent)
-    try container.encodeIfPresent(usedPercent, forKey: .usedPercent)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.fill, forKey: .fill)
+    try container.encodeIfPresent(self.remaining, forKey: .remaining)
+    try container.encodeIfPresent(self.total, forKey: .total)
+    try container.encodeIfPresent(self.spent, forKey: .spent)
+    try container.encodeIfPresent(self.usedPercent, forKey: .usedPercent)
   }
 }
 
@@ -20589,11 +20589,11 @@ public struct HermesUsageBarsDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(planName, forKey: .planName)
-    try container.encodeIfPresent(renews, forKey: .renews)
-    try container.encodeIfPresent(plan, forKey: .plan)
-    try container.encodeIfPresent(topup, forKey: .topup)
-    try container.encodeIfPresent(totalSpendable, forKey: .totalSpendable)
+    try container.encodeIfPresent(self.planName, forKey: .planName)
+    try container.encodeIfPresent(self.renews, forKey: .renews)
+    try container.encodeIfPresent(self.plan, forKey: .plan)
+    try container.encodeIfPresent(self.topup, forKey: .topup)
+    try container.encodeIfPresent(self.totalSpendable, forKey: .totalSpendable)
   }
 }
 
@@ -20646,12 +20646,12 @@ public struct HermesProviderPlanDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(provider, forKey: .provider)
-    try container.encodeIfPresent(planName, forKey: .planName)
-    try container.encode(gauges, forKey: .gauges)
-    try container.encode(rateLimited, forKey: .rateLimited)
-    try container.encodeIfPresent(rateLimitedUntilMs, forKey: .rateLimitedUntilMs)
-    try container.encodeIfPresent(usageLevel, forKey: .usageLevel)
+    try container.encodeIfPresent(self.provider, forKey: .provider)
+    try container.encodeIfPresent(self.planName, forKey: .planName)
+    try container.encode(self.gauges, forKey: .gauges)
+    try container.encode(self.rateLimited, forKey: .rateLimited)
+    try container.encodeIfPresent(self.rateLimitedUntilMs, forKey: .rateLimitedUntilMs)
+    try container.encodeIfPresent(self.usageLevel, forKey: .usageLevel)
   }
 }
 
@@ -20683,8 +20683,8 @@ public struct HermesCompact: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encodeIfPresent(focus, forKey: .focus)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.focus, forKey: .focus)
   }
 }
 
@@ -20781,11 +20781,11 @@ public struct HermesCompactResultDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encodeIfPresent(beforeTokens, forKey: .beforeTokens)
-    try container.encodeIfPresent(afterTokens, forKey: .afterTokens)
-    try container.encodeIfPresent(beforeMessages, forKey: .beforeMessages)
-    try container.encodeIfPresent(afterMessages, forKey: .afterMessages)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encodeIfPresent(self.beforeTokens, forKey: .beforeTokens)
+    try container.encodeIfPresent(self.afterTokens, forKey: .afterTokens)
+    try container.encodeIfPresent(self.beforeMessages, forKey: .beforeMessages)
+    try container.encodeIfPresent(self.afterMessages, forKey: .afterMessages)
   }
 }
 
@@ -20829,9 +20829,9 @@ public struct HermesDecisionAnswer: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(requestId, forKey: .requestId)
-    try container.encode(answers, forKey: .answers)
-    try container.encodeIfPresent(value, forKey: .value)
+    try container.encode(self.requestId, forKey: .requestId)
+    try container.encode(self.answers, forKey: .answers)
+    try container.encodeIfPresent(self.value, forKey: .value)
   }
 }
 
@@ -20863,8 +20863,8 @@ public struct HermesClarifyAnswer: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(questionId, forKey: .questionId)
-    try container.encodeIfPresent(answer, forKey: .answer)
+    try container.encode(self.questionId, forKey: .questionId)
+    try container.encodeIfPresent(self.answer, forKey: .answer)
   }
 }
 
@@ -20930,7 +20930,7 @@ public struct HermesDecisionResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(status, forKey: .status)
+    try container.encode(self.status, forKey: .status)
   }
 }
 
@@ -20974,10 +20974,10 @@ public struct ChangedFileDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(path, forKey: .path)
-    try container.encode(added, forKey: .added)
-    try container.encode(removed, forKey: .removed)
-    try container.encode(lines, forKey: .lines)
+    try container.encode(self.path, forKey: .path)
+    try container.encode(self.added, forKey: .added)
+    try container.encode(self.removed, forKey: .removed)
+    try container.encode(self.lines, forKey: .lines)
   }
 }
 
@@ -21063,10 +21063,10 @@ public struct DiffLineDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(text, forKey: .text)
-    try container.encodeIfPresent(oldNumber, forKey: .oldNumber)
-    try container.encodeIfPresent(newNumber, forKey: .newNumber)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.text, forKey: .text)
+    try container.encodeIfPresent(self.oldNumber, forKey: .oldNumber)
+    try container.encodeIfPresent(self.newNumber, forKey: .newNumber)
   }
 }
 
@@ -21157,17 +21157,17 @@ public struct HermesErrorDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(blocking, forKey: .blocking)
-    try container.encodeIfPresent(message, forKey: .message)
-    try container.encodeIfPresent(provider, forKey: .provider)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(resetsAtMs, forKey: .resetsAtMs)
-    try container.encode(partial, forKey: .partial)
-    try container.encode(actions, forKey: .actions)
-    try container.encodeIfPresent(switchTo, forKey: .switchTo)
-    try container.encodeIfPresent(billingUrl, forKey: .billingUrl)
-    try container.encodeIfPresent(providerSettingsUrl, forKey: .providerSettingsUrl)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.blocking, forKey: .blocking)
+    try container.encodeIfPresent(self.message, forKey: .message)
+    try container.encodeIfPresent(self.provider, forKey: .provider)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encodeIfPresent(self.resetsAtMs, forKey: .resetsAtMs)
+    try container.encode(self.partial, forKey: .partial)
+    try container.encode(self.actions, forKey: .actions)
+    try container.encodeIfPresent(self.switchTo, forKey: .switchTo)
+    try container.encodeIfPresent(self.billingUrl, forKey: .billingUrl)
+    try container.encodeIfPresent(self.providerSettingsUrl, forKey: .providerSettingsUrl)
   }
 }
 
@@ -21198,8 +21198,8 @@ public struct HermesModelChoiceDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(modelId, forKey: .modelId)
-    try container.encode(label, forKey: .label)
+    try container.encode(self.modelId, forKey: .modelId)
+    try container.encode(self.label, forKey: .label)
   }
 }
 
@@ -21382,20 +21382,20 @@ public struct PersonalConnectionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(identity, forKey: .identity)
-    try container.encode(name, forKey: .name)
-    try container.encode(endpoint, forKey: .endpoint)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(editable, forKey: .editable)
-    try container.encode(description, forKey: .description)
-    try container.encode(url, forKey: .url)
-    try container.encode(specType, forKey: .specType)
-    try container.encode(path, forKey: .path)
-    try container.encode(spec, forKey: .spec)
-    try container.encode(authType, forKey: .authType)
-    try container.encode(hasKey, forKey: .hasKey)
-    try container.encode(fingerprint, forKey: .fingerprint)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.identity, forKey: .identity)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.endpoint, forKey: .endpoint)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.editable, forKey: .editable)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.specType, forKey: .specType)
+    try container.encode(self.path, forKey: .path)
+    try container.encode(self.spec, forKey: .spec)
+    try container.encode(self.authType, forKey: .authType)
+    try container.encode(self.hasKey, forKey: .hasKey)
+    try container.encode(self.fingerprint, forKey: .fingerprint)
   }
 }
 
@@ -21465,15 +21465,15 @@ public struct PersonalConnections: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(access, forKey: .access)
-    try container.encode(owner, forKey: .owner)
-    try container.encode(accountName, forKey: .accountName)
-    try container.encode(serverName, forKey: .serverName)
-    try container.encode(toolServers, forKey: .toolServers)
-    try container.encode(terminals, forKey: .terminals)
-    try container.encode(cleared, forKey: .cleared)
-    try container.encode(failed, forKey: .failed)
-    try container.encode(savedForPreviousAccount, forKey: .savedForPreviousAccount)
+    try container.encode(self.access, forKey: .access)
+    try container.encode(self.owner, forKey: .owner)
+    try container.encode(self.accountName, forKey: .accountName)
+    try container.encode(self.serverName, forKey: .serverName)
+    try container.encode(self.toolServers, forKey: .toolServers)
+    try container.encode(self.terminals, forKey: .terminals)
+    try container.encode(self.cleared, forKey: .cleared)
+    try container.encode(self.failed, forKey: .failed)
+    try container.encode(self.savedForPreviousAccount, forKey: .savedForPreviousAccount)
   }
 }
 
@@ -21580,16 +21580,16 @@ public struct PersonalConnectionDraft: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(description, forKey: .description)
-    try container.encode(url, forKey: .url)
-    try container.encode(specType, forKey: .specType)
-    try container.encode(path, forKey: .path)
-    try container.encode(spec, forKey: .spec)
-    try container.encode(authType, forKey: .authType)
-    try container.encode(key, forKey: .key)
-    try container.encode(keyMode, forKey: .keyMode)
-    try container.encode(enabled, forKey: .enabled)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.specType, forKey: .specType)
+    try container.encode(self.path, forKey: .path)
+    try container.encode(self.spec, forKey: .spec)
+    try container.encode(self.authType, forKey: .authType)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.keyMode, forKey: .keyMode)
+    try container.encode(self.enabled, forKey: .enabled)
   }
 }
 
@@ -21688,13 +21688,13 @@ public struct PersonalConnectionSave: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(owner, forKey: .owner)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(op, forKey: .op)
-    try container.encodeIfPresent(identity, forKey: .identity)
-    try container.encodeIfPresent(draft, forKey: .draft)
-    try container.encodeIfPresent(enabled, forKey: .enabled)
-    try container.encodeIfPresent(fingerprint, forKey: .fingerprint)
+    try container.encode(self.owner, forKey: .owner)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.op, forKey: .op)
+    try container.encodeIfPresent(self.identity, forKey: .identity)
+    try container.encodeIfPresent(self.draft, forKey: .draft)
+    try container.encodeIfPresent(self.enabled, forKey: .enabled)
+    try container.encodeIfPresent(self.fingerprint, forKey: .fingerprint)
   }
 }
 
@@ -21744,11 +21744,11 @@ public struct PersonalConnectionTest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(owner, forKey: .owner)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(identity, forKey: .identity)
-    try container.encode(draft, forKey: .draft)
-    try container.encodeIfPresent(fingerprint, forKey: .fingerprint)
+    try container.encode(self.owner, forKey: .owner)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.identity, forKey: .identity)
+    try container.encode(self.draft, forKey: .draft)
+    try container.encodeIfPresent(self.fingerprint, forKey: .fingerprint)
   }
 }
 
@@ -21827,9 +21827,9 @@ public struct PersonalConnectionTestResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(ok, forKey: .ok)
-    try container.encodeIfPresent(operationCount, forKey: .operationCount)
-    try container.encodeIfPresent(failure, forKey: .failure)
+    try container.encode(self.ok, forKey: .ok)
+    try container.encodeIfPresent(self.operationCount, forKey: .operationCount)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
   }
 }
 
@@ -21869,9 +21869,9 @@ public struct IntentAsk: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(text, forKey: .text)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encode(timeoutMs, forKey: .timeoutMs)
+    try container.encode(self.text, forKey: .text)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encode(self.timeoutMs, forKey: .timeoutMs)
   }
 }
 
@@ -21930,12 +21930,12 @@ public struct IntentAnswer: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encode(text, forKey: .text)
-    try container.encodeIfPresent(detail, forKey: .detail)
-    try container.encodeIfPresent(title, forKey: .title)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encode(self.text, forKey: .text)
+    try container.encodeIfPresent(self.detail, forKey: .detail)
+    try container.encodeIfPresent(self.title, forKey: .title)
   }
 }
 
@@ -21973,9 +21973,9 @@ public struct IntentChatsQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(ids, forKey: .ids)
-    try container.encodeIfPresent(query, forKey: .query)
-    try container.encode(limit, forKey: .limit)
+    try container.encode(self.ids, forKey: .ids)
+    try container.encodeIfPresent(self.query, forKey: .query)
+    try container.encode(self.limit, forKey: .limit)
   }
 }
 
@@ -22015,10 +22015,10 @@ public struct IntentChat: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(title, forKey: .title)
-    try container.encode(updatedAtMs, forKey: .updatedAtMs)
-    try container.encode(pinned, forKey: .pinned)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.updatedAtMs, forKey: .updatedAtMs)
+    try container.encode(self.pinned, forKey: .pinned)
   }
 }
 
@@ -22043,7 +22043,7 @@ public struct IntentChats: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chats, forKey: .chats)
+    try container.encode(self.chats, forKey: .chats)
   }
 }
 
@@ -22069,7 +22069,7 @@ public struct IntentLink: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
+    try container.encode(self.url, forKey: .url)
   }
 }
 
@@ -22119,10 +22119,10 @@ public struct IntentLinkResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
-    try container.encode(youtube, forKey: .youtube)
-    try container.encodeIfPresent(attachment, forKey: .attachment)
-    try container.encodeIfPresent(error, forKey: .error)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.youtube, forKey: .youtube)
+    try container.encodeIfPresent(self.attachment, forKey: .attachment)
+    try container.encodeIfPresent(self.error, forKey: .error)
   }
 }
 
@@ -22205,8 +22205,8 @@ public struct LibreChatSsoProviderDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(label, forKey: .label)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.label, forKey: .label)
   }
 }
 
@@ -22262,12 +22262,12 @@ public struct LibreChatServerDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(baseUrl, forKey: .baseUrl)
-    try container.encode(title, forKey: .title)
-    try container.encode(passwordSignIn, forKey: .passwordSignIn)
-    try container.encode(ldap, forKey: .ldap)
-    try container.encode(ldapUsesUsername, forKey: .ldapUsesUsername)
-    try container.encode(ssoProviders, forKey: .ssoProviders)
+    try container.encode(self.baseUrl, forKey: .baseUrl)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.passwordSignIn, forKey: .passwordSignIn)
+    try container.encode(self.ldap, forKey: .ldap)
+    try container.encode(self.ldapUsesUsername, forKey: .ldapUsesUsername)
+    try container.encode(self.ssoProviders, forKey: .ssoProviders)
   }
 }
 
@@ -22292,7 +22292,7 @@ public struct LibreChatProbe: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
+    try container.encode(self.url, forKey: .url)
   }
 }
 
@@ -22323,8 +22323,8 @@ public struct LibreChatProbeResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encodeIfPresent(server, forKey: .server)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encodeIfPresent(self.server, forKey: .server)
   }
 }
 
@@ -22367,10 +22367,10 @@ public struct LibreChatSignIn: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
-    try container.encode(email, forKey: .email)
-    try container.encode(password, forKey: .password)
-    try container.encode(force, forKey: .force)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.email, forKey: .email)
+    try container.encode(self.password, forKey: .password)
+    try container.encode(self.force, forKey: .force)
   }
 }
 
@@ -22413,10 +22413,10 @@ public struct LibreChatVerify: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(flowId, forKey: .flowId)
-    try container.encode(code, forKey: .code)
-    try container.encode(backupCode, forKey: .backupCode)
-    try container.encode(force, forKey: .force)
+    try container.encode(self.flowId, forKey: .flowId)
+    try container.encode(self.code, forKey: .code)
+    try container.encode(self.backupCode, forKey: .backupCode)
+    try container.encode(self.force, forKey: .force)
   }
 }
 
@@ -22447,8 +22447,8 @@ public struct LibreChatSsoStart: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
-    try container.encode(provider, forKey: .provider)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.provider, forKey: .provider)
   }
 }
 
@@ -22506,11 +22506,11 @@ public struct LibreChatSsoPlan: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(startUrl, forKey: .startUrl)
-    try container.encode(cookieUrl, forKey: .cookieUrl)
-    try container.encode(serverOrigins, forKey: .serverOrigins)
-    try container.encode(basePath, forKey: .basePath)
-    try container.encodeIfPresent(startId, forKey: .startId)
+    try container.encode(self.startUrl, forKey: .startUrl)
+    try container.encode(self.cookieUrl, forKey: .cookieUrl)
+    try container.encode(self.serverOrigins, forKey: .serverOrigins)
+    try container.encode(self.basePath, forKey: .basePath)
+    try container.encodeIfPresent(self.startId, forKey: .startId)
   }
 }
 
@@ -22555,10 +22555,10 @@ public struct LibreChatSsoCompletion: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
-    try container.encode(cookies, forKey: .cookies)
-    try container.encode(force, forKey: .force)
-    try container.encodeIfPresent(startId, forKey: .startId)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.cookies, forKey: .cookies)
+    try container.encode(self.force, forKey: .force)
+    try container.encodeIfPresent(self.startId, forKey: .startId)
   }
 }
 
@@ -22675,11 +22675,11 @@ public struct LibreChatSignInResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encodeIfPresent(flowId, forKey: .flowId)
-    try container.encodeIfPresent(accountId, forKey: .accountId)
-    try container.encodeIfPresent(serverMessage, forKey: .serverMessage)
-    try container.encodeIfPresent(accounts, forKey: .accounts)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encodeIfPresent(self.flowId, forKey: .flowId)
+    try container.encodeIfPresent(self.accountId, forKey: .accountId)
+    try container.encodeIfPresent(self.serverMessage, forKey: .serverMessage)
+    try container.encodeIfPresent(self.accounts, forKey: .accounts)
   }
 }
 
@@ -22706,7 +22706,7 @@ public struct LibreChatComposerTarget: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
   }
 }
 
@@ -22749,10 +22749,10 @@ public struct LibreChatMcpServerDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(toolId, forKey: .toolId)
-    try container.encode(toolCount, forKey: .toolCount)
-    try container.encode(needsConnection, forKey: .needsConnection)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.toolId, forKey: .toolId)
+    try container.encode(self.toolCount, forKey: .toolCount)
+    try container.encode(self.needsConnection, forKey: .needsConnection)
   }
 }
 
@@ -22816,13 +22816,13 @@ public struct LibreChatComposer: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(libreChat, forKey: .libreChat)
-    try container.encodeIfPresent(webSearchToolId, forKey: .webSearchToolId)
-    try container.encodeIfPresent(codeInterpreterToolId, forKey: .codeInterpreterToolId)
-    try container.encodeIfPresent(fileSearchToolId, forKey: .fileSearchToolId)
-    try container.encode(mcpServers, forKey: .mcpServers)
-    try container.encode(prompts, forKey: .prompts)
-    try container.encodeIfPresent(webUrl, forKey: .webUrl)
+    try container.encode(self.libreChat, forKey: .libreChat)
+    try container.encodeIfPresent(self.webSearchToolId, forKey: .webSearchToolId)
+    try container.encodeIfPresent(self.codeInterpreterToolId, forKey: .codeInterpreterToolId)
+    try container.encodeIfPresent(self.fileSearchToolId, forKey: .fileSearchToolId)
+    try container.encode(self.mcpServers, forKey: .mcpServers)
+    try container.encode(self.prompts, forKey: .prompts)
+    try container.encodeIfPresent(self.webUrl, forKey: .webUrl)
   }
 }
 
@@ -22863,10 +22863,10 @@ public struct LibreChatMemoryDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
-    try container.encode(value, forKey: .value)
-    try container.encode(tokenCount, forKey: .tokenCount)
-    try container.encodeIfPresent(updatedMs, forKey: .updatedMs)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.value, forKey: .value)
+    try container.encode(self.tokenCount, forKey: .tokenCount)
+    try container.encodeIfPresent(self.updatedMs, forKey: .updatedMs)
   }
 }
 
@@ -22929,14 +22929,14 @@ public struct LibreChatMemories: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(memories, forKey: .memories)
-    try container.encode(totalTokens, forKey: .totalTokens)
-    try container.encodeIfPresent(tokenLimit, forKey: .tokenLimit)
-    try container.encodeIfPresent(usagePercent, forKey: .usagePercent)
-    try container.encode(canCreate, forKey: .canCreate)
-    try container.encode(canUpdate, forKey: .canUpdate)
-    try container.encode(canOptOut, forKey: .canOptOut)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.memories, forKey: .memories)
+    try container.encode(self.totalTokens, forKey: .totalTokens)
+    try container.encodeIfPresent(self.tokenLimit, forKey: .tokenLimit)
+    try container.encodeIfPresent(self.usagePercent, forKey: .usagePercent)
+    try container.encode(self.canCreate, forKey: .canCreate)
+    try container.encode(self.canUpdate, forKey: .canUpdate)
+    try container.encode(self.canOptOut, forKey: .canOptOut)
   }
 }
 
@@ -22974,9 +22974,9 @@ public struct LibreChatMemoryEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(originalKey, forKey: .originalKey)
-    try container.encode(key, forKey: .key)
-    try container.encode(value, forKey: .value)
+    try container.encodeIfPresent(self.originalKey, forKey: .originalKey)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.value, forKey: .value)
   }
 }
 
@@ -23001,7 +23001,7 @@ public struct LibreChatMemoryRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
+    try container.encode(self.key, forKey: .key)
   }
 }
 
@@ -23026,7 +23026,7 @@ public struct LibreChatMemoryToggle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
+    try container.encode(self.enabled, forKey: .enabled)
   }
 }
 
@@ -23107,8 +23107,8 @@ public struct LocationCommand: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
   }
 }
 
@@ -23211,13 +23211,13 @@ public struct LocationReport: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(ok, forKey: .ok)
-    try container.encodeIfPresent(error, forKey: .error)
-    try container.encodeIfPresent(servicesEnabled, forKey: .servicesEnabled)
-    try container.encodeIfPresent(permission, forKey: .permission)
-    try container.encodeIfPresent(latitude, forKey: .latitude)
-    try container.encodeIfPresent(longitude, forKey: .longitude)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.ok, forKey: .ok)
+    try container.encodeIfPresent(self.error, forKey: .error)
+    try container.encodeIfPresent(self.servicesEnabled, forKey: .servicesEnabled)
+    try container.encodeIfPresent(self.permission, forKey: .permission)
+    try container.encodeIfPresent(self.latitude, forKey: .latitude)
+    try container.encodeIfPresent(self.longitude, forKey: .longitude)
   }
 }
 
@@ -23291,9 +23291,9 @@ public struct McpApprovalSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(digest, forKey: .digest)
-    try container.encode(toolName, forKey: .toolName)
-    try container.encode(createdAtMs, forKey: .createdAtMs)
+    try container.encode(self.digest, forKey: .digest)
+    try container.encode(self.toolName, forKey: .toolName)
+    try container.encode(self.createdAtMs, forKey: .createdAtMs)
   }
 }
 
@@ -23381,18 +23381,18 @@ public struct McpServerSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(endpoint, forKey: .endpoint)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(auth, forKey: .auth)
-    try container.encode(hasBearerToken, forKey: .hasBearerToken)
-    try container.encode(customHeaderNames, forKey: .customHeaderNames)
-    try container.encode(oauthConnected, forKey: .oauthConnected)
-    try container.encodeIfPresent(oauthIssuerHost, forKey: .oauthIssuerHost)
-    try container.encode(oauthScopes, forKey: .oauthScopes)
-    try container.encode(allowInsecureCredentials, forKey: .allowInsecureCredentials)
-    try container.encode(approvals, forKey: .approvals)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.endpoint, forKey: .endpoint)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.auth, forKey: .auth)
+    try container.encode(self.hasBearerToken, forKey: .hasBearerToken)
+    try container.encode(self.customHeaderNames, forKey: .customHeaderNames)
+    try container.encode(self.oauthConnected, forKey: .oauthConnected)
+    try container.encodeIfPresent(self.oauthIssuerHost, forKey: .oauthIssuerHost)
+    try container.encode(self.oauthScopes, forKey: .oauthScopes)
+    try container.encode(self.allowInsecureCredentials, forKey: .allowInsecureCredentials)
+    try container.encode(self.approvals, forKey: .approvals)
   }
 }
 
@@ -23417,7 +23417,7 @@ public struct McpServerList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(servers, forKey: .servers)
+    try container.encode(self.servers, forKey: .servers)
   }
 }
 
@@ -23485,14 +23485,14 @@ public struct McpServerEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(endpoint, forKey: .endpoint)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(auth, forKey: .auth)
-    try container.encodeIfPresent(bearerToken, forKey: .bearerToken)
-    try container.encodeIfPresent(customHeaders, forKey: .customHeaders)
-    try container.encode(allowInsecureCredentials, forKey: .allowInsecureCredentials)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.endpoint, forKey: .endpoint)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.auth, forKey: .auth)
+    try container.encodeIfPresent(self.bearerToken, forKey: .bearerToken)
+    try container.encodeIfPresent(self.customHeaders, forKey: .customHeaders)
+    try container.encode(self.allowInsecureCredentials, forKey: .allowInsecureCredentials)
   }
 }
 
@@ -23527,9 +23527,9 @@ public struct McpTestResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(reachable, forKey: .reachable)
-    try container.encodeIfPresent(toolCount, forKey: .toolCount)
-    try container.encodeIfPresent(message, forKey: .message)
+    try container.encode(self.reachable, forKey: .reachable)
+    try container.encodeIfPresent(self.toolCount, forKey: .toolCount)
+    try container.encodeIfPresent(self.message, forKey: .message)
   }
 }
 
@@ -23554,7 +23554,7 @@ public struct McpRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -23584,8 +23584,8 @@ public struct McpEnable: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(enabled, forKey: .enabled)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.enabled, forKey: .enabled)
   }
 }
 
@@ -23616,8 +23616,8 @@ public struct McpForgetApproval: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encodeIfPresent(digest, forKey: .digest)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encodeIfPresent(self.digest, forKey: .digest)
   }
 }
 
@@ -23644,7 +23644,7 @@ public struct OpenUrl: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
+    try container.encode(self.url, forKey: .url)
   }
 }
 
@@ -23684,10 +23684,10 @@ public struct McpPromptArgument: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(label, forKey: .label)
-    try container.encode(description, forKey: .description)
-    try container.encode(required, forKey: .required)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.required, forKey: .required)
   }
 }
 
@@ -23727,10 +23727,10 @@ public struct McpPromptSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(displayName, forKey: .displayName)
-    try container.encode(description, forKey: .description)
-    try container.encode(arguments, forKey: .arguments)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.displayName, forKey: .displayName)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.arguments, forKey: .arguments)
   }
 }
 
@@ -23770,10 +23770,10 @@ public struct McpResourceSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(uri, forKey: .uri)
-    try container.encode(displayName, forKey: .displayName)
-    try container.encode(description, forKey: .description)
-    try container.encodeIfPresent(mimeType, forKey: .mimeType)
+    try container.encode(self.uri, forKey: .uri)
+    try container.encode(self.displayName, forKey: .displayName)
+    try container.encode(self.description, forKey: .description)
+    try container.encodeIfPresent(self.mimeType, forKey: .mimeType)
   }
 }
 
@@ -23813,10 +23813,10 @@ public struct McpContent: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encode(serverName, forKey: .serverName)
-    try container.encode(prompts, forKey: .prompts)
-    try container.encode(resources, forKey: .resources)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encode(self.serverName, forKey: .serverName)
+    try container.encode(self.prompts, forKey: .prompts)
+    try container.encode(self.resources, forKey: .resources)
   }
 }
 
@@ -23851,9 +23851,9 @@ public struct McpGetPrompt: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encode(name, forKey: .name)
-    try container.encode(arguments, forKey: .arguments)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.arguments, forKey: .arguments)
   }
 }
 
@@ -23883,8 +23883,8 @@ public struct McpReadResource: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encode(uri, forKey: .uri)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encode(self.uri, forKey: .uri)
   }
 }
 
@@ -23914,8 +23914,8 @@ public struct McpPromptMessage: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(role, forKey: .role)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.role, forKey: .role)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -23945,7 +23945,7 @@ public struct McpContentPreview: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(messages, forKey: .messages)
+    try container.encode(self.messages, forKey: .messages)
   }
 }
 
@@ -23970,7 +23970,7 @@ public struct CancelledResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(cancelled, forKey: .cancelled)
+    try container.encode(self.cancelled, forKey: .cancelled)
   }
 }
 
@@ -24020,11 +24020,11 @@ public struct McpAppDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encode(toolName, forKey: .toolName)
-    try container.encode(binding, forKey: .binding)
-    try container.encode(arguments, forKey: .arguments)
-    try container.encode(result, forKey: .result)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encode(self.toolName, forKey: .toolName)
+    try container.encode(self.binding, forKey: .binding)
+    try container.encode(self.arguments, forKey: .arguments)
+    try container.encode(self.result, forKey: .result)
   }
 }
 
@@ -24072,11 +24072,11 @@ public struct McpAppOpen: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(app, forKey: .app)
-    try container.encode(theme, forKey: .theme)
-    try container.encode(locale, forKey: .locale)
-    try container.encode(width, forKey: .width)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.app, forKey: .app)
+    try container.encode(self.theme, forKey: .theme)
+    try container.encode(self.locale, forKey: .locale)
+    try container.encode(self.width, forKey: .width)
   }
 }
 
@@ -24128,11 +24128,11 @@ public struct McpAppSession: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(appId, forKey: .appId)
-    try container.encode(document, forKey: .document)
-    try container.encode(connectDomains, forKey: .connectDomains)
-    try container.encode(resourceDomains, forKey: .resourceDomains)
-    try container.encode(frameDomains, forKey: .frameDomains)
+    try container.encode(self.appId, forKey: .appId)
+    try container.encode(self.document, forKey: .document)
+    try container.encode(self.connectDomains, forKey: .connectDomains)
+    try container.encode(self.resourceDomains, forKey: .resourceDomains)
+    try container.encode(self.frameDomains, forKey: .frameDomains)
   }
 }
 
@@ -24163,8 +24163,8 @@ public struct McpAppMessage: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(appId, forKey: .appId)
-    try container.encode(payload, forKey: .payload)
+    try container.encode(self.appId, forKey: .appId)
+    try container.encode(self.payload, forKey: .payload)
   }
 }
 
@@ -24201,9 +24201,9 @@ public struct McpAppContext: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(appId, forKey: .appId)
-    try container.encodeIfPresent(theme, forKey: .theme)
-    try container.encodeIfPresent(width, forKey: .width)
+    try container.encode(self.appId, forKey: .appId)
+    try container.encodeIfPresent(self.theme, forKey: .theme)
+    try container.encodeIfPresent(self.width, forKey: .width)
   }
 }
 
@@ -24228,7 +24228,7 @@ public struct McpAppRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(appId, forKey: .appId)
+    try container.encode(self.appId, forKey: .appId)
   }
 }
 
@@ -24315,10 +24315,10 @@ public struct McpAppEvent: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(appId, forKey: .appId)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(message, forKey: .message)
-    try container.encodeIfPresent(height, forKey: .height)
+    try container.encode(self.appId, forKey: .appId)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.message, forKey: .message)
+    try container.encodeIfPresent(self.height, forKey: .height)
   }
 }
 
@@ -24367,11 +24367,11 @@ public struct MemoryDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(content, forKey: .content)
-    try container.encodeIfPresent(type, forKey: .type)
-    try container.encodeIfPresent(path, forKey: .path)
-    try container.encode(updatedAt, forKey: .updatedAt)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.content, forKey: .content)
+    try container.encodeIfPresent(self.type, forKey: .type)
+    try container.encodeIfPresent(self.path, forKey: .path)
+    try container.encode(self.updatedAt, forKey: .updatedAt)
   }
 }
 
@@ -24409,9 +24409,9 @@ public struct MemoryList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(items, forKey: .items)
+    try container.encode(self.available, forKey: .available)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.items, forKey: .items)
   }
 }
 
@@ -24453,10 +24453,10 @@ public struct MemoryEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(content, forKey: .content)
-    try container.encodeIfPresent(type, forKey: .type)
-    try container.encodeIfPresent(path, forKey: .path)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.content, forKey: .content)
+    try container.encodeIfPresent(self.type, forKey: .type)
+    try container.encodeIfPresent(self.path, forKey: .path)
   }
 }
 
@@ -24481,7 +24481,7 @@ public struct MemoryRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -24506,7 +24506,7 @@ public struct MemoryToggle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
+    try container.encode(self.enabled, forKey: .enabled)
   }
 }
 
@@ -24546,9 +24546,9 @@ public struct DeleteMessages: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageIds, forKey: .messageIds)
-    try container.encode(dryRun, forKey: .dryRun)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageIds, forKey: .messageIds)
+    try container.encode(self.dryRun, forKey: .dryRun)
   }
 }
 
@@ -24580,8 +24580,8 @@ public struct MessagesDeleted: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(count, forKey: .count)
-    if let value = chat {
+    try container.encode(self.count, forKey: .count)
+    if let value = self.chat {
       try container.encode(value, forKey: .chat)
     } else {
       try container.encodeNil(forKey: .chat)
@@ -24635,11 +24635,11 @@ public struct MergeTurn: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(targetId, forKey: .targetId)
-    try container.encode(sourceIds, forKey: .sourceIds)
-    try container.encode(stop, forKey: .stop)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.targetId, forKey: .targetId)
+    try container.encode(self.sourceIds, forKey: .sourceIds)
+    try container.encode(self.stop, forKey: .stop)
   }
 }
 
@@ -24665,7 +24665,7 @@ public struct MergeStarted: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(targetId, forKey: .targetId)
+    try container.encode(self.targetId, forKey: .targetId)
   }
 }
 
@@ -24720,12 +24720,12 @@ public struct MergeProgress: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(targetId, forKey: .targetId)
-    try container.encode(text, forKey: .text)
-    try container.encode(running, forKey: .running)
-    try container.encodeIfPresent(error, forKey: .error)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.targetId, forKey: .targetId)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.running, forKey: .running)
+    try container.encodeIfPresent(self.error, forKey: .error)
   }
 }
 
@@ -24806,15 +24806,15 @@ public struct ModelSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encode(pinned, forKey: .pinned)
-    try container.encode(capabilities, forKey: .capabilities)
-    try container.encodeIfPresent(connection, forKey: .connection)
-    try container.encodeIfPresent(logo, forKey: .logo)
-    try container.encodeIfPresent(agent, forKey: .agent)
-    try container.encodeIfPresent(device, forKey: .device)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encode(self.pinned, forKey: .pinned)
+    try container.encode(self.capabilities, forKey: .capabilities)
+    try container.encodeIfPresent(self.connection, forKey: .connection)
+    try container.encodeIfPresent(self.logo, forKey: .logo)
+    try container.encodeIfPresent(self.agent, forKey: .agent)
+    try container.encodeIfPresent(self.device, forKey: .device)
   }
 }
 
@@ -24913,16 +24913,16 @@ public struct ModelList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(models, forKey: .models)
-    try container.encodeIfPresent(selectedId, forKey: .selectedId)
-    try container.encode(featuredIds, forKey: .featuredIds)
-    try container.encode(moreSections, forKey: .moreSections)
-    try container.encode(canPin, forKey: .canPin)
-    try container.encodeIfPresent(defaultId, forKey: .defaultId)
-    try container.encode(agents, forKey: .agents)
-    try container.encode(agentNames, forKey: .agentNames)
-    try container.encodeIfPresent(chatAgent, forKey: .chatAgent)
-    try container.encode(revision, forKey: .revision)
+    try container.encode(self.models, forKey: .models)
+    try container.encodeIfPresent(self.selectedId, forKey: .selectedId)
+    try container.encode(self.featuredIds, forKey: .featuredIds)
+    try container.encode(self.moreSections, forKey: .moreSections)
+    try container.encode(self.canPin, forKey: .canPin)
+    try container.encodeIfPresent(self.defaultId, forKey: .defaultId)
+    try container.encode(self.agents, forKey: .agents)
+    try container.encode(self.agentNames, forKey: .agentNames)
+    try container.encodeIfPresent(self.chatAgent, forKey: .chatAgent)
+    try container.encode(self.revision, forKey: .revision)
   }
 }
 
@@ -24973,11 +24973,11 @@ public struct TerminalAgentDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(terminalId, forKey: .terminalId)
-    try container.encodeIfPresent(terminalName, forKey: .terminalName)
-    try container.encode(agent, forKey: .agent)
-    try container.encode(agentName, forKey: .agentName)
-    try container.encode(model, forKey: .model)
+    try container.encode(self.terminalId, forKey: .terminalId)
+    try container.encodeIfPresent(self.terminalName, forKey: .terminalName)
+    try container.encode(self.agent, forKey: .agent)
+    try container.encode(self.agentName, forKey: .agentName)
+    try container.encode(self.model, forKey: .model)
   }
 }
 
@@ -25010,8 +25010,8 @@ public struct ModelListQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encode(temporary, forKey: .temporary)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encode(self.temporary, forKey: .temporary)
   }
 }
 
@@ -25051,9 +25051,9 @@ public struct SelectModel: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encode(temporary, forKey: .temporary)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encode(self.temporary, forKey: .temporary)
   }
 }
 
@@ -25084,8 +25084,8 @@ public struct ModelSection: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(label, forKey: .label)
-    try container.encode(ids, forKey: .ids)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.ids, forKey: .ids)
   }
 }
 
@@ -25122,9 +25122,9 @@ public struct SetModelPinned: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(pinned, forKey: .pinned)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.pinned, forKey: .pinned)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
   }
 }
 
@@ -25156,8 +25156,8 @@ public struct ModelOptionsQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
   }
 }
 
@@ -25207,11 +25207,11 @@ public struct ReasoningOptions: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(visible, forKey: .visible)
-    try container.encode(options, forKey: .options)
-    try container.encode(allowsCustom, forKey: .allowsCustom)
-    try container.encode(current, forKey: .current)
-    try container.encode(ollama, forKey: .ollama)
+    try container.encode(self.visible, forKey: .visible)
+    try container.encode(self.options, forKey: .options)
+    try container.encode(self.allowsCustom, forKey: .allowsCustom)
+    try container.encode(self.current, forKey: .current)
+    try container.encode(self.ollama, forKey: .ollama)
   }
 }
 
@@ -25225,13 +25225,13 @@ public struct ModelOptionsDto: Codable, Equatable, Sendable {
   public var fastTier: Bool?
   /// A new chat's settings after a reasoning pick (it is saved on the
   /// chat as mobile saves it); null when the pick is not for a new chat.
-  public var draft: JSONValue?
+  public var draft: [String: JSONValue]?
 
   public init(
     modelId: String? = nil,
     reasoning: ReasoningOptions = ReasoningOptions(),
     fastTier: Bool? = nil,
-    draft: JSONValue? = nil
+    draft: [String: JSONValue]? = nil
   ) {
     self.modelId = modelId
     self.reasoning = reasoning
@@ -25251,15 +25251,15 @@ public struct ModelOptionsDto: Codable, Equatable, Sendable {
     self.modelId = try container.decodeIfPresent(String.self, forKey: .modelId)
     self.reasoning = try container.decodeIfPresent(ReasoningOptions.self, forKey: .reasoning) ?? ReasoningOptions()
     self.fastTier = try container.decodeIfPresent(Bool.self, forKey: .fastTier)
-    self.draft = try container.decodeIfPresent(JSONValue.self, forKey: .draft)
+    self.draft = try container.decodeIfPresent([String: JSONValue].self, forKey: .draft)
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encode(reasoning, forKey: .reasoning)
-    try container.encodeIfPresent(fastTier, forKey: .fastTier)
-    try container.encodeIfPresent(draft, forKey: .draft)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encode(self.reasoning, forKey: .reasoning)
+    try container.encodeIfPresent(self.fastTier, forKey: .fastTier)
+    try container.encodeIfPresent(self.draft, forKey: .draft)
   }
 }
 
@@ -25269,14 +25269,14 @@ public struct SetReasoningEffort: Codable, Equatable, Sendable {
   /// The chat the pick is saved on; null for a new chat, whose settings
   /// are [draft].
   public var chatId: String?
-  public var draft: JSONValue
+  public var draft: [String: JSONValue]
   /// A preset (`automatic`, `low`, ...) or a custom value.
   public var effort: String
 
   public init(
     modelId: String,
     chatId: String? = nil,
-    draft: JSONValue = .object([:]),
+    draft: [String: JSONValue] = [:],
     effort: String
   ) {
     self.modelId = modelId
@@ -25296,16 +25296,16 @@ public struct SetReasoningEffort: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.modelId = try container.decode(String.self, forKey: .modelId)
     self.chatId = try container.decodeIfPresent(String.self, forKey: .chatId)
-    self.draft = try container.decodeIfPresent(JSONValue.self, forKey: .draft) ?? .object([:])
+    self.draft = try container.decodeIfPresent([String: JSONValue].self, forKey: .draft) ?? [:]
     self.effort = try container.decode(String.self, forKey: .effort)
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(modelId, forKey: .modelId)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encode(draft, forKey: .draft)
-    try container.encode(effort, forKey: .effort)
+    try container.encode(self.modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encode(self.draft, forKey: .draft)
+    try container.encode(self.effort, forKey: .effort)
   }
 }
 
@@ -25335,8 +25335,8 @@ public struct SetFastTier: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encode(on, forKey: .on)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encode(self.on, forKey: .on)
   }
 }
 
@@ -25369,8 +25369,8 @@ public struct ModelControlOptionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(value, forKey: .value)
-    try container.encode(label, forKey: .label)
+    try container.encode(self.value, forKey: .value)
+    try container.encode(self.label, forKey: .label)
   }
 }
 
@@ -25428,12 +25428,12 @@ public struct ModelControlDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
-    try container.encode(label, forKey: .label)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encode(options, forKey: .options)
-    try container.encodeIfPresent(defaultValue, forKey: .defaultValue)
-    try container.encodeIfPresent(value, forKey: .value)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.label, forKey: .label)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encode(self.options, forKey: .options)
+    try container.encodeIfPresent(self.defaultValue, forKey: .defaultValue)
+    try container.encodeIfPresent(self.value, forKey: .value)
   }
 }
 
@@ -25465,8 +25465,8 @@ public struct ModelControlsQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
   }
 }
 
@@ -25498,8 +25498,8 @@ public struct ModelControlList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encode(controls, forKey: .controls)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encode(self.controls, forKey: .controls)
   }
 }
 
@@ -25543,10 +25543,10 @@ public struct SetModelControl: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encode(key, forKey: .key)
-    try container.encodeIfPresent(value, forKey: .value)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encode(self.key, forKey: .key)
+    try container.encodeIfPresent(self.value, forKey: .value)
   }
 }
 
@@ -25676,17 +25676,17 @@ public struct NoteSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(title, forKey: .title)
-    try container.encode(updatedAtMs, forKey: .updatedAtMs)
-    try container.encode(pinned, forKey: .pinned)
-    try container.encode(preview, forKey: .preview)
-    try container.encode(conflictCopy, forKey: .conflictCopy)
-    try container.encode(section, forKey: .section)
-    try container.encode(canEdit, forKey: .canEdit)
-    try container.encode(accessUnverified, forKey: .accessUnverified)
-    try container.encode(canShare, forKey: .canShare)
-    try container.encodeIfPresent(owner, forKey: .owner)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.updatedAtMs, forKey: .updatedAtMs)
+    try container.encode(self.pinned, forKey: .pinned)
+    try container.encode(self.preview, forKey: .preview)
+    try container.encode(self.conflictCopy, forKey: .conflictCopy)
+    try container.encode(self.section, forKey: .section)
+    try container.encode(self.canEdit, forKey: .canEdit)
+    try container.encode(self.accessUnverified, forKey: .accessUnverified)
+    try container.encode(self.canShare, forKey: .canShare)
+    try container.encodeIfPresent(self.owner, forKey: .owner)
   }
 }
 
@@ -25711,7 +25711,7 @@ public struct NoteList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(notes, forKey: .notes)
+    try container.encode(self.notes, forKey: .notes)
   }
 }
 
@@ -25736,7 +25736,7 @@ public struct NoteQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(query, forKey: .query)
+    try container.encode(self.query, forKey: .query)
   }
 }
 
@@ -25748,7 +25748,7 @@ public struct NoteQuery: Codable, Equatable, Sendable {
 public struct NoteDetail: Codable, Equatable, Sendable {
   public var summary: NoteSummary
   /// The body of page [pageId], as Quill ops.
-  public var ops: [JSONValue]
+  public var ops: [[String: JSONValue]]
   /// Files attached to the note: recordings, documents.
   public var files: [NoteFile]
   /// An Open WebUI 0.12.5 note's pages, parents before their subpages;
@@ -25765,7 +25765,7 @@ public struct NoteDetail: Codable, Equatable, Sendable {
 
   public init(
     summary: NoteSummary,
-    ops: [JSONValue] = [],
+    ops: [[String: JSONValue]] = [],
     files: [NoteFile] = [],
     pages: [NotePageDto] = [],
     pageId: String = "main",
@@ -25794,7 +25794,7 @@ public struct NoteDetail: Codable, Equatable, Sendable {
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.summary = try container.decode(NoteSummary.self, forKey: .summary)
-    self.ops = try container.decodeIfPresent([JSONValue].self, forKey: .ops) ?? []
+    self.ops = try container.decodeIfPresent([[String: JSONValue]].self, forKey: .ops) ?? []
     self.files = try container.decodeIfPresent([NoteFile].self, forKey: .files) ?? []
     self.pages = try container.decodeIfPresent([NotePageDto].self, forKey: .pages) ?? []
     self.pageId = try container.decodeIfPresent(String.self, forKey: .pageId) ?? "main"
@@ -25804,13 +25804,13 @@ public struct NoteDetail: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(summary, forKey: .summary)
-    try container.encode(ops, forKey: .ops)
-    try container.encode(files, forKey: .files)
-    try container.encode(pages, forKey: .pages)
-    try container.encode(pageId, forKey: .pageId)
-    try container.encode(markdown, forKey: .markdown)
-    try container.encodeIfPresent(recoveredFrom, forKey: .recoveredFrom)
+    try container.encode(self.summary, forKey: .summary)
+    try container.encode(self.ops, forKey: .ops)
+    try container.encode(self.files, forKey: .files)
+    try container.encode(self.pages, forKey: .pages)
+    try container.encode(self.pageId, forKey: .pageId)
+    try container.encode(self.markdown, forKey: .markdown)
+    try container.encodeIfPresent(self.recoveredFrom, forKey: .recoveredFrom)
   }
 }
 
@@ -25853,10 +25853,10 @@ public struct NotePageDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(title, forKey: .title)
-    try container.encode(path, forKey: .path)
-    try container.encode(depth, forKey: .depth)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.path, forKey: .path)
+    try container.encode(self.depth, forKey: .depth)
   }
 }
 
@@ -25887,8 +25887,8 @@ public struct NoteOpen: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(pageId, forKey: .pageId)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.pageId, forKey: .pageId)
   }
 }
 
@@ -25980,12 +25980,12 @@ public struct NoteRecordingDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(state, forKey: .state)
-    try container.encode(size, forKey: .size)
-    try container.encode(createdAtMs, forKey: .createdAtMs)
-    try container.encodeIfPresent(pageId, forKey: .pageId)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.state, forKey: .state)
+    try container.encode(self.size, forKey: .size)
+    try container.encode(self.createdAtMs, forKey: .createdAtMs)
+    try container.encodeIfPresent(self.pageId, forKey: .pageId)
   }
 }
 
@@ -26016,8 +26016,8 @@ public struct NoteRecordings: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(noteId, forKey: .noteId)
-    try container.encode(recordings, forKey: .recordings)
+    try container.encode(self.noteId, forKey: .noteId)
+    try container.encode(self.recordings, forKey: .recordings)
   }
 }
 
@@ -26054,9 +26054,9 @@ public struct NoteRecordingAdd: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(noteId, forKey: .noteId)
-    try container.encode(path, forKey: .path)
-    try container.encodeIfPresent(pageId, forKey: .pageId)
+    try container.encode(self.noteId, forKey: .noteId)
+    try container.encode(self.path, forKey: .path)
+    try container.encodeIfPresent(self.pageId, forKey: .pageId)
   }
 }
 
@@ -26086,8 +26086,8 @@ public struct NoteRecordingRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(noteId, forKey: .noteId)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.noteId, forKey: .noteId)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -26128,10 +26128,10 @@ public struct NoteFile: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(size, forKey: .size)
-    try container.encodeIfPresent(contentType, forKey: .contentType)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.size, forKey: .size)
+    try container.encodeIfPresent(self.contentType, forKey: .contentType)
   }
 }
 
@@ -26168,9 +26168,9 @@ public struct NoteAttach: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(noteId, forKey: .noteId)
-    try container.encode(file, forKey: .file)
-    try container.encodeIfPresent(pageId, forKey: .pageId)
+    try container.encode(self.noteId, forKey: .noteId)
+    try container.encode(self.file, forKey: .file)
+    try container.encodeIfPresent(self.pageId, forKey: .pageId)
   }
 }
 
@@ -26206,9 +26206,9 @@ public struct NoteDetach: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(noteId, forKey: .noteId)
-    try container.encode(fileId, forKey: .fileId)
-    try container.encodeIfPresent(pageId, forKey: .pageId)
+    try container.encode(self.noteId, forKey: .noteId)
+    try container.encode(self.fileId, forKey: .fileId)
+    try container.encodeIfPresent(self.pageId, forKey: .pageId)
   }
 }
 
@@ -26235,17 +26235,17 @@ public struct NoteDetach: Codable, Equatable, Sendable {
 public struct NoteSave: Codable, Equatable, Sendable {
   public var id: String?
   public var title: String
-  public var ops: [JSONValue]?
+  public var ops: [[String: JSONValue]]?
   public var pageId: String?
-  public var baseOps: [JSONValue]?
+  public var baseOps: [[String: JSONValue]]?
   public var accountId: String?
 
   public init(
     id: String? = nil,
     title: String,
-    ops: [JSONValue]? = nil,
+    ops: [[String: JSONValue]]? = nil,
     pageId: String? = nil,
-    baseOps: [JSONValue]? = nil,
+    baseOps: [[String: JSONValue]]? = nil,
     accountId: String? = nil
   ) {
     self.id = id
@@ -26269,20 +26269,20 @@ public struct NoteSave: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.id = try container.decodeIfPresent(String.self, forKey: .id)
     self.title = try container.decode(String.self, forKey: .title)
-    self.ops = try container.decodeIfPresent([JSONValue].self, forKey: .ops)
+    self.ops = try container.decodeIfPresent([[String: JSONValue]].self, forKey: .ops)
     self.pageId = try container.decodeIfPresent(String.self, forKey: .pageId)
-    self.baseOps = try container.decodeIfPresent([JSONValue].self, forKey: .baseOps)
+    self.baseOps = try container.decodeIfPresent([[String: JSONValue]].self, forKey: .baseOps)
     self.accountId = try container.decodeIfPresent(String.self, forKey: .accountId)
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(title, forKey: .title)
-    try container.encodeIfPresent(ops, forKey: .ops)
-    try container.encodeIfPresent(pageId, forKey: .pageId)
-    try container.encodeIfPresent(baseOps, forKey: .baseOps)
-    try container.encodeIfPresent(accountId, forKey: .accountId)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.title, forKey: .title)
+    try container.encodeIfPresent(self.ops, forKey: .ops)
+    try container.encodeIfPresent(self.pageId, forKey: .pageId)
+    try container.encodeIfPresent(self.baseOps, forKey: .baseOps)
+    try container.encodeIfPresent(self.accountId, forKey: .accountId)
   }
 }
 
@@ -26307,7 +26307,7 @@ public struct NoteRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -26337,8 +26337,8 @@ public struct NotePin: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(pinned, forKey: .pinned)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.pinned, forKey: .pinned)
   }
 }
 
@@ -26346,11 +26346,11 @@ public struct NotePin: Codable, Equatable, Sendable {
 /// in the editor, which may be ahead of what is saved, and the model to
 /// ask -- by default the one selected for chats.
 public struct NoteAi: Codable, Equatable, Sendable {
-  public var ops: [JSONValue]
+  public var ops: [[String: JSONValue]]
   public var model: String?
 
   public init(
-    ops: [JSONValue] = [],
+    ops: [[String: JSONValue]] = [],
     model: String? = nil
   ) {
     self.ops = ops
@@ -26364,14 +26364,14 @@ public struct NoteAi: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.ops = try container.decodeIfPresent([JSONValue].self, forKey: .ops) ?? []
+    self.ops = try container.decodeIfPresent([[String: JSONValue]].self, forKey: .ops) ?? []
     self.model = try container.decodeIfPresent(String.self, forKey: .model)
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(ops, forKey: .ops)
-    try container.encodeIfPresent(model, forKey: .model)
+    try container.encode(self.ops, forKey: .ops)
+    try container.encodeIfPresent(self.model, forKey: .model)
   }
 }
 
@@ -26396,16 +26396,16 @@ public struct NoteTitle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(title, forKey: .title)
+    try container.encode(self.title, forKey: .title)
   }
 }
 
 /// Reply to `notes.enhance`: the rewritten body, as Quill ops.
 public struct NoteBody: Codable, Equatable, Sendable {
-  public var ops: [JSONValue]
+  public var ops: [[String: JSONValue]]
 
   public init(
-    ops: [JSONValue] = []
+    ops: [[String: JSONValue]] = []
   ) {
     self.ops = ops
   }
@@ -26416,12 +26416,12 @@ public struct NoteBody: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.ops = try container.decodeIfPresent([JSONValue].self, forKey: .ops) ?? []
+    self.ops = try container.decodeIfPresent([[String: JSONValue]].self, forKey: .ops) ?? []
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(ops, forKey: .ops)
+    try container.encode(self.ops, forKey: .ops)
   }
 }
 
@@ -26446,7 +26446,7 @@ public struct NotesChanged: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(noteId, forKey: .noteId)
+    try container.encodeIfPresent(self.noteId, forKey: .noteId)
   }
 }
 
@@ -26473,7 +26473,7 @@ public struct NoteResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    if let value = note {
+    if let value = self.note {
       try container.encode(value, forKey: .note)
     } else {
       try container.encodeNil(forKey: .note)
@@ -26502,7 +26502,7 @@ public struct DeletedResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(deleted, forKey: .deleted)
+    try container.encode(self.deleted, forKey: .deleted)
   }
 }
 
@@ -26576,15 +26576,15 @@ public struct NotificationSettingsDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(sound, forKey: .sound)
-    try container.encode(soundAlways, forKey: .soundAlways)
-    try container.encode(inAppBanner, forKey: .inAppBanner)
-    try container.encode(system, forKey: .system)
-    try container.encode(answers, forKey: .answers)
-    try container.encode(channels, forKey: .channels)
-    try container.encode(mentionsOnly, forKey: .mentionsOnly)
-    try container.encode(synced, forKey: .synced)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.sound, forKey: .sound)
+    try container.encode(self.soundAlways, forKey: .soundAlways)
+    try container.encode(self.inAppBanner, forKey: .inAppBanner)
+    try container.encode(self.system, forKey: .system)
+    try container.encode(self.answers, forKey: .answers)
+    try container.encode(self.channels, forKey: .channels)
+    try container.encode(self.mentionsOnly, forKey: .mentionsOnly)
+    try container.encode(self.synced, forKey: .synced)
   }
 }
 
@@ -26644,14 +26644,14 @@ public struct NotificationSettingsPatch: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(enabled, forKey: .enabled)
-    try container.encodeIfPresent(sound, forKey: .sound)
-    try container.encodeIfPresent(soundAlways, forKey: .soundAlways)
-    try container.encodeIfPresent(inAppBanner, forKey: .inAppBanner)
-    try container.encodeIfPresent(system, forKey: .system)
-    try container.encodeIfPresent(answers, forKey: .answers)
-    try container.encodeIfPresent(channels, forKey: .channels)
-    try container.encodeIfPresent(mentionsOnly, forKey: .mentionsOnly)
+    try container.encodeIfPresent(self.enabled, forKey: .enabled)
+    try container.encodeIfPresent(self.sound, forKey: .sound)
+    try container.encodeIfPresent(self.soundAlways, forKey: .soundAlways)
+    try container.encodeIfPresent(self.inAppBanner, forKey: .inAppBanner)
+    try container.encodeIfPresent(self.system, forKey: .system)
+    try container.encodeIfPresent(self.answers, forKey: .answers)
+    try container.encodeIfPresent(self.channels, forKey: .channels)
+    try container.encodeIfPresent(self.mentionsOnly, forKey: .mentionsOnly)
   }
 }
 
@@ -26784,12 +26784,12 @@ public struct NotificationRouteParams: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(foreground, forKey: .foreground)
-    try container.encode(viewing, forKey: .viewing)
-    try container.encode(alert, forKey: .alert)
-    try container.encode(mention, forKey: .mention)
-    try container.encode(direct, forKey: .direct)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.foreground, forKey: .foreground)
+    try container.encode(self.viewing, forKey: .viewing)
+    try container.encode(self.alert, forKey: .alert)
+    try container.encode(self.mention, forKey: .mention)
+    try container.encode(self.direct, forKey: .direct)
   }
 }
 
@@ -26830,9 +26830,9 @@ public struct AnswerNotice: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(title, forKey: .title)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.title, forKey: .title)
   }
 }
 
@@ -26869,9 +26869,9 @@ public struct NotificationRoute: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(surface, forKey: .surface)
-    try container.encode(cue, forKey: .cue)
-    try container.encode(systemSound, forKey: .systemSound)
+    try container.encode(self.surface, forKey: .surface)
+    try container.encode(self.cue, forKey: .cue)
+    try container.encode(self.systemSound, forKey: .systemSound)
   }
 }
 
@@ -26964,19 +26964,19 @@ public struct ProfileDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(email, forKey: .email)
-    try container.encode(role, forKey: .role)
-    try container.encodeIfPresent(username, forKey: .username)
-    try container.encodeIfPresent(image, forKey: .image)
-    try container.encodeIfPresent(bio, forKey: .bio)
-    try container.encodeIfPresent(gender, forKey: .gender)
-    try container.encodeIfPresent(dateOfBirth, forKey: .dateOfBirth)
-    try container.encodeIfPresent(statusEmoji, forKey: .statusEmoji)
-    try container.encodeIfPresent(statusMessage, forKey: .statusMessage)
-    try container.encode(isActive, forKey: .isActive)
-    try container.encode(passwordChangeAllowed, forKey: .passwordChangeAllowed)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.email, forKey: .email)
+    try container.encode(self.role, forKey: .role)
+    try container.encodeIfPresent(self.username, forKey: .username)
+    try container.encodeIfPresent(self.image, forKey: .image)
+    try container.encodeIfPresent(self.bio, forKey: .bio)
+    try container.encodeIfPresent(self.gender, forKey: .gender)
+    try container.encodeIfPresent(self.dateOfBirth, forKey: .dateOfBirth)
+    try container.encodeIfPresent(self.statusEmoji, forKey: .statusEmoji)
+    try container.encodeIfPresent(self.statusMessage, forKey: .statusMessage)
+    try container.encode(self.isActive, forKey: .isActive)
+    try container.encode(self.passwordChangeAllowed, forKey: .passwordChangeAllowed)
   }
 }
 
@@ -27023,11 +27023,11 @@ public struct ProfileEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(name, forKey: .name)
-    try container.encodeIfPresent(bio, forKey: .bio)
-    try container.encodeIfPresent(gender, forKey: .gender)
-    try container.encodeIfPresent(dateOfBirth, forKey: .dateOfBirth)
-    try container.encode(clear, forKey: .clear)
+    try container.encodeIfPresent(self.name, forKey: .name)
+    try container.encodeIfPresent(self.bio, forKey: .bio)
+    try container.encodeIfPresent(self.gender, forKey: .gender)
+    try container.encodeIfPresent(self.dateOfBirth, forKey: .dateOfBirth)
+    try container.encode(self.clear, forKey: .clear)
   }
 }
 
@@ -27059,8 +27059,8 @@ public struct ProfileImageEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(path, forKey: .path)
-    try container.encode(initials, forKey: .initials)
+    try container.encodeIfPresent(self.path, forKey: .path)
+    try container.encode(self.initials, forKey: .initials)
   }
 }
 
@@ -27090,8 +27090,8 @@ public struct PasswordChange: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(currentPassword, forKey: .currentPassword)
-    try container.encode(newPassword, forKey: .newPassword)
+    try container.encode(self.currentPassword, forKey: .currentPassword)
+    try container.encode(self.newPassword, forKey: .newPassword)
   }
 }
 
@@ -27119,7 +27119,7 @@ public struct PasswordChangeResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(failure, forKey: .failure)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
   }
 }
 
@@ -27149,7 +27149,7 @@ public struct SignOutAll: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(force, forKey: .force)
+    try container.encode(self.force, forKey: .force)
   }
 }
 
@@ -27196,10 +27196,10 @@ public struct PromptSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(command, forKey: .command)
-    try container.encode(title, forKey: .title)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encode(usesClipboard, forKey: .usesClipboard)
+    try container.encode(self.command, forKey: .command)
+    try container.encode(self.title, forKey: .title)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encode(self.usesClipboard, forKey: .usesClipboard)
   }
 }
 
@@ -27224,7 +27224,7 @@ public struct PromptList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(prompts, forKey: .prompts)
+    try container.encode(self.prompts, forKey: .prompts)
   }
 }
 
@@ -27263,9 +27263,9 @@ public struct RenderPrompt: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(command, forKey: .command)
-    try container.encode(values, forKey: .values)
-    try container.encodeIfPresent(clipboard, forKey: .clipboard)
+    try container.encode(self.command, forKey: .command)
+    try container.encode(self.values, forKey: .values)
+    try container.encodeIfPresent(self.clipboard, forKey: .clipboard)
   }
 }
 
@@ -27325,13 +27325,13 @@ public struct PromptInput: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(label, forKey: .label)
-    try container.encode(type, forKey: .type)
-    try container.encodeIfPresent(placeholder, forKey: .placeholder)
-    try container.encodeIfPresent(defaultValue, forKey: .defaultValue)
-    try container.encode(required, forKey: .required)
-    try container.encode(options, forKey: .options)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.type, forKey: .type)
+    try container.encodeIfPresent(self.placeholder, forKey: .placeholder)
+    try container.encodeIfPresent(self.defaultValue, forKey: .defaultValue)
+    try container.encode(self.required, forKey: .required)
+    try container.encode(self.options, forKey: .options)
   }
 }
 
@@ -27364,8 +27364,8 @@ public struct RenderedPrompt: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(content, forKey: .content)
-    try container.encode(inputs, forKey: .inputs)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.inputs, forKey: .inputs)
   }
 }
 
@@ -27398,8 +27398,8 @@ public struct DraftRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
   }
 }
 
@@ -27435,9 +27435,9 @@ public struct DraftSave: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
-    try container.encode(text, forKey: .text)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -27470,8 +27470,8 @@ public struct Draft: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(text, forKey: .text)
-    try container.encode(stored, forKey: .stored)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.stored, forKey: .stored)
   }
 }
 
@@ -27518,11 +27518,11 @@ public struct QueuedDraftDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(text, forKey: .text)
-    try container.encode(files, forKey: .files)
-    try container.encode(context, forKey: .context)
-    try container.encode(frozen, forKey: .frozen)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.files, forKey: .files)
+    try container.encode(self.context, forKey: .context)
+    try container.encode(self.frozen, forKey: .frozen)
   }
 }
 
@@ -27614,11 +27614,11 @@ public struct QueueState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(drafts, forKey: .drafts)
-    try container.encode(phase, forKey: .phase)
-    try container.encode(admissionFailed, forKey: .admissionFailed)
-    try container.encode(offer, forKey: .offer)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.drafts, forKey: .drafts)
+    try container.encode(self.phase, forKey: .phase)
+    try container.encode(self.admissionFailed, forKey: .admissionFailed)
+    try container.encode(self.offer, forKey: .offer)
   }
 }
 
@@ -27666,11 +27666,11 @@ public struct QueueAdd: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(text, forKey: .text)
-    try container.encode(mentions, forKey: .mentions)
-    try container.encode(fileIds, forKey: .fileIds)
-    try container.encode(context, forKey: .context)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.mentions, forKey: .mentions)
+    try container.encode(self.fileIds, forKey: .fileIds)
+    try container.encode(self.context, forKey: .context)
   }
 }
 
@@ -27700,8 +27700,8 @@ public struct QueueDraftRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(draftId, forKey: .draftId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.draftId, forKey: .draftId)
   }
 }
 
@@ -27736,9 +27736,9 @@ public struct QueueEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(draftId, forKey: .draftId)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.draftId, forKey: .draftId)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -27770,8 +27770,8 @@ public struct QueueSendNowResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encode(queue, forKey: .queue)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encode(self.queue, forKey: .queue)
   }
 }
 
@@ -27810,8 +27810,8 @@ public struct RecordingTarget: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
   }
 }
 
@@ -27853,10 +27853,10 @@ public struct RecordingDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(createdAt, forKey: .createdAt)
-    try container.encode(byteCount, forKey: .byteCount)
-    try container.encode(durationMs, forKey: .durationMs)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.createdAt, forKey: .createdAt)
+    try container.encode(self.byteCount, forKey: .byteCount)
+    try container.encode(self.durationMs, forKey: .durationMs)
   }
 }
 
@@ -27888,8 +27888,8 @@ public struct RecordingList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(stored, forKey: .stored)
-    try container.encode(recordings, forKey: .recordings)
+    try container.encode(self.stored, forKey: .stored)
+    try container.encode(self.recordings, forKey: .recordings)
   }
 }
 
@@ -27920,8 +27920,8 @@ public struct RecordingStarted: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(stored, forKey: .stored)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.stored, forKey: .stored)
   }
 }
 
@@ -27952,8 +27952,8 @@ public struct RecordingChunk: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(pcm, forKey: .pcm)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.pcm, forKey: .pcm)
   }
 }
 
@@ -27990,9 +27990,9 @@ public struct RecordingSaved: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(savedBytes, forKey: .savedBytes)
-    try container.encode(discarded, forKey: .discarded)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.savedBytes, forKey: .savedBytes)
+    try container.encode(self.discarded, forKey: .discarded)
   }
 }
 
@@ -28028,9 +28028,9 @@ public struct RecordingRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
   }
 }
 
@@ -28078,11 +28078,11 @@ public struct RecordingTranscribe: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
-    try container.encode(engine, forKey: .engine)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
+    try container.encode(self.engine, forKey: .engine)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
   }
 }
 
@@ -28122,10 +28122,10 @@ public struct ReleaseNoteDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(version, forKey: .version)
-    try container.encode(title, forKey: .title)
-    try container.encode(intro, forKey: .intro)
-    try container.encode(bullets, forKey: .bullets)
+    try container.encode(self.version, forKey: .version)
+    try container.encode(self.title, forKey: .title)
+    try container.encode(self.intro, forKey: .intro)
+    try container.encode(self.bullets, forKey: .bullets)
   }
 }
 
@@ -28156,8 +28156,8 @@ public struct ReleaseNoteBullet: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(text, forKey: .text)
-    try container.encodeIfPresent(icon, forKey: .icon)
+    try container.encode(self.text, forKey: .text)
+    try container.encodeIfPresent(self.icon, forKey: .icon)
   }
 }
 
@@ -28209,11 +28209,11 @@ public struct ReleaseNotesQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(currentVersion, forKey: .currentVersion)
-    try container.encode(languageCode, forKey: .languageCode)
-    try container.encodeIfPresent(scriptCode, forKey: .scriptCode)
-    try container.encodeIfPresent(countryCode, forKey: .countryCode)
-    try container.encode(catalogs, forKey: .catalogs)
+    try container.encode(self.currentVersion, forKey: .currentVersion)
+    try container.encode(self.languageCode, forKey: .languageCode)
+    try container.encodeIfPresent(self.scriptCode, forKey: .scriptCode)
+    try container.encodeIfPresent(self.countryCode, forKey: .countryCode)
+    try container.encode(self.catalogs, forKey: .catalogs)
   }
 }
 
@@ -28252,9 +28252,9 @@ public struct ReleaseNotesState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(currentVersion, forKey: .currentVersion)
-    try container.encode(banner, forKey: .banner)
-    try container.encode(notes, forKey: .notes)
+    try container.encode(self.currentVersion, forKey: .currentVersion)
+    try container.encode(self.banner, forKey: .banner)
+    try container.encode(self.notes, forKey: .notes)
   }
 }
 
@@ -28353,17 +28353,17 @@ public struct ServerSummary: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(url, forKey: .url)
-    try container.encode(isActive, forKey: .isActive)
-    try container.encodeIfPresent(lastConnectedMs, forKey: .lastConnectedMs)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encode(hasMutualTlsCredentials, forKey: .hasMutualTlsCredentials)
-    try container.encodeIfPresent(mtlsCertificateLabel, forKey: .mtlsCertificateLabel)
-    try container.encodeIfPresent(mtlsPrivateKeyLabel, forKey: .mtlsPrivateKeyLabel)
-    try container.encode(customHeaderNames, forKey: .customHeaderNames)
-    try container.encode(hasStoredSession, forKey: .hasStoredSession)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.isActive, forKey: .isActive)
+    try container.encodeIfPresent(self.lastConnectedMs, forKey: .lastConnectedMs)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encode(self.hasMutualTlsCredentials, forKey: .hasMutualTlsCredentials)
+    try container.encodeIfPresent(self.mtlsCertificateLabel, forKey: .mtlsCertificateLabel)
+    try container.encodeIfPresent(self.mtlsPrivateKeyLabel, forKey: .mtlsPrivateKeyLabel)
+    try container.encode(self.customHeaderNames, forKey: .customHeaderNames)
+    try container.encode(self.hasStoredSession, forKey: .hasStoredSession)
   }
 }
 
@@ -28451,17 +28451,17 @@ public struct ServerDraft: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(url, forKey: .url)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encodeIfPresent(mtlsCertificateChainPem, forKey: .mtlsCertificateChainPem)
-    try container.encodeIfPresent(mtlsCertificateLabel, forKey: .mtlsCertificateLabel)
-    try container.encodeIfPresent(mtlsPrivateKeyPem, forKey: .mtlsPrivateKeyPem)
-    try container.encodeIfPresent(mtlsPrivateKeyLabel, forKey: .mtlsPrivateKeyLabel)
-    try container.encodeIfPresent(mtlsPrivateKeyPassword, forKey: .mtlsPrivateKeyPassword)
-    try container.encode(clearMutualTls, forKey: .clearMutualTls)
-    try container.encodeIfPresent(customHeaders, forKey: .customHeaders)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encodeIfPresent(self.mtlsCertificateChainPem, forKey: .mtlsCertificateChainPem)
+    try container.encodeIfPresent(self.mtlsCertificateLabel, forKey: .mtlsCertificateLabel)
+    try container.encodeIfPresent(self.mtlsPrivateKeyPem, forKey: .mtlsPrivateKeyPem)
+    try container.encodeIfPresent(self.mtlsPrivateKeyLabel, forKey: .mtlsPrivateKeyLabel)
+    try container.encodeIfPresent(self.mtlsPrivateKeyPassword, forKey: .mtlsPrivateKeyPassword)
+    try container.encode(self.clearMutualTls, forKey: .clearMutualTls)
+    try container.encodeIfPresent(self.customHeaders, forKey: .customHeaders)
   }
 }
 
@@ -28573,13 +28573,13 @@ public struct ServerStatus: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(activeServerId, forKey: .activeServerId)
-    try container.encode(capabilities, forKey: .capabilities)
-    try container.encode(reachability, forKey: .reachability)
-    try container.encodeIfPresent(version, forKey: .version)
-    try container.encode(isVersionSupported, forKey: .isVersionSupported)
-    try container.encode(maxSupportedVersion, forKey: .maxSupportedVersion)
-    try container.encodeIfPresent(errorCode, forKey: .errorCode)
+    try container.encodeIfPresent(self.activeServerId, forKey: .activeServerId)
+    try container.encode(self.capabilities, forKey: .capabilities)
+    try container.encode(self.reachability, forKey: .reachability)
+    try container.encodeIfPresent(self.version, forKey: .version)
+    try container.encode(self.isVersionSupported, forKey: .isVersionSupported)
+    try container.encode(self.maxSupportedVersion, forKey: .maxSupportedVersion)
+    try container.encodeIfPresent(self.errorCode, forKey: .errorCode)
   }
 }
 
@@ -28783,16 +28783,16 @@ public struct ServerAddressDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(url, forKey: .url)
-    try container.encodeIfPresent(label, forKey: .label)
-    try container.encode(inUse, forKey: .inUse)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encode(customHeaderNames, forKey: .customHeaderNames)
-    try container.encode(hasMutualTlsCredentials, forKey: .hasMutualTlsCredentials)
-    try container.encodeIfPresent(mtlsCertificateLabel, forKey: .mtlsCertificateLabel)
-    try container.encodeIfPresent(mtlsPrivateKeyLabel, forKey: .mtlsPrivateKeyLabel)
-    try container.encode(hasPrivateKeyPassword, forKey: .hasPrivateKeyPassword)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.url, forKey: .url)
+    try container.encodeIfPresent(self.label, forKey: .label)
+    try container.encode(self.inUse, forKey: .inUse)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encode(self.customHeaderNames, forKey: .customHeaderNames)
+    try container.encode(self.hasMutualTlsCredentials, forKey: .hasMutualTlsCredentials)
+    try container.encodeIfPresent(self.mtlsCertificateLabel, forKey: .mtlsCertificateLabel)
+    try container.encodeIfPresent(self.mtlsPrivateKeyLabel, forKey: .mtlsPrivateKeyLabel)
+    try container.encode(self.hasPrivateKeyPassword, forKey: .hasPrivateKeyPassword)
   }
 }
 
@@ -28834,10 +28834,10 @@ public struct ServerAddresses: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encode(name, forKey: .name)
-    try container.encode(addresses, forKey: .addresses)
-    try container.encode(removable, forKey: .removable)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.addresses, forKey: .addresses)
+    try container.encode(self.removable, forKey: .removable)
   }
 }
 
@@ -28862,7 +28862,7 @@ public struct ServerRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
+    try container.encode(self.serverId, forKey: .serverId)
   }
 }
 
@@ -28893,8 +28893,8 @@ public struct ServerAddressHeader: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(value, forKey: .value)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.value, forKey: .value)
   }
 }
 
@@ -28966,16 +28966,16 @@ public struct ServerAddressForm: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
-    try container.encode(label, forKey: .label)
-    try container.encode(allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
-    try container.encode(headers, forKey: .headers)
-    try container.encodeIfPresent(mtlsCertificateChainPem, forKey: .mtlsCertificateChainPem)
-    try container.encodeIfPresent(mtlsCertificateLabel, forKey: .mtlsCertificateLabel)
-    try container.encodeIfPresent(mtlsPrivateKeyPem, forKey: .mtlsPrivateKeyPem)
-    try container.encodeIfPresent(mtlsPrivateKeyLabel, forKey: .mtlsPrivateKeyLabel)
-    try container.encodeIfPresent(mtlsPrivateKeyPassword, forKey: .mtlsPrivateKeyPassword)
-    try container.encode(clearMutualTls, forKey: .clearMutualTls)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.allowSelfSignedCertificates, forKey: .allowSelfSignedCertificates)
+    try container.encode(self.headers, forKey: .headers)
+    try container.encodeIfPresent(self.mtlsCertificateChainPem, forKey: .mtlsCertificateChainPem)
+    try container.encodeIfPresent(self.mtlsCertificateLabel, forKey: .mtlsCertificateLabel)
+    try container.encodeIfPresent(self.mtlsPrivateKeyPem, forKey: .mtlsPrivateKeyPem)
+    try container.encodeIfPresent(self.mtlsPrivateKeyLabel, forKey: .mtlsPrivateKeyLabel)
+    try container.encodeIfPresent(self.mtlsPrivateKeyPassword, forKey: .mtlsPrivateKeyPassword)
+    try container.encode(self.clearMutualTls, forKey: .clearMutualTls)
   }
 }
 
@@ -29011,9 +29011,9 @@ public struct ServerAddressCheckRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encodeIfPresent(endpointId, forKey: .endpointId)
-    try container.encode(form, forKey: .form)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encodeIfPresent(self.endpointId, forKey: .endpointId)
+    try container.encode(self.form, forKey: .form)
   }
 }
 
@@ -29113,12 +29113,12 @@ public struct ServerAddressCheckResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encodeIfPresent(checkId, forKey: .checkId)
-    try container.encodeIfPresent(url, forKey: .url)
-    try container.encodeIfPresent(problem, forKey: .problem)
-    try container.encodeIfPresent(errorText, forKey: .errorText)
-    try container.encodeIfPresent(headerName, forKey: .headerName)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encodeIfPresent(self.checkId, forKey: .checkId)
+    try container.encodeIfPresent(self.url, forKey: .url)
+    try container.encodeIfPresent(self.problem, forKey: .problem)
+    try container.encodeIfPresent(self.errorText, forKey: .errorText)
+    try container.encodeIfPresent(self.headerName, forKey: .headerName)
   }
 }
 
@@ -29201,10 +29201,10 @@ public struct ServerAddressSaveRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(checkId, forKey: .checkId)
-    try container.encode(sendSessionConfirmed, forKey: .sendSessionConfirmed)
-    try container.encode(stopReplies, forKey: .stopReplies)
-    try container.encodeIfPresent(proxy, forKey: .proxy)
+    try container.encode(self.checkId, forKey: .checkId)
+    try container.encode(self.sendSessionConfirmed, forKey: .sendSessionConfirmed)
+    try container.encode(self.stopReplies, forKey: .stopReplies)
+    try container.encodeIfPresent(self.proxy, forKey: .proxy)
   }
 }
 
@@ -29297,12 +29297,12 @@ public struct ServerAddressSaveResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encodeIfPresent(confirmation, forKey: .confirmation)
-    try container.encodeIfPresent(host, forKey: .host)
-    try container.encodeIfPresent(problem, forKey: .problem)
-    try container.encodeIfPresent(errorText, forKey: .errorText)
-    try container.encodeIfPresent(addresses, forKey: .addresses)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encodeIfPresent(self.confirmation, forKey: .confirmation)
+    try container.encodeIfPresent(self.host, forKey: .host)
+    try container.encodeIfPresent(self.problem, forKey: .problem)
+    try container.encodeIfPresent(self.errorText, forKey: .errorText)
+    try container.encodeIfPresent(self.addresses, forKey: .addresses)
   }
 }
 
@@ -29338,9 +29338,9 @@ public struct ServerAddressRemoveRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encode(endpointId, forKey: .endpointId)
-    try container.encode(stopReplies, forKey: .stopReplies)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encode(self.endpointId, forKey: .endpointId)
+    try container.encode(self.stopReplies, forKey: .stopReplies)
   }
 }
 
@@ -29372,8 +29372,8 @@ public struct ServerAddressReorderRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encode(order, forKey: .order)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encode(self.order, forKey: .order)
   }
 }
 
@@ -29408,9 +29408,9 @@ public struct ServerAddressEditResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(outcome, forKey: .outcome)
-    try container.encodeIfPresent(confirmation, forKey: .confirmation)
-    try container.encode(addresses, forKey: .addresses)
+    try container.encode(self.outcome, forKey: .outcome)
+    try container.encodeIfPresent(self.confirmation, forKey: .confirmation)
+    try container.encode(self.addresses, forKey: .addresses)
   }
 }
 
@@ -29436,7 +29436,7 @@ public struct ServersChanged: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(serverId, forKey: .serverId)
+    try container.encodeIfPresent(self.serverId, forKey: .serverId)
   }
 }
 
@@ -29529,10 +29529,10 @@ public struct AppPreferences: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(themeMode, forKey: .themeMode)
-    try container.encode(themePaletteId, forKey: .themePaletteId)
-    try container.encode(uiFontSize, forKey: .uiFontSize)
-    try container.encodeIfPresent(localeCode, forKey: .localeCode)
+    try container.encode(self.themeMode, forKey: .themeMode)
+    try container.encode(self.themePaletteId, forKey: .themePaletteId)
+    try container.encode(self.uiFontSize, forKey: .uiFontSize)
+    try container.encodeIfPresent(self.localeCode, forKey: .localeCode)
   }
 }
 
@@ -29581,11 +29581,11 @@ public struct AppPreferencesPatch: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(themeMode, forKey: .themeMode)
-    try container.encodeIfPresent(themePaletteId, forKey: .themePaletteId)
-    try container.encodeIfPresent(uiFontSize, forKey: .uiFontSize)
-    try container.encodeIfPresent(localeCode, forKey: .localeCode)
-    try container.encode(clearLocaleCode, forKey: .clearLocaleCode)
+    try container.encodeIfPresent(self.themeMode, forKey: .themeMode)
+    try container.encodeIfPresent(self.themePaletteId, forKey: .themePaletteId)
+    try container.encodeIfPresent(self.uiFontSize, forKey: .uiFontSize)
+    try container.encodeIfPresent(self.localeCode, forKey: .localeCode)
+    try container.encode(self.clearLocaleCode, forKey: .clearLocaleCode)
   }
 }
 
@@ -29648,13 +29648,13 @@ public struct DirectVoiceProviderDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(profileId, forKey: .profileId)
-    try container.encodeIfPresent(transcriptionModel, forKey: .transcriptionModel)
-    try container.encodeIfPresent(speechModel, forKey: .speechModel)
-    try container.encodeIfPresent(speechVoice, forKey: .speechVoice)
-    try container.encodeIfPresent(realtimeModel, forKey: .realtimeModel)
-    try container.encodeIfPresent(realtimeVoice, forKey: .realtimeVoice)
-    try container.encodeIfPresent(realtimeInstructions, forKey: .realtimeInstructions)
+    try container.encode(self.profileId, forKey: .profileId)
+    try container.encodeIfPresent(self.transcriptionModel, forKey: .transcriptionModel)
+    try container.encodeIfPresent(self.speechModel, forKey: .speechModel)
+    try container.encodeIfPresent(self.speechVoice, forKey: .speechVoice)
+    try container.encodeIfPresent(self.realtimeModel, forKey: .realtimeModel)
+    try container.encodeIfPresent(self.realtimeVoice, forKey: .realtimeVoice)
+    try container.encodeIfPresent(self.realtimeInstructions, forKey: .realtimeInstructions)
   }
 }
 
@@ -29853,35 +29853,35 @@ public struct AppSettingsDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(computerEnabled, forKey: .computerEnabled)
-    try container.encode(quickPills, forKey: .quickPills)
-    try container.encodeIfPresent(inlineMessageActions, forKey: .inlineMessageActions)
-    try container.encode(sendOnEnter, forKey: .sendOnEnter)
-    try container.encode(showComposerNotesButton, forKey: .showComposerNotesButton)
-    try container.encode(showModelNameInComposer, forKey: .showModelNameInComposer)
-    try container.encode(temporaryChatByDefault, forKey: .temporaryChatByDefault)
-    try container.encode(citationShowTitles, forKey: .citationShowTitles)
-    try container.encode(citationBackground, forKey: .citationBackground)
-    try container.encode(advancedFeaturesEnabled, forKey: .advancedFeaturesEnabled)
-    try container.encodeIfPresent(defaultModel, forKey: .defaultModel)
-    try container.encodeIfPresent(openRouterImageGenerationModel, forKey: .openRouterImageGenerationModel)
-    try container.encode(socketTransportMode, forKey: .socketTransportMode)
-    try container.encode(voiceCallMode, forKey: .voiceCallMode)
-    try container.encode(sttPreference, forKey: .sttPreference)
-    try container.encodeIfPresent(voiceLocaleId, forKey: .voiceLocaleId)
-    try container.encodeIfPresent(sttLanguageCode, forKey: .sttLanguageCode)
-    try container.encode(voiceSilenceDuration, forKey: .voiceSilenceDuration)
-    try container.encode(voiceBargeInEnabled, forKey: .voiceBargeInEnabled)
-    try container.encode(ttsEngine, forKey: .ttsEngine)
-    try container.encodeIfPresent(ttsVoice, forKey: .ttsVoice)
-    try container.encodeIfPresent(ttsVoiceName, forKey: .ttsVoiceName)
-    try container.encodeIfPresent(ttsServerVoiceId, forKey: .ttsServerVoiceId)
-    try container.encodeIfPresent(ttsServerVoiceName, forKey: .ttsServerVoiceName)
-    try container.encode(ttsSpeed, forKey: .ttsSpeed)
-    try container.encodeIfPresent(directVoiceProvider, forKey: .directVoiceProvider)
-    try container.encode(hermesShowScheduledSessions, forKey: .hermesShowScheduledSessions)
-    try container.encode(messageActions, forKey: .messageActions)
-    try container.encode(defaultInlineMessageActions, forKey: .defaultInlineMessageActions)
+    try container.encode(self.computerEnabled, forKey: .computerEnabled)
+    try container.encode(self.quickPills, forKey: .quickPills)
+    try container.encodeIfPresent(self.inlineMessageActions, forKey: .inlineMessageActions)
+    try container.encode(self.sendOnEnter, forKey: .sendOnEnter)
+    try container.encode(self.showComposerNotesButton, forKey: .showComposerNotesButton)
+    try container.encode(self.showModelNameInComposer, forKey: .showModelNameInComposer)
+    try container.encode(self.temporaryChatByDefault, forKey: .temporaryChatByDefault)
+    try container.encode(self.citationShowTitles, forKey: .citationShowTitles)
+    try container.encode(self.citationBackground, forKey: .citationBackground)
+    try container.encode(self.advancedFeaturesEnabled, forKey: .advancedFeaturesEnabled)
+    try container.encodeIfPresent(self.defaultModel, forKey: .defaultModel)
+    try container.encodeIfPresent(self.openRouterImageGenerationModel, forKey: .openRouterImageGenerationModel)
+    try container.encode(self.socketTransportMode, forKey: .socketTransportMode)
+    try container.encode(self.voiceCallMode, forKey: .voiceCallMode)
+    try container.encode(self.sttPreference, forKey: .sttPreference)
+    try container.encodeIfPresent(self.voiceLocaleId, forKey: .voiceLocaleId)
+    try container.encodeIfPresent(self.sttLanguageCode, forKey: .sttLanguageCode)
+    try container.encode(self.voiceSilenceDuration, forKey: .voiceSilenceDuration)
+    try container.encode(self.voiceBargeInEnabled, forKey: .voiceBargeInEnabled)
+    try container.encode(self.ttsEngine, forKey: .ttsEngine)
+    try container.encodeIfPresent(self.ttsVoice, forKey: .ttsVoice)
+    try container.encodeIfPresent(self.ttsVoiceName, forKey: .ttsVoiceName)
+    try container.encodeIfPresent(self.ttsServerVoiceId, forKey: .ttsServerVoiceId)
+    try container.encodeIfPresent(self.ttsServerVoiceName, forKey: .ttsServerVoiceName)
+    try container.encode(self.ttsSpeed, forKey: .ttsSpeed)
+    try container.encodeIfPresent(self.directVoiceProvider, forKey: .directVoiceProvider)
+    try container.encode(self.hermesShowScheduledSessions, forKey: .hermesShowScheduledSessions)
+    try container.encode(self.messageActions, forKey: .messageActions)
+    try container.encode(self.defaultInlineMessageActions, forKey: .defaultInlineMessageActions)
   }
 }
 
@@ -30045,34 +30045,34 @@ public struct AppSettingsPatch: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(computerEnabled, forKey: .computerEnabled)
-    try container.encodeIfPresent(quickPills, forKey: .quickPills)
-    try container.encodeIfPresent(inlineMessageActions, forKey: .inlineMessageActions)
-    try container.encodeIfPresent(sendOnEnter, forKey: .sendOnEnter)
-    try container.encodeIfPresent(showComposerNotesButton, forKey: .showComposerNotesButton)
-    try container.encodeIfPresent(showModelNameInComposer, forKey: .showModelNameInComposer)
-    try container.encodeIfPresent(temporaryChatByDefault, forKey: .temporaryChatByDefault)
-    try container.encodeIfPresent(citationShowTitles, forKey: .citationShowTitles)
-    try container.encodeIfPresent(citationBackground, forKey: .citationBackground)
-    try container.encodeIfPresent(advancedFeaturesEnabled, forKey: .advancedFeaturesEnabled)
-    try container.encodeIfPresent(defaultModel, forKey: .defaultModel)
-    try container.encodeIfPresent(openRouterImageGenerationModel, forKey: .openRouterImageGenerationModel)
-    try container.encodeIfPresent(socketTransportMode, forKey: .socketTransportMode)
-    try container.encodeIfPresent(voiceCallMode, forKey: .voiceCallMode)
-    try container.encodeIfPresent(sttPreference, forKey: .sttPreference)
-    try container.encodeIfPresent(voiceLocaleId, forKey: .voiceLocaleId)
-    try container.encodeIfPresent(sttLanguageCode, forKey: .sttLanguageCode)
-    try container.encodeIfPresent(voiceSilenceDuration, forKey: .voiceSilenceDuration)
-    try container.encodeIfPresent(voiceBargeInEnabled, forKey: .voiceBargeInEnabled)
-    try container.encodeIfPresent(ttsEngine, forKey: .ttsEngine)
-    try container.encodeIfPresent(ttsVoice, forKey: .ttsVoice)
-    try container.encodeIfPresent(ttsVoiceName, forKey: .ttsVoiceName)
-    try container.encodeIfPresent(ttsServerVoiceId, forKey: .ttsServerVoiceId)
-    try container.encodeIfPresent(ttsServerVoiceName, forKey: .ttsServerVoiceName)
-    try container.encodeIfPresent(ttsSpeed, forKey: .ttsSpeed)
-    try container.encodeIfPresent(directVoiceProvider, forKey: .directVoiceProvider)
-    try container.encodeIfPresent(hermesShowScheduledSessions, forKey: .hermesShowScheduledSessions)
-    try container.encode(clear, forKey: .clear)
+    try container.encodeIfPresent(self.computerEnabled, forKey: .computerEnabled)
+    try container.encodeIfPresent(self.quickPills, forKey: .quickPills)
+    try container.encodeIfPresent(self.inlineMessageActions, forKey: .inlineMessageActions)
+    try container.encodeIfPresent(self.sendOnEnter, forKey: .sendOnEnter)
+    try container.encodeIfPresent(self.showComposerNotesButton, forKey: .showComposerNotesButton)
+    try container.encodeIfPresent(self.showModelNameInComposer, forKey: .showModelNameInComposer)
+    try container.encodeIfPresent(self.temporaryChatByDefault, forKey: .temporaryChatByDefault)
+    try container.encodeIfPresent(self.citationShowTitles, forKey: .citationShowTitles)
+    try container.encodeIfPresent(self.citationBackground, forKey: .citationBackground)
+    try container.encodeIfPresent(self.advancedFeaturesEnabled, forKey: .advancedFeaturesEnabled)
+    try container.encodeIfPresent(self.defaultModel, forKey: .defaultModel)
+    try container.encodeIfPresent(self.openRouterImageGenerationModel, forKey: .openRouterImageGenerationModel)
+    try container.encodeIfPresent(self.socketTransportMode, forKey: .socketTransportMode)
+    try container.encodeIfPresent(self.voiceCallMode, forKey: .voiceCallMode)
+    try container.encodeIfPresent(self.sttPreference, forKey: .sttPreference)
+    try container.encodeIfPresent(self.voiceLocaleId, forKey: .voiceLocaleId)
+    try container.encodeIfPresent(self.sttLanguageCode, forKey: .sttLanguageCode)
+    try container.encodeIfPresent(self.voiceSilenceDuration, forKey: .voiceSilenceDuration)
+    try container.encodeIfPresent(self.voiceBargeInEnabled, forKey: .voiceBargeInEnabled)
+    try container.encodeIfPresent(self.ttsEngine, forKey: .ttsEngine)
+    try container.encodeIfPresent(self.ttsVoice, forKey: .ttsVoice)
+    try container.encodeIfPresent(self.ttsVoiceName, forKey: .ttsVoiceName)
+    try container.encodeIfPresent(self.ttsServerVoiceId, forKey: .ttsServerVoiceId)
+    try container.encodeIfPresent(self.ttsServerVoiceName, forKey: .ttsServerVoiceName)
+    try container.encodeIfPresent(self.ttsSpeed, forKey: .ttsSpeed)
+    try container.encodeIfPresent(self.directVoiceProvider, forKey: .directVoiceProvider)
+    try container.encodeIfPresent(self.hermesShowScheduledSessions, forKey: .hermesShowScheduledSessions)
+    try container.encode(self.clear, forKey: .clear)
   }
 }
 
@@ -30106,8 +30106,8 @@ public struct AccountSettingsDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encodeIfPresent(systemPrompt, forKey: .systemPrompt)
+    try container.encode(self.available, forKey: .available)
+    try container.encodeIfPresent(self.systemPrompt, forKey: .systemPrompt)
   }
 }
 
@@ -30132,7 +30132,7 @@ public struct AccountSettingsPatch: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(systemPrompt, forKey: .systemPrompt)
+    try container.encodeIfPresent(self.systemPrompt, forKey: .systemPrompt)
   }
 }
 
@@ -30157,7 +30157,7 @@ public struct ModelPromptRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(modelId, forKey: .modelId)
+    try container.encode(self.modelId, forKey: .modelId)
   }
 }
 
@@ -30201,10 +30201,10 @@ public struct ModelPrompt: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(modelId, forKey: .modelId)
-    try container.encode(editable, forKey: .editable)
-    try container.encode(writable, forKey: .writable)
-    try container.encode(prompt, forKey: .prompt)
+    try container.encode(self.modelId, forKey: .modelId)
+    try container.encode(self.editable, forKey: .editable)
+    try container.encode(self.writable, forKey: .writable)
+    try container.encode(self.prompt, forKey: .prompt)
   }
 }
 
@@ -30234,8 +30234,8 @@ public struct ModelPromptEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(modelId, forKey: .modelId)
-    try container.encode(prompt, forKey: .prompt)
+    try container.encode(self.modelId, forKey: .modelId)
+    try container.encode(self.prompt, forKey: .prompt)
   }
 }
 
@@ -30281,10 +30281,10 @@ public struct QuickPillOption: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(name, forKey: .name)
-    try container.encode(targetId, forKey: .targetId)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.targetId, forKey: .targetId)
   }
 }
 
@@ -30309,7 +30309,7 @@ public struct QuickPillOptions: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(options, forKey: .options)
+    try container.encode(self.options, forKey: .options)
   }
 }
 
@@ -30339,8 +30339,8 @@ public struct VoiceProviderOption: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -30366,7 +30366,7 @@ public struct VoiceProviderOptions: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(connections, forKey: .connections)
+    try container.encode(self.connections, forKey: .connections)
   }
 }
 
@@ -30423,13 +30423,13 @@ public struct AboutInfo: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(server, forKey: .server)
-    try container.encodeIfPresent(serverName, forKey: .serverName)
-    try container.encodeIfPresent(serverVersion, forKey: .serverVersion)
-    try container.encodeIfPresent(latestVersion, forKey: .latestVersion)
-    try container.encode(repositoryUrl, forKey: .repositoryUrl)
-    try container.encode(buyMeACoffeeUrl, forKey: .buyMeACoffeeUrl)
-    try container.encode(githubSponsorsUrl, forKey: .githubSponsorsUrl)
+    try container.encode(self.server, forKey: .server)
+    try container.encodeIfPresent(self.serverName, forKey: .serverName)
+    try container.encodeIfPresent(self.serverVersion, forKey: .serverVersion)
+    try container.encodeIfPresent(self.latestVersion, forKey: .latestVersion)
+    try container.encode(self.repositoryUrl, forKey: .repositoryUrl)
+    try container.encode(self.buyMeACoffeeUrl, forKey: .buyMeACoffeeUrl)
+    try container.encode(self.githubSponsorsUrl, forKey: .githubSponsorsUrl)
   }
 }
 
@@ -30618,21 +30618,21 @@ public struct SpeechProgress: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(status, forKey: .status)
-    try container.encode(reading, forKey: .reading)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(messageId, forKey: .messageId)
-    try container.encodeIfPresent(engine, forKey: .engine)
-    try container.encode(sentence, forKey: .sentence)
-    try container.encodeIfPresent(wordStart, forKey: .wordStart)
-    try container.encodeIfPresent(wordEnd, forKey: .wordEnd)
-    try container.encode(wordsReported, forKey: .wordsReported)
-    try container.encode(elapsedMs, forKey: .elapsedMs)
-    try container.encode(durationMs, forKey: .durationMs)
-    try container.encode(canSeek, forKey: .canSeek)
-    try container.encode(canSeekSentences, forKey: .canSeekSentences)
-    try container.encode(seeking, forKey: .seeking)
-    try container.encodeIfPresent(error, forKey: .error)
+    try container.encode(self.status, forKey: .status)
+    try container.encode(self.reading, forKey: .reading)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.messageId, forKey: .messageId)
+    try container.encodeIfPresent(self.engine, forKey: .engine)
+    try container.encode(self.sentence, forKey: .sentence)
+    try container.encodeIfPresent(self.wordStart, forKey: .wordStart)
+    try container.encodeIfPresent(self.wordEnd, forKey: .wordEnd)
+    try container.encode(self.wordsReported, forKey: .wordsReported)
+    try container.encode(self.elapsedMs, forKey: .elapsedMs)
+    try container.encode(self.durationMs, forKey: .durationMs)
+    try container.encode(self.canSeek, forKey: .canSeek)
+    try container.encode(self.canSeekSentences, forKey: .canSeekSentences)
+    try container.encode(self.seeking, forKey: .seeking)
+    try container.encodeIfPresent(self.error, forKey: .error)
   }
 }
 
@@ -30663,8 +30663,8 @@ public struct SpeechState: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(progress, forKey: .progress)
-    try container.encode(sentences, forKey: .sentences)
+    try container.encode(self.progress, forKey: .progress)
+    try container.encode(self.sentences, forKey: .sentences)
   }
 }
 
@@ -30696,8 +30696,8 @@ public struct SpeechToggle: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
   }
 }
 
@@ -30733,9 +30733,9 @@ public struct SpeechSeek: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(sentence, forKey: .sentence)
-    try container.encodeIfPresent(by, forKey: .by)
-    try container.encodeIfPresent(ms, forKey: .ms)
+    try container.encodeIfPresent(self.sentence, forKey: .sentence)
+    try container.encodeIfPresent(self.by, forKey: .by)
+    try container.encodeIfPresent(self.ms, forKey: .ms)
   }
 }
 
@@ -30761,7 +30761,7 @@ public struct SpeechPreview: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -30933,18 +30933,18 @@ public struct SpeechCommand: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(text, forKey: .text)
-    try container.encodeIfPresent(voice, forKey: .voice)
-    try container.encodeIfPresent(rate, forKey: .rate)
-    try container.encodeIfPresent(pitch, forKey: .pitch)
-    try container.encodeIfPresent(volume, forKey: .volume)
-    try container.encode(utterance, forKey: .utterance)
-    try container.encode(clips, forKey: .clips)
-    try container.encodeIfPresent(index, forKey: .index)
-    try container.encodeIfPresent(positionMs, forKey: .positionMs)
-    try container.encodeIfPresent(speed, forKey: .speed)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.text, forKey: .text)
+    try container.encodeIfPresent(self.voice, forKey: .voice)
+    try container.encodeIfPresent(self.rate, forKey: .rate)
+    try container.encodeIfPresent(self.pitch, forKey: .pitch)
+    try container.encodeIfPresent(self.volume, forKey: .volume)
+    try container.encode(self.utterance, forKey: .utterance)
+    try container.encode(self.clips, forKey: .clips)
+    try container.encodeIfPresent(self.index, forKey: .index)
+    try container.encodeIfPresent(self.positionMs, forKey: .positionMs)
+    try container.encodeIfPresent(self.speed, forKey: .speed)
   }
 }
 
@@ -31078,9 +31078,9 @@ public struct SpeechVoice: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(language, forKey: .language)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.language, forKey: .language)
   }
 }
 
@@ -31175,20 +31175,20 @@ public struct SpeechReport: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(id, forKey: .id)
-    try container.encode(ok, forKey: .ok)
-    try container.encodeIfPresent(error, forKey: .error)
-    try container.encodeIfPresent(value, forKey: .value)
-    try container.encodeIfPresent(durationMs, forKey: .durationMs)
-    try container.encode(voices, forKey: .voices)
-    try container.encodeIfPresent(kind, forKey: .kind)
-    try container.encode(utterance, forKey: .utterance)
-    try container.encodeIfPresent(start, forKey: .start)
-    try container.encodeIfPresent(end, forKey: .end)
-    try container.encode(playing, forKey: .playing)
-    try container.encodeIfPresent(state, forKey: .state)
-    try container.encodeIfPresent(index, forKey: .index)
-    try container.encodeIfPresent(positionMs, forKey: .positionMs)
+    try container.encodeIfPresent(self.id, forKey: .id)
+    try container.encode(self.ok, forKey: .ok)
+    try container.encodeIfPresent(self.error, forKey: .error)
+    try container.encodeIfPresent(self.value, forKey: .value)
+    try container.encodeIfPresent(self.durationMs, forKey: .durationMs)
+    try container.encode(self.voices, forKey: .voices)
+    try container.encodeIfPresent(self.kind, forKey: .kind)
+    try container.encode(self.utterance, forKey: .utterance)
+    try container.encodeIfPresent(self.start, forKey: .start)
+    try container.encodeIfPresent(self.end, forKey: .end)
+    try container.encode(self.playing, forKey: .playing)
+    try container.encodeIfPresent(self.state, forKey: .state)
+    try container.encodeIfPresent(self.index, forKey: .index)
+    try container.encodeIfPresent(self.positionMs, forKey: .positionMs)
   }
 }
 
@@ -31223,8 +31223,8 @@ public struct PongResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(uptimeMs, forKey: .uptimeMs)
-    try container.encode(serverTimeMs, forKey: .serverTimeMs)
+    try container.encode(self.uptimeMs, forKey: .uptimeMs)
+    try container.encode(self.serverTimeMs, forKey: .serverTimeMs)
   }
 }
 
@@ -31258,8 +31258,8 @@ public struct ShutdownResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(flushed, forKey: .flushed)
-    try container.encode(pendingOutboxEntries, forKey: .pendingOutboxEntries)
+    try container.encode(self.flushed, forKey: .flushed)
+    try container.encode(self.pendingOutboxEntries, forKey: .pendingOutboxEntries)
   }
 }
 
@@ -31291,8 +31291,8 @@ public struct DiagnosticsExport: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(path, forKey: .path)
-    try container.encode(sizeBytes, forKey: .sizeBytes)
+    try container.encode(self.path, forKey: .path)
+    try container.encode(self.sizeBytes, forKey: .sizeBytes)
   }
 }
 
@@ -31479,8 +31479,8 @@ public struct UiInputOption: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(value, forKey: .value)
-    try container.encode(label, forKey: .label)
+    try container.encode(self.value, forKey: .value)
+    try container.encode(self.label, forKey: .label)
   }
 }
 
@@ -31499,7 +31499,7 @@ public struct UiRequest: Codable, Equatable, Sendable {
   public var messageArgs: [String: String]
   /// Kind-specific detail: the tool name and arguments, the MCP scopes, the
   /// Hermes step. Rendered by the card for that kind.
-  public var detail: JSONValue
+  public var detail: [String: JSONValue]
   /// Milliseconds before the daemon gives up and takes [defaultChoice].
   /// Null means wait forever — correct for tool approvals, wrong for a
   /// prompt that would wedge a background sync.
@@ -31519,7 +31519,7 @@ public struct UiRequest: Codable, Equatable, Sendable {
     kind: UiRequestKind,
     messageCode: String,
     messageArgs: [String: String] = [:],
-    detail: JSONValue = .object([:]),
+    detail: [String: JSONValue] = [:],
     timeoutMs: Int? = nil,
     defaultChoice: String = "deny",
     inputType: UiInputType? = nil,
@@ -31554,7 +31554,7 @@ public struct UiRequest: Codable, Equatable, Sendable {
     self.kind = try container.decode(UiRequestKind.self, forKey: .kind)
     self.messageCode = try container.decode(String.self, forKey: .messageCode)
     self.messageArgs = try container.decodeIfPresent([String: String].self, forKey: .messageArgs) ?? [:]
-    self.detail = try container.decodeIfPresent(JSONValue.self, forKey: .detail) ?? .object([:])
+    self.detail = try container.decodeIfPresent([String: JSONValue].self, forKey: .detail) ?? [:]
     self.timeoutMs = try container.decodeIfPresent(Int.self, forKey: .timeoutMs)
     self.defaultChoice = try container.decodeIfPresent(String.self, forKey: .defaultChoice) ?? "deny"
     self.inputType = try container.decodeIfPresent(UiInputType.self, forKey: .inputType)
@@ -31563,15 +31563,15 @@ public struct UiRequest: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(requestId, forKey: .requestId)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(messageCode, forKey: .messageCode)
-    try container.encode(messageArgs, forKey: .messageArgs)
-    try container.encode(detail, forKey: .detail)
-    try container.encodeIfPresent(timeoutMs, forKey: .timeoutMs)
-    try container.encode(defaultChoice, forKey: .defaultChoice)
-    try container.encodeIfPresent(inputType, forKey: .inputType)
-    try container.encodeIfPresent(options, forKey: .options)
+    try container.encode(self.requestId, forKey: .requestId)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.messageCode, forKey: .messageCode)
+    try container.encode(self.messageArgs, forKey: .messageArgs)
+    try container.encode(self.detail, forKey: .detail)
+    try container.encodeIfPresent(self.timeoutMs, forKey: .timeoutMs)
+    try container.encode(self.defaultChoice, forKey: .defaultChoice)
+    try container.encodeIfPresent(self.inputType, forKey: .inputType)
+    try container.encodeIfPresent(self.options, forKey: .options)
   }
 }
 
@@ -31615,10 +31615,10 @@ public struct UiResponse: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(requestId, forKey: .requestId)
-    try container.encode(choice, forKey: .choice)
-    try container.encodeIfPresent(text, forKey: .text)
-    try container.encode(remember, forKey: .remember)
+    try container.encode(self.requestId, forKey: .requestId)
+    try container.encode(self.choice, forKey: .choice)
+    try container.encodeIfPresent(self.text, forKey: .text)
+    try container.encode(self.remember, forKey: .remember)
   }
 }
 
@@ -31643,7 +31643,7 @@ public struct NetworkReport: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(online, forKey: .online)
+    try container.encode(self.online, forKey: .online)
   }
 }
 
@@ -31670,7 +31670,7 @@ public struct OkResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(ok, forKey: .ok)
+    try container.encode(self.ok, forKey: .ok)
   }
 }
 
@@ -31697,7 +31697,7 @@ public struct AcceptedResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(accepted, forKey: .accepted)
+    try container.encode(self.accepted, forKey: .accepted)
   }
 }
 
@@ -31723,7 +31723,7 @@ public struct UiSettled: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(requestId, forKey: .requestId)
+    try container.encode(self.requestId, forKey: .requestId)
   }
 }
 
@@ -31795,8 +31795,8 @@ public struct Notice: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(level, forKey: .level)
-    try container.encode(message, forKey: .message)
+    try container.encode(self.level, forKey: .level)
+    try container.encode(self.message, forKey: .message)
   }
 }
 
@@ -31847,11 +31847,11 @@ public struct TerminalServerDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(requiresSavedChat, forKey: .requiresSavedChat)
-    try container.encode(device, forKey: .device)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.requiresSavedChat, forKey: .requiresSavedChat)
+    try container.encode(self.device, forKey: .device)
   }
 }
 
@@ -31879,7 +31879,7 @@ public struct TerminalScope: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(scopeId, forKey: .scopeId)
+    try container.encode(self.scopeId, forKey: .scopeId)
   }
 }
 
@@ -31910,8 +31910,8 @@ public struct TerminalServers: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(servers, forKey: .servers)
-    try container.encodeIfPresent(selectedId, forKey: .selectedId)
+    try container.encode(self.servers, forKey: .servers)
+    try container.encodeIfPresent(self.selectedId, forKey: .selectedId)
   }
 }
 
@@ -31943,8 +31943,8 @@ public struct TerminalSelect: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(serverId, forKey: .serverId)
-    try container.encode(scopeId, forKey: .scopeId)
+    try container.encodeIfPresent(self.serverId, forKey: .serverId)
+    try container.encode(self.scopeId, forKey: .scopeId)
   }
 }
 
@@ -31974,8 +31974,8 @@ public struct TerminalAttach: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverId, forKey: .serverId)
-    try container.encode(scopeId, forKey: .scopeId)
+    try container.encode(self.serverId, forKey: .serverId)
+    try container.encode(self.scopeId, forKey: .scopeId)
   }
 }
 
@@ -32015,9 +32015,9 @@ public struct TerminalAttached: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(handle, forKey: .handle)
-    try container.encode(cwd, forKey: .cwd)
-    try container.encode(supported, forKey: .supported)
+    try container.encode(self.handle, forKey: .handle)
+    try container.encode(self.cwd, forKey: .cwd)
+    try container.encode(self.supported, forKey: .supported)
   }
 }
 
@@ -32047,8 +32047,8 @@ public struct TerminalPath: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(handle, forKey: .handle)
-    try container.encode(path, forKey: .path)
+    try container.encode(self.handle, forKey: .handle)
+    try container.encode(self.path, forKey: .path)
   }
 }
 
@@ -32093,11 +32093,11 @@ public struct TerminalEntry: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(path, forKey: .path)
-    try container.encode(directory, forKey: .directory)
-    try container.encodeIfPresent(size, forKey: .size)
-    try container.encodeIfPresent(modifiedAtMs, forKey: .modifiedAtMs)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.path, forKey: .path)
+    try container.encode(self.directory, forKey: .directory)
+    try container.encodeIfPresent(self.size, forKey: .size)
+    try container.encodeIfPresent(self.modifiedAtMs, forKey: .modifiedAtMs)
   }
 }
 
@@ -32127,8 +32127,8 @@ public struct TerminalListing: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(path, forKey: .path)
-    try container.encode(entries, forKey: .entries)
+    try container.encode(self.path, forKey: .path)
+    try container.encode(self.entries, forKey: .entries)
   }
 }
 
@@ -32169,10 +32169,10 @@ public struct TerminalFileContent: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(name, forKey: .name)
-    try container.encode(contentType, forKey: .contentType)
-    try container.encodeIfPresent(text, forKey: .text)
-    try container.encodeIfPresent(base64, forKey: .base64)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.contentType, forKey: .contentType)
+    try container.encodeIfPresent(self.text, forKey: .text)
+    try container.encodeIfPresent(self.base64, forKey: .base64)
   }
 }
 
@@ -32248,10 +32248,10 @@ public struct TerminalFileAction: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(handle, forKey: .handle)
-    try container.encode(op, forKey: .op)
-    try container.encode(path, forKey: .path)
-    try container.encodeIfPresent(destination, forKey: .destination)
+    try container.encode(self.handle, forKey: .handle)
+    try container.encode(self.op, forKey: .op)
+    try container.encode(self.path, forKey: .path)
+    try container.encodeIfPresent(self.destination, forKey: .destination)
   }
 }
 
@@ -32285,9 +32285,9 @@ public struct TerminalPort: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(port, forKey: .port)
-    try container.encodeIfPresent(pid, forKey: .pid)
-    try container.encodeIfPresent(process, forKey: .process)
+    try container.encode(self.port, forKey: .port)
+    try container.encodeIfPresent(self.pid, forKey: .pid)
+    try container.encodeIfPresent(self.process, forKey: .process)
   }
 }
 
@@ -32312,7 +32312,7 @@ public struct TerminalPorts: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(ports, forKey: .ports)
+    try container.encode(self.ports, forKey: .ports)
   }
 }
 
@@ -32337,7 +32337,7 @@ public struct TerminalHandleRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(handle, forKey: .handle)
+    try container.encode(self.handle, forKey: .handle)
   }
 }
 
@@ -32367,8 +32367,8 @@ public struct TerminalPortRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(handle, forKey: .handle)
-    try container.encode(port, forKey: .port)
+    try container.encode(self.handle, forKey: .handle)
+    try container.encode(self.port, forKey: .port)
   }
 }
 
@@ -32404,8 +32404,8 @@ public struct TerminalPreview: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
-    try container.encode(scripts, forKey: .scripts)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.scripts, forKey: .scripts)
   }
 }
 
@@ -32442,9 +32442,9 @@ public struct TerminalDisplayFile: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(path, forKey: .path)
-    try container.encodeIfPresent(page, forKey: .page)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.path, forKey: .path)
+    try container.encodeIfPresent(self.page, forKey: .page)
   }
 }
 
@@ -32477,8 +32477,8 @@ public struct TerminalWatch: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(handle, forKey: .handle)
-    try container.encode(path, forKey: .path)
+    try container.encode(self.handle, forKey: .handle)
+    try container.encode(self.path, forKey: .path)
   }
 }
 
@@ -32505,7 +32505,7 @@ public struct TerminalWatching: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(live, forKey: .live)
+    try container.encode(self.live, forKey: .live)
   }
 }
 
@@ -32542,9 +32542,9 @@ public struct TerminalChanged: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(handle, forKey: .handle)
-    try container.encode(files, forKey: .files)
-    try container.encodeIfPresent(ports, forKey: .ports)
+    try container.encode(self.handle, forKey: .handle)
+    try container.encode(self.files, forKey: .files)
+    try container.encodeIfPresent(self.ports, forKey: .ports)
   }
 }
 
@@ -32592,7 +32592,7 @@ public struct SendTurn: Codable, Equatable, Sendable {
   public var folderId: String?
   /// A new chat's own settings (`chatSettings.*` keeps them for the
   /// window until the chat exists): its system prompt and parameters.
-  public var chatParams: JSONValue?
+  public var chatParams: [String: JSONValue]?
 
   public init(
     chatId: String? = nil,
@@ -32610,7 +32610,7 @@ public struct SendTurn: Codable, Equatable, Sendable {
     compareModels: [String] = [],
     temporary: Bool = false,
     folderId: String? = nil,
-    chatParams: JSONValue? = nil
+    chatParams: [String: JSONValue]? = nil
   ) {
     self.chatId = chatId
     self.model = model
@@ -32666,27 +32666,27 @@ public struct SendTurn: Codable, Equatable, Sendable {
     self.compareModels = try container.decodeIfPresent([String].self, forKey: .compareModels) ?? []
     self.temporary = try container.decodeIfPresent(Bool.self, forKey: .temporary) ?? false
     self.folderId = try container.decodeIfPresent(String.self, forKey: .folderId)
-    self.chatParams = try container.decodeIfPresent(JSONValue.self, forKey: .chatParams)
+    self.chatParams = try container.decodeIfPresent([String: JSONValue].self, forKey: .chatParams)
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encode(text, forKey: .text)
-    try container.encode(toolIds, forKey: .toolIds)
-    try container.encode(knowledge, forKey: .knowledge)
-    try container.encode(webSearch, forKey: .webSearch)
-    try container.encode(imageGeneration, forKey: .imageGeneration)
-    try container.encode(codeInterpreter, forKey: .codeInterpreter)
-    try container.encode(fileIds, forKey: .fileIds)
-    try container.encode(context, forKey: .context)
-    try container.encode(mentions, forKey: .mentions)
-    try container.encode(filterIds, forKey: .filterIds)
-    try container.encode(compareModels, forKey: .compareModels)
-    try container.encode(temporary, forKey: .temporary)
-    try container.encodeIfPresent(folderId, forKey: .folderId)
-    try container.encodeIfPresent(chatParams, forKey: .chatParams)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.toolIds, forKey: .toolIds)
+    try container.encode(self.knowledge, forKey: .knowledge)
+    try container.encode(self.webSearch, forKey: .webSearch)
+    try container.encode(self.imageGeneration, forKey: .imageGeneration)
+    try container.encode(self.codeInterpreter, forKey: .codeInterpreter)
+    try container.encode(self.fileIds, forKey: .fileIds)
+    try container.encode(self.context, forKey: .context)
+    try container.encode(self.mentions, forKey: .mentions)
+    try container.encode(self.filterIds, forKey: .filterIds)
+    try container.encode(self.compareModels, forKey: .compareModels)
+    try container.encode(self.temporary, forKey: .temporary)
+    try container.encodeIfPresent(self.folderId, forKey: .folderId)
+    try container.encodeIfPresent(self.chatParams, forKey: .chatParams)
   }
 }
 
@@ -32728,9 +32728,9 @@ public struct SendTurnAccepted: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(userMessageId, forKey: .userMessageId)
-    try container.encode(assistantMessageId, forKey: .assistantMessageId)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.userMessageId, forKey: .userMessageId)
+    try container.encode(self.assistantMessageId, forKey: .assistantMessageId)
   }
 }
 
@@ -32803,14 +32803,14 @@ public struct RegenerateTurn: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encode(withoutReasoningEffort, forKey: .withoutReasoningEffort)
-    try container.encodeIfPresent(webSearch, forKey: .webSearch)
-    try container.encodeIfPresent(imageGeneration, forKey: .imageGeneration)
-    try container.encodeIfPresent(codeInterpreter, forKey: .codeInterpreter)
-    try container.encodeIfPresent(toolIds, forKey: .toolIds)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encode(self.withoutReasoningEffort, forKey: .withoutReasoningEffort)
+    try container.encodeIfPresent(self.webSearch, forKey: .webSearch)
+    try container.encodeIfPresent(self.imageGeneration, forKey: .imageGeneration)
+    try container.encodeIfPresent(self.codeInterpreter, forKey: .codeInterpreter)
+    try container.encodeIfPresent(self.toolIds, forKey: .toolIds)
   }
 }
 
@@ -32848,9 +32848,9 @@ public struct RateTurn: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(rating, forKey: .rating)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.rating, forKey: .rating)
   }
 }
 
@@ -32919,14 +32919,14 @@ public struct EditTurn: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(text, forKey: .text)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(webSearch, forKey: .webSearch)
-    try container.encodeIfPresent(imageGeneration, forKey: .imageGeneration)
-    try container.encodeIfPresent(codeInterpreter, forKey: .codeInterpreter)
-    try container.encodeIfPresent(toolIds, forKey: .toolIds)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.text, forKey: .text)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encodeIfPresent(self.webSearch, forKey: .webSearch)
+    try container.encodeIfPresent(self.imageGeneration, forKey: .imageGeneration)
+    try container.encodeIfPresent(self.codeInterpreter, forKey: .codeInterpreter)
+    try container.encodeIfPresent(self.toolIds, forKey: .toolIds)
   }
 }
 
@@ -32969,10 +32969,10 @@ public struct TurnStarted: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(model, forKey: .model)
-    try container.encode(companionIds, forKey: .companionIds)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.model, forKey: .model)
+    try container.encode(self.companionIds, forKey: .companionIds)
   }
 }
 
@@ -33018,10 +33018,10 @@ public struct TurnDelta: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(text, forKey: .text)
-    try container.encodeIfPresent(reasoning, forKey: .reasoning)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.text, forKey: .text)
+    try container.encodeIfPresent(self.reasoning, forKey: .reasoning)
   }
 }
 
@@ -33071,10 +33071,10 @@ public struct TurnBlocks: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(blocks, forKey: .blocks)
-    try container.encodeIfPresent(tasks, forKey: .tasks)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.blocks, forKey: .blocks)
+    try container.encodeIfPresent(self.tasks, forKey: .tasks)
   }
 }
 
@@ -33140,12 +33140,12 @@ public struct TurnFinished: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(ok, forKey: .ok)
-    try container.encodeIfPresent(code, forKey: .code)
-    try container.encode(queued, forKey: .queued)
-    try container.encode(held, forKey: .held)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.ok, forKey: .ok)
+    try container.encodeIfPresent(self.code, forKey: .code)
+    try container.encode(self.queued, forKey: .queued)
+    try container.encode(self.held, forKey: .held)
   }
 }
 
@@ -33191,11 +33191,11 @@ public struct TurnCompleted: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(text, forKey: .text)
-    try container.encodeIfPresent(reasoning, forKey: .reasoning)
-    try container.encodeIfPresent(usage, forKey: .usage)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.text, forKey: .text)
+    try container.encodeIfPresent(self.reasoning, forKey: .reasoning)
+    try container.encodeIfPresent(self.usage, forKey: .usage)
   }
 }
 
@@ -33243,11 +33243,11 @@ public struct TurnFailed: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(code, forKey: .code)
-    try container.encode(args, forKey: .args)
-    try container.encode(partialText, forKey: .partialText)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.code, forKey: .code)
+    try container.encode(self.args, forKey: .args)
+    try container.encode(self.partialText, forKey: .partialText)
   }
 }
 
@@ -33272,7 +33272,7 @@ public struct StopTurn: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
+    try container.encode(self.chatId, forKey: .chatId)
   }
 }
 
@@ -33297,7 +33297,7 @@ public struct RatedResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(rated, forKey: .rated)
+    try container.encode(self.rated, forKey: .rated)
   }
 }
 
@@ -33322,7 +33322,7 @@ public struct StoppedResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(stopped, forKey: .stopped)
+    try container.encode(self.stopped, forKey: .stopped)
   }
 }
 
@@ -33364,10 +33364,10 @@ public struct SteerTurn: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(text, forKey: .text)
-    try container.encode(mentions, forKey: .mentions)
-    try container.encode(steer, forKey: .steer)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.mentions, forKey: .mentions)
+    try container.encode(self.steer, forKey: .steer)
   }
 }
 
@@ -33400,8 +33400,8 @@ public struct SteerResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(accepted, forKey: .accepted)
-    try container.encode(uncertain, forKey: .uncertain)
+    try container.encode(self.accepted, forKey: .accepted)
+    try container.encode(self.uncertain, forKey: .uncertain)
   }
 }
 
@@ -33439,9 +33439,9 @@ public struct QueuedTurnRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(chatId, forKey: .chatId)
-    try container.encode(messageId, forKey: .messageId)
-    try container.encode(withoutReasoningEffort, forKey: .withoutReasoningEffort)
+    try container.encode(self.chatId, forKey: .chatId)
+    try container.encode(self.messageId, forKey: .messageId)
+    try container.encode(self.withoutReasoningEffort, forKey: .withoutReasoningEffort)
   }
 }
 
@@ -33513,9 +33513,9 @@ public struct ValveTarget: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(label, forKey: .label)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.label, forKey: .label)
   }
 }
 
@@ -33551,9 +33551,9 @@ public struct ValveTargetsQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(modelId, forKey: .modelId)
-    try container.encode(toolIds, forKey: .toolIds)
-    try container.encode(filterIds, forKey: .filterIds)
+    try container.encodeIfPresent(self.modelId, forKey: .modelId)
+    try container.encode(self.toolIds, forKey: .toolIds)
+    try container.encode(self.filterIds, forKey: .filterIds)
   }
 }
 
@@ -33585,8 +33585,8 @@ public struct ValveTargets: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(targets, forKey: .targets)
-    try container.encode(advanced, forKey: .advanced)
+    try container.encode(self.targets, forKey: .targets)
+    try container.encode(self.advanced, forKey: .advanced)
   }
 }
 
@@ -33621,9 +33621,9 @@ public struct ValvesRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(label, forKey: .label)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.label, forKey: .label)
   }
 }
 
@@ -33751,17 +33751,17 @@ public struct ValveField: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
-    try container.encode(title, forKey: .title)
-    try container.encodeIfPresent(description, forKey: .description)
-    try container.encode(type, forKey: .type)
-    try container.encode(isRequired, forKey: .isRequired)
-    try container.encode(password, forKey: .password)
-    try container.encode(options, forKey: .options)
-    try container.encode(isDefault, forKey: .isDefault)
-    try container.encode(hasDefault, forKey: .hasDefault)
-    try container.encode(text, forKey: .text)
-    try container.encode(seed, forKey: .seed)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.title, forKey: .title)
+    try container.encodeIfPresent(self.description, forKey: .description)
+    try container.encode(self.type, forKey: .type)
+    try container.encode(self.isRequired, forKey: .isRequired)
+    try container.encode(self.password, forKey: .password)
+    try container.encode(self.options, forKey: .options)
+    try container.encode(self.isDefault, forKey: .isDefault)
+    try container.encode(self.hasDefault, forKey: .hasDefault)
+    try container.encode(self.text, forKey: .text)
+    try container.encode(self.seed, forKey: .seed)
   }
 }
 
@@ -33846,11 +33846,11 @@ public struct ValvesDocument: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(label, forKey: .label)
-    try container.encode(phase, forKey: .phase)
-    try container.encode(fields, forKey: .fields)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.phase, forKey: .phase)
+    try container.encode(self.fields, forKey: .fields)
   }
 }
 
@@ -33885,9 +33885,9 @@ public struct ValveEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(key, forKey: .key)
-    try container.encode(isDefault, forKey: .isDefault)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.key, forKey: .key)
+    try container.encode(self.isDefault, forKey: .isDefault)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -33927,10 +33927,10 @@ public struct ValvesSave: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(label, forKey: .label)
-    try container.encode(values, forKey: .values)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.values, forKey: .values)
   }
 }
 
@@ -34059,24 +34059,24 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(serverStt, forKey: .serverStt)
-    try container.encode(localStt, forKey: .localStt)
-    try container.encode(sttEngine, forKey: .sttEngine)
-    try container.encodeIfPresent(localModel, forKey: .localModel)
-    try container.encode(localReady, forKey: .localReady)
-    try container.encode(serverTts, forKey: .serverTts)
-    try container.encodeIfPresent(sttLanguage, forKey: .sttLanguage)
-    try container.encode(silenceMs, forKey: .silenceMs)
-    try container.encode(holdToTalk, forKey: .holdToTalk)
-    try container.encode(autoSend, forKey: .autoSend)
-    try container.encode(bargeIn, forKey: .bargeIn)
-    try container.encode(ttsEngine, forKey: .ttsEngine)
-    try container.encodeIfPresent(deviceVoice, forKey: .deviceVoice)
-    try container.encodeIfPresent(serverVoice, forKey: .serverVoice)
-    try container.encode(speed, forKey: .speed)
-    try container.encode(pitch, forKey: .pitch)
-    try container.encode(volume, forKey: .volume)
-    try container.encode(splitOn, forKey: .splitOn)
+    try container.encode(self.serverStt, forKey: .serverStt)
+    try container.encode(self.localStt, forKey: .localStt)
+    try container.encode(self.sttEngine, forKey: .sttEngine)
+    try container.encodeIfPresent(self.localModel, forKey: .localModel)
+    try container.encode(self.localReady, forKey: .localReady)
+    try container.encode(self.serverTts, forKey: .serverTts)
+    try container.encodeIfPresent(self.sttLanguage, forKey: .sttLanguage)
+    try container.encode(self.silenceMs, forKey: .silenceMs)
+    try container.encode(self.holdToTalk, forKey: .holdToTalk)
+    try container.encode(self.autoSend, forKey: .autoSend)
+    try container.encode(self.bargeIn, forKey: .bargeIn)
+    try container.encode(self.ttsEngine, forKey: .ttsEngine)
+    try container.encodeIfPresent(self.deviceVoice, forKey: .deviceVoice)
+    try container.encodeIfPresent(self.serverVoice, forKey: .serverVoice)
+    try container.encode(self.speed, forKey: .speed)
+    try container.encode(self.pitch, forKey: .pitch)
+    try container.encode(self.volume, forKey: .volume)
+    try container.encode(self.splitOn, forKey: .splitOn)
   }
 }
 
@@ -34178,22 +34178,22 @@ public struct VoiceSettingsEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(sttEngine, forKey: .sttEngine)
-    try container.encodeIfPresent(localModel, forKey: .localModel)
-    try container.encodeIfPresent(sttLanguage, forKey: .sttLanguage)
-    try container.encode(clearSttLanguage, forKey: .clearSttLanguage)
-    try container.encodeIfPresent(silenceMs, forKey: .silenceMs)
-    try container.encodeIfPresent(holdToTalk, forKey: .holdToTalk)
-    try container.encodeIfPresent(autoSend, forKey: .autoSend)
-    try container.encodeIfPresent(bargeIn, forKey: .bargeIn)
-    try container.encodeIfPresent(ttsEngine, forKey: .ttsEngine)
-    try container.encodeIfPresent(deviceVoice, forKey: .deviceVoice)
-    try container.encode(clearDeviceVoice, forKey: .clearDeviceVoice)
-    try container.encodeIfPresent(serverVoice, forKey: .serverVoice)
-    try container.encode(clearServerVoice, forKey: .clearServerVoice)
-    try container.encodeIfPresent(speed, forKey: .speed)
-    try container.encodeIfPresent(pitch, forKey: .pitch)
-    try container.encodeIfPresent(volume, forKey: .volume)
+    try container.encodeIfPresent(self.sttEngine, forKey: .sttEngine)
+    try container.encodeIfPresent(self.localModel, forKey: .localModel)
+    try container.encodeIfPresent(self.sttLanguage, forKey: .sttLanguage)
+    try container.encode(self.clearSttLanguage, forKey: .clearSttLanguage)
+    try container.encodeIfPresent(self.silenceMs, forKey: .silenceMs)
+    try container.encodeIfPresent(self.holdToTalk, forKey: .holdToTalk)
+    try container.encodeIfPresent(self.autoSend, forKey: .autoSend)
+    try container.encodeIfPresent(self.bargeIn, forKey: .bargeIn)
+    try container.encodeIfPresent(self.ttsEngine, forKey: .ttsEngine)
+    try container.encodeIfPresent(self.deviceVoice, forKey: .deviceVoice)
+    try container.encode(self.clearDeviceVoice, forKey: .clearDeviceVoice)
+    try container.encodeIfPresent(self.serverVoice, forKey: .serverVoice)
+    try container.encode(self.clearServerVoice, forKey: .clearServerVoice)
+    try container.encodeIfPresent(self.speed, forKey: .speed)
+    try container.encodeIfPresent(self.pitch, forKey: .pitch)
+    try container.encodeIfPresent(self.volume, forKey: .volume)
   }
 }
 
@@ -34222,8 +34222,8 @@ public struct VoiceOption: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -34253,8 +34253,8 @@ public struct VoiceVoices: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(voices, forKey: .voices)
-    try container.encodeIfPresent(defaultVoice, forKey: .defaultVoice)
+    try container.encode(self.voices, forKey: .voices)
+    try container.encodeIfPresent(self.defaultVoice, forKey: .defaultVoice)
   }
 }
 
@@ -34293,9 +34293,9 @@ public struct VoiceSpeak: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(text, forKey: .text)
-    try container.encodeIfPresent(voice, forKey: .voice)
-    try container.encodeIfPresent(chatId, forKey: .chatId)
+    try container.encode(self.text, forKey: .text)
+    try container.encodeIfPresent(self.voice, forKey: .voice)
+    try container.encodeIfPresent(self.chatId, forKey: .chatId)
   }
 }
 
@@ -34320,7 +34320,7 @@ public struct VoiceSpeech: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(jobId, forKey: .jobId)
+    try container.encode(self.jobId, forKey: .jobId)
   }
 }
 
@@ -34345,7 +34345,7 @@ public struct VoiceTranscript: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -34397,12 +34397,12 @@ public struct VoiceModel: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(sizeBytes, forKey: .sizeBytes)
-    try container.encode(englishOnly, forKey: .englishOnly)
-    try container.encode(downloaded, forKey: .downloaded)
-    try container.encodeIfPresent(receivedBytes, forKey: .receivedBytes)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.sizeBytes, forKey: .sizeBytes)
+    try container.encode(self.englishOnly, forKey: .englishOnly)
+    try container.encode(self.downloaded, forKey: .downloaded)
+    try container.encodeIfPresent(self.receivedBytes, forKey: .receivedBytes)
   }
 }
 
@@ -34439,9 +34439,9 @@ public struct VoiceModels: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(models, forKey: .models)
-    try container.encodeIfPresent(failedId, forKey: .failedId)
-    try container.encodeIfPresent(failure, forKey: .failure)
+    try container.encode(self.models, forKey: .models)
+    try container.encodeIfPresent(self.failedId, forKey: .failedId)
+    try container.encodeIfPresent(self.failure, forKey: .failure)
   }
 }
 
@@ -34466,7 +34466,7 @@ public struct VoiceModelRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -34499,8 +34499,8 @@ public struct WebSearchEngineDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -34533,8 +34533,8 @@ public struct WebSearchRegionDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(code, forKey: .code)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.code, forKey: .code)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -34592,12 +34592,12 @@ public struct WebSearchSettings: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(engine, forKey: .engine)
-    try container.encode(engines, forKey: .engines)
-    try container.encode(safeSearch, forKey: .safeSearch)
-    try container.encodeIfPresent(region, forKey: .region)
-    try container.encode(effectiveRegion, forKey: .effectiveRegion)
-    try container.encode(regions, forKey: .regions)
+    try container.encode(self.engine, forKey: .engine)
+    try container.encode(self.engines, forKey: .engines)
+    try container.encode(self.safeSearch, forKey: .safeSearch)
+    try container.encodeIfPresent(self.region, forKey: .region)
+    try container.encode(self.effectiveRegion, forKey: .effectiveRegion)
+    try container.encode(self.regions, forKey: .regions)
   }
 }
 
@@ -34633,9 +34633,9 @@ public struct WebSearchSettingsPatch: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encodeIfPresent(engine, forKey: .engine)
-    try container.encodeIfPresent(safeSearch, forKey: .safeSearch)
-    try container.encodeIfPresent(region, forKey: .region)
+    try container.encodeIfPresent(self.engine, forKey: .engine)
+    try container.encodeIfPresent(self.safeSearch, forKey: .safeSearch)
+    try container.encodeIfPresent(self.region, forKey: .region)
   }
 }
 
@@ -34688,12 +34688,12 @@ public struct WebhookDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(isDefault, forKey: .isDefault)
-    try container.encode(events, forKey: .events)
-    try container.encode(delivery, forKey: .delivery)
-    try container.encodeIfPresent(maskedUrl, forKey: .maskedUrl)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.isDefault, forKey: .isDefault)
+    try container.encode(self.events, forKey: .events)
+    try container.encode(self.delivery, forKey: .delivery)
+    try container.encodeIfPresent(self.maskedUrl, forKey: .maskedUrl)
   }
 }
 
@@ -34728,9 +34728,9 @@ public struct WebhookEventDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(event, forKey: .event)
-    try container.encode(label, forKey: .label)
-    try container.encodeIfPresent(description, forKey: .description)
+    try container.encode(self.event, forKey: .event)
+    try container.encode(self.label, forKey: .label)
+    try container.encodeIfPresent(self.description, forKey: .description)
   }
 }
 
@@ -34787,12 +34787,12 @@ public struct WebhookList: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(available, forKey: .available)
-    try container.encode(owner, forKey: .owner)
-    try container.encode(items, forKey: .items)
-    try container.encode(events, forKey: .events)
-    try container.encode(stale, forKey: .stale)
-    try container.encode(failed, forKey: .failed)
+    try container.encode(self.available, forKey: .available)
+    try container.encode(self.owner, forKey: .owner)
+    try container.encode(self.items, forKey: .items)
+    try container.encode(self.events, forKey: .events)
+    try container.encode(self.stale, forKey: .stale)
+    try container.encode(self.failed, forKey: .failed)
   }
 }
 
@@ -34843,12 +34843,12 @@ public struct WebhookCreate: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(owner, forKey: .owner)
-    try container.encode(url, forKey: .url)
-    try container.encode(name, forKey: .name)
-    try container.encode(enabled, forKey: .enabled)
-    try container.encode(events, forKey: .events)
-    try container.encode(delivery, forKey: .delivery)
+    try container.encode(self.owner, forKey: .owner)
+    try container.encode(self.url, forKey: .url)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.enabled, forKey: .enabled)
+    try container.encode(self.events, forKey: .events)
+    try container.encode(self.delivery, forKey: .delivery)
   }
 }
 
@@ -34899,12 +34899,12 @@ public struct WebhookUpdate: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(owner, forKey: .owner)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(enabled, forKey: .enabled)
-    try container.encodeIfPresent(events, forKey: .events)
-    try container.encodeIfPresent(delivery, forKey: .delivery)
-    try container.encodeIfPresent(url, forKey: .url)
+    try container.encode(self.owner, forKey: .owner)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.enabled, forKey: .enabled)
+    try container.encodeIfPresent(self.events, forKey: .events)
+    try container.encodeIfPresent(self.delivery, forKey: .delivery)
+    try container.encodeIfPresent(self.url, forKey: .url)
   }
 }
 
@@ -34934,8 +34934,8 @@ public struct WebhookRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(owner, forKey: .owner)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.owner, forKey: .owner)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -35068,11 +35068,11 @@ public struct WorkspaceSectionAccess: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(manage, forKey: .manage)
-    try container.encode(importItems, forKey: .importItems)
-    try container.encode(exportItems, forKey: .exportItems)
-    try container.encode(share, forKey: .share)
-    try container.encode(sharePublicly, forKey: .sharePublicly)
+    try container.encode(self.manage, forKey: .manage)
+    try container.encode(self.importItems, forKey: .importItems)
+    try container.encode(self.exportItems, forKey: .exportItems)
+    try container.encode(self.share, forKey: .share)
+    try container.encode(self.sharePublicly, forKey: .sharePublicly)
   }
 }
 
@@ -35129,13 +35129,13 @@ public struct WorkspaceAccess: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(models, forKey: .models)
-    try container.encode(knowledge, forKey: .knowledge)
-    try container.encode(prompts, forKey: .prompts)
-    try container.encode(tools, forKey: .tools)
-    try container.encode(skills, forKey: .skills)
-    try container.encode(allowUserGrants, forKey: .allowUserGrants)
-    try container.encode(admin, forKey: .admin)
+    try container.encode(self.models, forKey: .models)
+    try container.encode(self.knowledge, forKey: .knowledge)
+    try container.encode(self.prompts, forKey: .prompts)
+    try container.encode(self.tools, forKey: .tools)
+    try container.encode(self.skills, forKey: .skills)
+    try container.encode(self.allowUserGrants, forKey: .allowUserGrants)
+    try container.encode(self.admin, forKey: .admin)
   }
 }
 
@@ -35171,9 +35171,9 @@ public struct WorkspaceGrant: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(principalType, forKey: .principalType)
-    try container.encode(principalId, forKey: .principalId)
-    try container.encode(write, forKey: .write)
+    try container.encode(self.principalType, forKey: .principalType)
+    try container.encode(self.principalId, forKey: .principalId)
+    try container.encode(self.write, forKey: .write)
   }
 }
 
@@ -35263,19 +35263,19 @@ public struct WorkspaceItem: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(subtitle, forKey: .subtitle)
-    try container.encodeIfPresent(ownerName, forKey: .ownerName)
-    try container.encode(writeAccess, forKey: .writeAccess)
-    try container.encodeIfPresent(active, forKey: .active)
-    try container.encode(`public`, forKey: .`public`)
-    try container.encodeIfPresent(updatedAtMs, forKey: .updatedAtMs)
-    try container.encode(tags, forKey: .tags)
-    try container.encode(external, forKey: .external)
-    try container.encode(hidden, forKey: .hidden)
-    try container.encodeIfPresent(functionCount, forKey: .functionCount)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.subtitle, forKey: .subtitle)
+    try container.encodeIfPresent(self.ownerName, forKey: .ownerName)
+    try container.encode(self.writeAccess, forKey: .writeAccess)
+    try container.encodeIfPresent(self.active, forKey: .active)
+    try container.encode(self.`public`, forKey: .`public`)
+    try container.encodeIfPresent(self.updatedAtMs, forKey: .updatedAtMs)
+    try container.encode(self.tags, forKey: .tags)
+    try container.encode(self.external, forKey: .external)
+    try container.encode(self.hidden, forKey: .hidden)
+    try container.encodeIfPresent(self.functionCount, forKey: .functionCount)
   }
 }
 
@@ -35323,11 +35323,11 @@ public struct WorkspaceQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(query, forKey: .query)
-    try container.encode(view, forKey: .view)
-    try container.encode(source, forKey: .source)
-    try container.encode(more, forKey: .more)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.query, forKey: .query)
+    try container.encode(self.view, forKey: .view)
+    try container.encode(self.source, forKey: .source)
+    try container.encode(self.more, forKey: .more)
   }
 }
 
@@ -35367,10 +35367,10 @@ public struct WorkspacePage: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(items, forKey: .items)
-    try container.encode(total, forKey: .total)
-    try container.encode(hasMore, forKey: .hasMore)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.items, forKey: .items)
+    try container.encode(self.total, forKey: .total)
+    try container.encode(self.hasMore, forKey: .hasMore)
   }
 }
 
@@ -35400,8 +35400,8 @@ public struct WorkspaceRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
   }
 }
 
@@ -35436,9 +35436,9 @@ public struct WorkspaceRelation: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(subtitle, forKey: .subtitle)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.subtitle, forKey: .subtitle)
   }
 }
 
@@ -35471,12 +35471,12 @@ public struct WorkspaceModelDto: Codable, Equatable, Sendable {
   /// Open WebUI's built-in tools for the model, by name (`time`,
   /// `memory`, `web_search`, ...): on or off, as its own editor keeps
   /// them; empty for the server's defaults.
-  public var builtinTools: JSONValue
+  public var builtinTools: [String: JSONValue]
   public var active: Bool
   public var hidden: Bool
   /// Everything in `params` besides the system prompt and stop words:
   /// temperature, context length and the rest, as Open WebUI names them.
-  public var params: JSONValue
+  public var params: [String: JSONValue]
 
   public init(
     id: String = "",
@@ -35499,10 +35499,10 @@ public struct WorkspaceModelDto: Codable, Equatable, Sendable {
     defaultFeatureIds: [String] = [],
     ttsVoice: String = "",
     terminalId: String = "",
-    builtinTools: JSONValue = .object([:]),
+    builtinTools: [String: JSONValue] = [:],
     active: Bool = true,
     hidden: Bool = false,
-    params: JSONValue = .object([:])
+    params: [String: JSONValue] = [:]
   ) {
     self.id = id
     self.name = name
@@ -35579,38 +35579,38 @@ public struct WorkspaceModelDto: Codable, Equatable, Sendable {
     self.defaultFeatureIds = try container.decodeIfPresent([String].self, forKey: .defaultFeatureIds) ?? []
     self.ttsVoice = try container.decodeIfPresent(String.self, forKey: .ttsVoice) ?? ""
     self.terminalId = try container.decodeIfPresent(String.self, forKey: .terminalId) ?? ""
-    self.builtinTools = try container.decodeIfPresent(JSONValue.self, forKey: .builtinTools) ?? .object([:])
+    self.builtinTools = try container.decodeIfPresent([String: JSONValue].self, forKey: .builtinTools) ?? [:]
     self.active = try container.decodeIfPresent(Bool.self, forKey: .active) ?? true
     self.hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
-    self.params = try container.decodeIfPresent(JSONValue.self, forKey: .params) ?? .object([:])
+    self.params = try container.decodeIfPresent([String: JSONValue].self, forKey: .params) ?? [:]
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(baseModelId, forKey: .baseModelId)
-    try container.encode(description, forKey: .description)
-    try container.encodeIfPresent(imageUrl, forKey: .imageUrl)
-    try container.encode(imageSource, forKey: .imageSource)
-    try container.encode(tags, forKey: .tags)
-    try container.encode(system, forKey: .system)
-    try container.encode(stop, forKey: .stop)
-    try container.encode(suggestionPrompts, forKey: .suggestionPrompts)
-    try container.encode(capabilities, forKey: .capabilities)
-    try container.encode(knowledge, forKey: .knowledge)
-    try container.encode(toolIds, forKey: .toolIds)
-    try container.encode(skillIds, forKey: .skillIds)
-    try container.encode(filterIds, forKey: .filterIds)
-    try container.encode(defaultFilterIds, forKey: .defaultFilterIds)
-    try container.encode(actionIds, forKey: .actionIds)
-    try container.encode(defaultFeatureIds, forKey: .defaultFeatureIds)
-    try container.encode(ttsVoice, forKey: .ttsVoice)
-    try container.encode(terminalId, forKey: .terminalId)
-    try container.encode(builtinTools, forKey: .builtinTools)
-    try container.encode(active, forKey: .active)
-    try container.encode(hidden, forKey: .hidden)
-    try container.encode(params, forKey: .params)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.baseModelId, forKey: .baseModelId)
+    try container.encode(self.description, forKey: .description)
+    try container.encodeIfPresent(self.imageUrl, forKey: .imageUrl)
+    try container.encode(self.imageSource, forKey: .imageSource)
+    try container.encode(self.tags, forKey: .tags)
+    try container.encode(self.system, forKey: .system)
+    try container.encode(self.stop, forKey: .stop)
+    try container.encode(self.suggestionPrompts, forKey: .suggestionPrompts)
+    try container.encode(self.capabilities, forKey: .capabilities)
+    try container.encode(self.knowledge, forKey: .knowledge)
+    try container.encode(self.toolIds, forKey: .toolIds)
+    try container.encode(self.skillIds, forKey: .skillIds)
+    try container.encode(self.filterIds, forKey: .filterIds)
+    try container.encode(self.defaultFilterIds, forKey: .defaultFilterIds)
+    try container.encode(self.actionIds, forKey: .actionIds)
+    try container.encode(self.defaultFeatureIds, forKey: .defaultFeatureIds)
+    try container.encode(self.ttsVoice, forKey: .ttsVoice)
+    try container.encode(self.terminalId, forKey: .terminalId)
+    try container.encode(self.builtinTools, forKey: .builtinTools)
+    try container.encode(self.active, forKey: .active)
+    try container.encode(self.hidden, forKey: .hidden)
+    try container.encode(self.params, forKey: .params)
   }
 }
 
@@ -35668,13 +35668,13 @@ public struct WorkspaceKnowledgeDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(description, forKey: .description)
-    try container.encode(fileCount, forKey: .fileCount)
-    try container.encode(external, forKey: .external)
-    try container.encodeIfPresent(maxFileCount, forKey: .maxFileCount)
-    try container.encodeIfPresent(maxFileSize, forKey: .maxFileSize)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.fileCount, forKey: .fileCount)
+    try container.encode(self.external, forKey: .external)
+    try container.encodeIfPresent(self.maxFileCount, forKey: .maxFileCount)
+    try container.encodeIfPresent(self.maxFileSize, forKey: .maxFileSize)
   }
 }
 
@@ -35743,15 +35743,15 @@ public struct WorkspacePromptDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(command, forKey: .command)
-    try container.encode(name, forKey: .name)
-    try container.encode(content, forKey: .content)
-    try container.encode(tags, forKey: .tags)
-    try container.encode(active, forKey: .active)
-    try container.encodeIfPresent(versionId, forKey: .versionId)
-    try container.encodeIfPresent(commitMessage, forKey: .commitMessage)
-    try container.encode(production, forKey: .production)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.command, forKey: .command)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.tags, forKey: .tags)
+    try container.encode(self.active, forKey: .active)
+    try container.encodeIfPresent(self.versionId, forKey: .versionId)
+    try container.encodeIfPresent(self.commitMessage, forKey: .commitMessage)
+    try container.encode(self.production, forKey: .production)
   }
 }
 
@@ -35820,15 +35820,15 @@ public struct WorkspaceToolDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(description, forKey: .description)
-    try container.encode(content, forKey: .content)
-    try container.encode(functions, forKey: .functions)
-    try container.encode(hasValves, forKey: .hasValves)
-    try container.encode(hasUserValves, forKey: .hasUserValves)
-    try container.encodeIfPresent(active, forKey: .active)
-    try container.encodeIfPresent(requiresServerVersion, forKey: .requiresServerVersion)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.functions, forKey: .functions)
+    try container.encode(self.hasValves, forKey: .hasValves)
+    try container.encode(self.hasUserValves, forKey: .hasUserValves)
+    try container.encodeIfPresent(self.active, forKey: .active)
+    try container.encodeIfPresent(self.requiresServerVersion, forKey: .requiresServerVersion)
   }
 }
 
@@ -35872,11 +35872,11 @@ public struct WorkspaceSkillDto: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(description, forKey: .description)
-    try container.encode(content, forKey: .content)
-    try container.encode(active, forKey: .active)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.description, forKey: .description)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.active, forKey: .active)
   }
 }
 
@@ -35947,16 +35947,16 @@ public struct WorkspaceDetail: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(knowledge, forKey: .knowledge)
-    try container.encodeIfPresent(prompt, forKey: .prompt)
-    try container.encodeIfPresent(tool, forKey: .tool)
-    try container.encodeIfPresent(skill, forKey: .skill)
-    try container.encode(grants, forKey: .grants)
-    try container.encode(writeAccess, forKey: .writeAccess)
-    try container.encodeIfPresent(ownerName, forKey: .ownerName)
-    try container.encodeIfPresent(updatedAtMs, forKey: .updatedAtMs)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.model, forKey: .model)
+    try container.encodeIfPresent(self.knowledge, forKey: .knowledge)
+    try container.encodeIfPresent(self.prompt, forKey: .prompt)
+    try container.encodeIfPresent(self.tool, forKey: .tool)
+    try container.encodeIfPresent(self.skill, forKey: .skill)
+    try container.encode(self.grants, forKey: .grants)
+    try container.encode(self.writeAccess, forKey: .writeAccess)
+    try container.encodeIfPresent(self.ownerName, forKey: .ownerName)
+    try container.encodeIfPresent(self.updatedAtMs, forKey: .updatedAtMs)
   }
 }
 
@@ -35996,9 +35996,9 @@ public struct WorkspaceSave: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(detail, forKey: .detail)
-    try container.encode(create, forKey: .create)
-    try container.encode(metadataOnly, forKey: .metadataOnly)
+    try container.encode(self.detail, forKey: .detail)
+    try container.encode(self.create, forKey: .create)
+    try container.encode(self.metadataOnly, forKey: .metadataOnly)
   }
 }
 
@@ -36033,9 +36033,9 @@ public struct WorkspaceAccessEdit: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(grants, forKey: .grants)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.grants, forKey: .grants)
   }
 }
 
@@ -36076,10 +36076,10 @@ public struct WorkspacePrincipal: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(type, forKey: .type)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(email, forKey: .email)
+    try container.encode(self.type, forKey: .type)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.email, forKey: .email)
   }
 }
 
@@ -36110,8 +36110,8 @@ public struct WorkspacePrincipalQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(query, forKey: .query)
-    try container.encode(ids, forKey: .ids)
+    try container.encode(self.query, forKey: .query)
+    try container.encode(self.ids, forKey: .ids)
   }
 }
 
@@ -36135,7 +36135,7 @@ public struct WorkspacePrincipals: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(items, forKey: .items)
+    try container.encode(self.items, forKey: .items)
   }
 }
 
@@ -36166,8 +36166,8 @@ public struct WorkspaceExportQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.id, forKey: .id)
   }
 }
 
@@ -36208,10 +36208,10 @@ public struct WorkspaceExportFile: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(filename, forKey: .filename)
-    try container.encode(mimeType, forKey: .mimeType)
-    try container.encodeIfPresent(text, forKey: .text)
-    try container.encodeIfPresent(base64, forKey: .base64)
+    try container.encode(self.filename, forKey: .filename)
+    try container.encode(self.mimeType, forKey: .mimeType)
+    try container.encodeIfPresent(self.text, forKey: .text)
+    try container.encodeIfPresent(self.base64, forKey: .base64)
   }
 }
 
@@ -36241,8 +36241,8 @@ public struct WorkspaceImport: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -36272,8 +36272,8 @@ public struct WorkspaceImportFailure: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(label, forKey: .label)
-    try container.encode(reason, forKey: .reason)
+    try container.encode(self.label, forKey: .label)
+    try container.encode(self.reason, forKey: .reason)
   }
 }
 
@@ -36303,8 +36303,8 @@ public struct WorkspaceImportResult: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(imported, forKey: .imported)
-    try container.encode(failed, forKey: .failed)
+    try container.encode(self.imported, forKey: .imported)
+    try container.encode(self.failed, forKey: .failed)
   }
 }
 
@@ -36355,12 +36355,12 @@ public struct WorkspaceModelOptions: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(baseModels, forKey: .baseModels)
-    try container.encode(knowledge, forKey: .knowledge)
-    try container.encode(tools, forKey: .tools)
-    try container.encode(skills, forKey: .skills)
-    try container.encode(filters, forKey: .filters)
-    try container.encode(actions, forKey: .actions)
+    try container.encode(self.baseModels, forKey: .baseModels)
+    try container.encode(self.knowledge, forKey: .knowledge)
+    try container.encode(self.tools, forKey: .tools)
+    try container.encode(self.skills, forKey: .skills)
+    try container.encode(self.filters, forKey: .filters)
+    try container.encode(self.actions, forKey: .actions)
   }
 }
 
@@ -36426,15 +36426,15 @@ public struct WorkspacePromptVersion: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
-    try container.encodeIfPresent(commitMessage, forKey: .commitMessage)
-    try container.encodeIfPresent(authorName, forKey: .authorName)
-    try container.encode(createdAtMs, forKey: .createdAtMs)
-    try container.encode(name, forKey: .name)
-    try container.encode(command, forKey: .command)
-    try container.encode(content, forKey: .content)
-    try container.encode(production, forKey: .production)
+    try container.encode(self.id, forKey: .id)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
+    try container.encodeIfPresent(self.commitMessage, forKey: .commitMessage)
+    try container.encodeIfPresent(self.authorName, forKey: .authorName)
+    try container.encode(self.createdAtMs, forKey: .createdAtMs)
+    try container.encode(self.name, forKey: .name)
+    try container.encode(self.command, forKey: .command)
+    try container.encode(self.content, forKey: .content)
+    try container.encode(self.production, forKey: .production)
   }
 }
 
@@ -36464,8 +36464,8 @@ public struct WorkspacePromptHistory: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(promptId, forKey: .promptId)
-    try container.encode(versions, forKey: .versions)
+    try container.encode(self.promptId, forKey: .promptId)
+    try container.encode(self.versions, forKey: .versions)
   }
 }
 
@@ -36495,8 +36495,8 @@ public struct WorkspacePromptVersionRef: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(promptId, forKey: .promptId)
-    try container.encode(versionId, forKey: .versionId)
+    try container.encode(self.promptId, forKey: .promptId)
+    try container.encode(self.versionId, forKey: .versionId)
   }
 }
 
@@ -36531,9 +36531,9 @@ public struct WorkspacePromptDiffQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(promptId, forKey: .promptId)
-    try container.encode(fromId, forKey: .fromId)
-    try container.encode(toId, forKey: .toId)
+    try container.encode(self.promptId, forKey: .promptId)
+    try container.encode(self.fromId, forKey: .fromId)
+    try container.encode(self.toId, forKey: .toId)
   }
 }
 
@@ -36564,8 +36564,8 @@ public struct WorkspacePromptDiff: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(lines, forKey: .lines)
-    try container.encode(nameChanged, forKey: .nameChanged)
+    try container.encode(self.lines, forKey: .lines)
+    try container.encode(self.nameChanged, forKey: .nameChanged)
   }
 }
 
@@ -36596,8 +36596,8 @@ public struct WorkspaceValvesQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(toolId, forKey: .toolId)
-    try container.encode(user, forKey: .user)
+    try container.encode(self.toolId, forKey: .toolId)
+    try container.encode(self.user, forKey: .user)
   }
 }
 
@@ -36606,8 +36606,8 @@ public struct WorkspaceValvesQuery: Codable, Equatable, Sendable {
 public struct WorkspaceValves: Codable, Equatable, Sendable {
   public var toolId: String
   public var user: Bool
-  public var schema: JSONValue
-  public var values: JSONValue
+  public var schema: [String: JSONValue]
+  public var values: [String: JSONValue]
   /// One row per valve, as the form draws it (the core reads the
   /// schema's types and defaults); set in replies.
   public var fields: [ValveField]
@@ -36618,8 +36618,8 @@ public struct WorkspaceValves: Codable, Equatable, Sendable {
   public init(
     toolId: String,
     user: Bool = false,
-    schema: JSONValue = .object([:]),
-    values: JSONValue = .object([:]),
+    schema: [String: JSONValue] = [:],
+    values: [String: JSONValue] = [:],
     fields: [ValveField] = [],
     edits: [ValveEdit] = []
   ) {
@@ -36644,20 +36644,20 @@ public struct WorkspaceValves: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.toolId = try container.decode(String.self, forKey: .toolId)
     self.user = try container.decodeIfPresent(Bool.self, forKey: .user) ?? false
-    self.schema = try container.decodeIfPresent(JSONValue.self, forKey: .schema) ?? .object([:])
-    self.values = try container.decodeIfPresent(JSONValue.self, forKey: .values) ?? .object([:])
+    self.schema = try container.decodeIfPresent([String: JSONValue].self, forKey: .schema) ?? [:]
+    self.values = try container.decodeIfPresent([String: JSONValue].self, forKey: .values) ?? [:]
     self.fields = try container.decodeIfPresent([ValveField].self, forKey: .fields) ?? []
     self.edits = try container.decodeIfPresent([ValveEdit].self, forKey: .edits) ?? []
   }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(toolId, forKey: .toolId)
-    try container.encode(user, forKey: .user)
-    try container.encode(schema, forKey: .schema)
-    try container.encode(values, forKey: .values)
-    try container.encode(fields, forKey: .fields)
-    try container.encode(edits, forKey: .edits)
+    try container.encode(self.toolId, forKey: .toolId)
+    try container.encode(self.user, forKey: .user)
+    try container.encode(self.schema, forKey: .schema)
+    try container.encode(self.values, forKey: .values)
+    try container.encode(self.fields, forKey: .fields)
+    try container.encode(self.edits, forKey: .edits)
   }
 }
 
@@ -36682,7 +36682,7 @@ public struct WorkspaceUrl: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(url, forKey: .url)
+    try container.encode(self.url, forKey: .url)
   }
 }
 
@@ -36717,9 +36717,9 @@ public struct WorkspaceDirectory: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encodeIfPresent(parentId, forKey: .parentId)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.name, forKey: .name)
+    try container.encodeIfPresent(self.parentId, forKey: .parentId)
   }
 }
 
@@ -36775,13 +36775,13 @@ public struct WorkspaceFile: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(filename, forKey: .filename)
-    try container.encodeIfPresent(contentType, forKey: .contentType)
-    try container.encodeIfPresent(size, forKey: .size)
-    try container.encodeIfPresent(updatedAtMs, forKey: .updatedAtMs)
-    try container.encodeIfPresent(status, forKey: .status)
-    try container.encodeIfPresent(error, forKey: .error)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.filename, forKey: .filename)
+    try container.encodeIfPresent(self.contentType, forKey: .contentType)
+    try container.encodeIfPresent(self.size, forKey: .size)
+    try container.encodeIfPresent(self.updatedAtMs, forKey: .updatedAtMs)
+    try container.encodeIfPresent(self.status, forKey: .status)
+    try container.encodeIfPresent(self.error, forKey: .error)
   }
 }
 
@@ -36817,9 +36817,9 @@ public struct WorkspaceFilesQuery: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(knowledgeId, forKey: .knowledgeId)
-    try container.encode(directoryId, forKey: .directoryId)
-    try container.encode(more, forKey: .more)
+    try container.encode(self.knowledgeId, forKey: .knowledgeId)
+    try container.encode(self.directoryId, forKey: .directoryId)
+    try container.encode(self.more, forKey: .more)
   }
 }
 
@@ -36881,14 +36881,14 @@ public struct WorkspaceFiles: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(knowledgeId, forKey: .knowledgeId)
-    try container.encode(directoryId, forKey: .directoryId)
-    try container.encode(breadcrumbs, forKey: .breadcrumbs)
-    try container.encode(directories, forKey: .directories)
-    try container.encode(files, forKey: .files)
-    try container.encode(pending, forKey: .pending)
-    try container.encode(total, forKey: .total)
-    try container.encode(hasMore, forKey: .hasMore)
+    try container.encode(self.knowledgeId, forKey: .knowledgeId)
+    try container.encode(self.directoryId, forKey: .directoryId)
+    try container.encode(self.breadcrumbs, forKey: .breadcrumbs)
+    try container.encode(self.directories, forKey: .directories)
+    try container.encode(self.files, forKey: .files)
+    try container.encode(self.pending, forKey: .pending)
+    try container.encode(self.total, forKey: .total)
+    try container.encode(self.hasMore, forKey: .hasMore)
   }
 }
 
@@ -36933,10 +36933,10 @@ public struct WorkspaceFilesAttach: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(knowledgeId, forKey: .knowledgeId)
-    try container.encode(directoryId, forKey: .directoryId)
-    try container.encode(fileIds, forKey: .fileIds)
-    try container.encode(uploaded, forKey: .uploaded)
+    try container.encode(self.knowledgeId, forKey: .knowledgeId)
+    try container.encode(self.directoryId, forKey: .directoryId)
+    try container.encode(self.fileIds, forKey: .fileIds)
+    try container.encode(self.uploaded, forKey: .uploaded)
   }
 }
 
@@ -36978,10 +36978,10 @@ public struct WorkspaceTextFile: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(knowledgeId, forKey: .knowledgeId)
-    try container.encode(directoryId, forKey: .directoryId)
-    try container.encode(filename, forKey: .filename)
-    try container.encode(content, forKey: .content)
+    try container.encode(self.knowledgeId, forKey: .knowledgeId)
+    try container.encode(self.directoryId, forKey: .directoryId)
+    try container.encode(self.filename, forKey: .filename)
+    try container.encode(self.content, forKey: .content)
   }
 }
 
@@ -37019,9 +37019,9 @@ public struct WorkspaceDuplicate: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encode(id, forKey: .id)
-    try container.encode(suffix, forKey: .suffix)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encode(self.id, forKey: .id)
+    try container.encode(self.suffix, forKey: .suffix)
   }
 }
 
@@ -37046,7 +37046,7 @@ public struct WorkspaceMarkdown: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(text, forKey: .text)
+    try container.encode(self.text, forKey: .text)
   }
 }
 
@@ -37136,11 +37136,11 @@ public struct WorkspaceFileAction: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(knowledgeId, forKey: .knowledgeId)
-    try container.encode(fileId, forKey: .fileId)
-    try container.encode(op, forKey: .op)
-    try container.encodeIfPresent(filename, forKey: .filename)
-    try container.encodeIfPresent(directoryId, forKey: .directoryId)
+    try container.encode(self.knowledgeId, forKey: .knowledgeId)
+    try container.encode(self.fileId, forKey: .fileId)
+    try container.encode(self.op, forKey: .op)
+    try container.encodeIfPresent(self.filename, forKey: .filename)
+    try container.encodeIfPresent(self.directoryId, forKey: .directoryId)
   }
 }
 
@@ -37222,11 +37222,11 @@ public struct WorkspaceDirectoryAction: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(knowledgeId, forKey: .knowledgeId)
-    try container.encode(op, forKey: .op)
-    try container.encodeIfPresent(directoryId, forKey: .directoryId)
-    try container.encode(parentId, forKey: .parentId)
-    try container.encode(name, forKey: .name)
+    try container.encode(self.knowledgeId, forKey: .knowledgeId)
+    try container.encode(self.op, forKey: .op)
+    try container.encodeIfPresent(self.directoryId, forKey: .directoryId)
+    try container.encode(self.parentId, forKey: .parentId)
+    try container.encode(self.name, forKey: .name)
   }
 }
 
@@ -37257,8 +37257,8 @@ public struct WorkspaceChanged: Codable, Equatable, Sendable {
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(kind, forKey: .kind)
-    try container.encodeIfPresent(id, forKey: .id)
+    try container.encode(self.kind, forKey: .kind)
+    try container.encodeIfPresent(self.id, forKey: .id)
   }
 }
 
@@ -42243,7 +42243,8 @@ public enum ConduitEvent: Equatable, Sendable {
     }
   }
 
-  /// Whether the event belongs to one chat (its envelope has a scope).
+  /// Whether this build's event table publishes the event with a scope; false
+  /// for an unknown one. To route an event, read its envelope's `scope`.
   public var isScoped: Bool {
     switch self {
     case .turnStarted, .turnDelta, .turnBlocks, .turnCompleted, .turnFailed, .channelsMessage, .channelsTyping, .channelsAppReply, .terminalDisplayFile, .queueChanged, .messagesMerge, .chatPromptsChanged, .mcpAppsEvent, .hermesWorkChanged, .hermesRoomsChanged, .composerInsertText: return true

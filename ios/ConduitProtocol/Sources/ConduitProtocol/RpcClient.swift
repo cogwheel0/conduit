@@ -195,7 +195,7 @@ public actor RpcClient {
       let envelope = try? params.decode(EventEnvelope.self)
     else { return }
     let event = Result {
-      try ConduitEvent.decode(name: envelope.event, payload: envelope.payload)
+      try ConduitEvent.decode(name: envelope.event, payload: .object(envelope.payload))
     }
     onEvent?(envelope, event)
   }

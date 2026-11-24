@@ -70,17 +70,24 @@ const Set<String> _swiftKeywords = <String>{
 /// Names no identifier may take, even in backticks.
 const Set<String> _unusable = <String>{'self', 'Self', '_', 'Type'};
 
-/// Types the generated and hand-written Swift names unqualified: a DTO of
-/// one of these names would shadow it inside the module.
+/// Every type, protocol and module name the package's sources and tests
+/// write unqualified, Swift's and Foundation's and its own: a DTO or enum of
+/// one of these names would shadow it inside the module, so none may take
+/// one.
 const Set<String> _reservedTypeNames = <String>{
-  'Any', 'Array', 'Bool', 'Codable', 'CodingKey', 'CodingKeys', 'Data', //
-  'Decodable', 'Decoder', 'Dictionary', 'Double', 'Encodable', 'Encoder',
-  'Equatable', 'Error', 'Hashable', 'Int', 'Int64', 'JSONDecoder',
-  'JSONEncoder', 'Never', 'Optional', 'Result', 'Sendable', 'String',
-  'Void', 'ConduitProtocol', 'JSONValue', 'RpcClient', 'RpcTransport',
+  // Swift and Foundation.
+  'Any', 'Array', 'AsyncStream', 'Bool', 'CancellationError', //
+  'CheckedContinuation', 'Codable', 'CodingKey', 'CodingKeys',
+  'CustomStringConvertible', 'Data', 'Decodable', 'Decoder', 'Dictionary',
+  'Double', 'Encodable', 'Encoder', 'Equatable', 'Error', 'Foundation',
+  'Hashable', 'Int', 'Int64', 'JSONDecoder', 'JSONEncoder', 'NSLock', 'Never',
+  'Optional', 'RawRepresentable', 'Result', 'Sendable', 'Set', 'String',
+  'Swift', 'Task', 'URL', 'Void', 'XCTest', 'XCTestCase',
+  // The package's own.
+  'ConduitProtocol', 'JSONValue', 'RpcClient', 'RpcTransport',
   'ConduitMethod', 'ConduitEvent', 'EmptyParams', 'EmptyResult',
   'ErrorObject', 'MethodSpec', 'EventSpec', 'Methods', 'EventNames',
-  'Conformance', 'ErrorCode', 'NoCodingKeys', 'Routes',
+  'Conformance', 'ErrorCode', 'NoCodingKeys', 'OutgoingRequest', 'Routes',
 };
 
 final class SwiftEmitter {
@@ -343,16 +350,18 @@ final class SwiftEmitter {
     for (final field in dto.fields) {
       final id = _id(field.name, dto.name);
       if (!field.isOptional) {
-        _out.writeln('    try container.encode($id, forKey: .$id)');
+        _out.writeln('    try container.encode(self.$id, forKey: .$id)');
       } else if (field.includeIfNull) {
         _out
-          ..writeln('    if let value = $id {')
+          ..writeln('    if let value = self.$id {')
           ..writeln('      try container.encode(value, forKey: .$id)')
           ..writeln('    } else {')
           ..writeln('      try container.encodeNil(forKey: .$id)')
           ..writeln('    }');
       } else {
-        _out.writeln('    try container.encodeIfPresent($id, forKey: .$id)');
+        _out.writeln(
+          '    try container.encodeIfPresent(self.$id, forKey: .$id)',
+        );
       }
     }
     _out
@@ -389,8 +398,8 @@ final class SwiftEmitter {
         if (key.name != 'String' || key.nullable) {
           throw GeneratorError('$where: map keys must be String');
         }
-        // An untyped map is a JSON object; keep it as one.
-        if (type.args[1].isAny) return 'JSONValue';
+        // An untyped map is still an object: its values are any JSON.
+        if (type.args[1].isAny) return '[String: JSONValue]';
         return '[String: ${_elementType(type.args[1], where)}]';
     }
     if (source.isType(type.name)) return type.name;
@@ -449,7 +458,7 @@ final class SwiftEmitter {
         return '[${elements.join(', ')}]';
       case 'Map':
         if (value is! SetOrMapLiteral || value.elements.isNotEmpty) fail();
-        return type.args[1].isAny ? '.object([:])' : '[:]';
+        return '[:]';
     }
     final enumDef = source.enumDef(type.name);
     if (enumDef != null) {
@@ -714,8 +723,12 @@ final class SwiftEmitter {
       ..writeln('  }')
       ..writeln()
       ..writeln(
-        '  /// Whether the event belongs to one chat (its envelope has a '
-        'scope).',
+        "  /// Whether this build's event table publishes the event with a "
+        'scope; false',
+      )
+      ..writeln(
+        "  /// for an unknown one. To route an event, read its envelope's "
+        '`scope`.',
       )
       ..writeln('  public var isScoped: Bool {')
       ..writeln('    switch self {');
