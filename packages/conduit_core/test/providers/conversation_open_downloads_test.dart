@@ -36,6 +36,29 @@ import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
+/// Completes [armed] once a read of the messages table, made after it was
+/// set, has returned its rows.
+final class _MessageReadSignal extends QueryInterceptor {
+  Completer<void>? armed;
+
+  static final RegExp _fromMessages = RegExp(r'FROM\s+"?messages"?\b');
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await executor.runSelect(statement, args);
+    final waiting = armed;
+    if (waiting != null && _fromMessages.hasMatch(statement)) {
+      armed = null;
+      waiting.complete();
+    }
+    return rows;
+  }
+}
+
 final class _NoActiveConversation extends ActiveConversationNotifier {
   @override
   Conversation? build() => null;
@@ -486,17 +509,28 @@ void main() {
 
     test('a Direct answer a run finishes while the chat opens opens as that '
         'run stored it', () async {
+      await db.close();
+      final reads = _MessageReadSignal();
+      db = AppDatabase(NativeDatabase.memory().interceptWith(reads));
       await storeWriting('racing');
       final container = openRecording();
+      // The run holds the chat's lock, as runs do while they write.
       final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
       final held = container
           .read(chatLocksProvider)
           .runExclusive('racing', () => release.future);
 
+      final snapshotRead = Completer<void>();
+      reads.armed = snapshotRead;
       final loading = container.read(
         loadConversationProvider('racing').future,
       );
-      await pumpEventQueue(times: 50);
+      // The open has read the answer as still being written; the settle
+      // then waits on the lock.
+      await snapshotRead.future;
       // The run's own last write, under the chat's lock as runs take it.
       final row = (await db.messagesDao.getMessage('racing', 'racing-a'))!;
       await (db.update(db.messages)..where((t) => t.id.equals('racing-a')))

@@ -4041,13 +4041,18 @@ final class TurnsService implements ChatTurns, AddressReplies {
     return chatOwnerOf(conversation, chatId: session.chatId);
   }
 
-  /// A temporary chat is stored nowhere, so it carries no owner of its own:
-  /// one a Direct (or Apple) model answers is no account's, and any other is
-  /// taken as the Open WebUI account's.
-  static ChatOwner _temporaryOwner(Iterable<ChatMessage> messages) =>
-      messages.any((m) => m.metadata?['transport'] == kDirectTransport)
-      ? ChatOwner.device
-      : ChatOwner.openWebUi;
+  /// A temporary chat is stored nowhere, so it carries no owner of its own.
+  /// It is no account's only while every answer in it came from a Direct
+  /// (or Apple) model: one answer through the Open WebUI account makes it
+  /// that account's for good, whatever answers it later. One with no answer
+  /// yet is taken as the account's too.
+  static ChatOwner _temporaryOwner(Iterable<ChatMessage> messages) {
+    final answers = messages.where((m) => m.role == 'assistant');
+    return answers.isNotEmpty &&
+            answers.every((m) => m.metadata?['transport'] == kDirectTransport)
+        ? ChatOwner.device
+        : ChatOwner.openWebUi;
+  }
 
   /// Whether [change] closes [session]'s chat ([accountChangeEndsChat]).
   bool _endedBy(AccountChange change, _ChatSession session) {

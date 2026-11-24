@@ -373,4 +373,39 @@ void main() {
     final gone = await chats.get(server.chatId);
     expect(gone?.messages ?? const <ChatMessageDto>[], isEmpty);
   });
+
+  test('a temporary chat that had an Open WebUI answer before a Direct one '
+      'is the account\'s: an account change closes and forgets it', () async {
+    owui.models = const <String>['harbor-model'];
+    await signIn('ada@example.com', 'pw-ada');
+    final first = await turns.send(
+      SendTurn(model: 'harbor-model', text: 'Kettle?', temporary: true),
+    );
+    final chatId = first.chatId;
+    follow(chatId);
+    await finished(chatId);
+    finishing.remove(chatId);
+    heard.removeWhere(
+      (e) =>
+          e.event == ConduitEvents.turnFinished &&
+          e.payload['chatId'] == chatId,
+    );
+    final second = await turns.send(
+      SendTurn(model: directModel, text: 'And the tea?', chatId: chatId),
+    );
+    expect(second.chatId, chatId);
+    await finished(chatId);
+    // Both answers are in the chat: the mix is one the send path allows.
+    expect(
+      turns.openMessages(chatId)!.where((m) => m.role == 'assistant'),
+      hasLength(2),
+    );
+
+    await signInAgain('ada@example.com', 'pw-ada');
+    await pumpEventQueue();
+
+    expect(turns.temporary.contains(chatId), isFalse);
+    final gone = await chats.get(chatId);
+    expect(gone?.messages ?? const <ChatMessageDto>[], isEmpty);
+  });
 }
