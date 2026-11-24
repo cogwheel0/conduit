@@ -966,7 +966,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
           : comparisonColumnModelId(
               question: target.userMessage,
               answer: target.assistantMessage,
-              picked: pick?.chatId == request.chatId ? pick : null,
+              picked: pick?.chatId == session.chatId ? pick : null,
             );
       final model = await _resolveModel(
         request.model ?? column ?? await selectedNow?.call(),
@@ -1219,6 +1219,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       request = request.copyWith(chatId: await moved);
     }
     final session = await _sessionFor(request.chatId, account: account);
+    request = request.copyWith(chatId: session.chatId ?? request.chatId);
     var reserved = false;
     _Claim? claim;
     try {
@@ -1272,7 +1273,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
           !session.scope.messages.any((m) => m.id == answer)) {
         session.ended = null;
       }
-      final chatId = session.chatId ?? request.chatId;
+      final chatId = request.chatId;
       if (temporary.contains(chatId)) {
         temporary.replace(chatId, session.scope.messages);
         _announce(chatId);
@@ -1318,6 +1319,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     }
     _refuseTemporary(request.chatId);
     final session = await _sessionFor(request.chatId, account: account);
+    request = request.copyWith(chatId: session.chatId ?? request.chatId);
     var started = false;
     // Reserved before the first await, so a second merge, or a send, edit
     // or regenerate ([_requireIdle]), is refused while this one is admitted.
@@ -1755,6 +1757,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       );
       return;
     }
+    chatId = session.chatId ?? chatId;
     try {
       if (session.scope.isDisposed || !session.scope.isStreaming) return;
       if (!account.isCurrent) {
@@ -3013,6 +3016,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       ref = ref.copyWith(chatId: await moved);
     }
     final session = await _sessionFor(ref.chatId, account: account);
+    ref = ref.copyWith(chatId: session.chatId ?? ref.chatId);
     try {
       final info = await _queuedInfo(session, ref.messageId);
       account.require('the queued answer was sent again');
@@ -3038,6 +3042,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       ref = ref.copyWith(chatId: await moved);
     }
     final session = await _sessionFor(ref.chatId, account: account);
+    ref = ref.copyWith(chatId: session.chatId ?? ref.chatId);
     try {
       final info = await _queuedInfo(session, ref.messageId);
       account.require('the queued answer was removed');
@@ -3636,6 +3641,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     final account = AccountScope.capture(_container);
     if (_moved(chatId) case final moved?) chatId = await moved;
     final session = await _sessionFor(chatId, account: account);
+    chatId = session.chatId ?? chatId;
     _Claim? claim;
     try {
       final running = session.turn;
@@ -3773,9 +3779,16 @@ final class TurnsService implements ChatTurns, AddressReplies {
 
   /// [account]: the account the request began under, captured at its entry
   /// (now, when not given).
+  ///
+  /// A chat that moved to its server id while the request waited (for the
+  /// model, the backend) is the chat it became: settled here, after the
+  /// last wait, so the caller reads the chat's id from the session from
+  /// then on. Not for [follow] false: a hold released by the id it was
+  /// taken under.
   Future<_ChatSession> _sessionFor(
     String? chatId, {
     AccountScope? account,
+    bool follow = true,
   }) async {
     account ??= AccountScope.capture(_container);
     if (_disposed) {
@@ -3787,6 +3800,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
     // Whatever the caller waited for before this (a model, the backend),
     // an open chat too is handed only to the account that asked.
     account.require('the chat was asked for');
+    if (follow) {
+      if (_moved(chatId) case final moved?) chatId = await moved;
+    }
     _refuseDeleted(chatId);
     if (chatId != null) {
       final existing = _sessionOf(chatId);
@@ -4300,7 +4316,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// until [releaseScope]: a window showing a Hermes chat follows its
   /// agent's work there between turns.
   Future<ProviderContainer> holdScope(String chatId) async {
-    final session = await _sessionFor(chatId);
+    final session = await _sessionFor(chatId, follow: false);
     // Held: a turn's own hold comes and goes beside this one.
     session.linger?.cancel();
     return session.scope.container;

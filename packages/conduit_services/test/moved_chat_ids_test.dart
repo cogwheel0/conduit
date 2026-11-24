@@ -7,6 +7,10 @@ import 'dart:io';
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show modelsProvider;
+import 'package:conduit_core/providers/storage_providers.dart'
+    show optimizedStorageServiceProvider;
 import 'package:conduit_core/sync/sync_engine.dart' show syncEngineProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
@@ -123,15 +127,20 @@ void main() {
     return done.future.whenComplete(untap);
   }
 
-  /// A chat with one question and its answer, made here and then stored by
-  /// the server: its old `local:` id and the server's.
-  Future<(String, String)> movedChat() async {
+  /// A chat with one question and its answer, made here and not yet
+  /// stored by the server: its `local:` id.
+  Future<String> localChat() async {
     final accepted = await turns.send(
       SendTurn(model: model, text: 'Which shelf?'),
     );
     final old = accepted.chatId;
     subscribeWindow(events, turns, 'window', <String>[old]);
     await finished(old);
+    return old;
+  }
+
+  /// [old] stored by the server, and so moved to its id: that id.
+  Future<String> move(String old) async {
     final moved = Completer<String>();
     events.attach('remap-$old', (e) {
       if (e.event == ConduitEvents.routeRemap &&
@@ -143,7 +152,29 @@ void main() {
     await runtime.container.read(syncEngineProvider.notifier).drainNow();
     final now = await moved.future;
     expect(now, isNot(old));
-    return (old, now);
+    return now;
+  }
+
+  /// A chat made here and then stored by the server: its old `local:` id
+  /// and the server's.
+  Future<(String, String)> movedChat() async {
+    final old = await localChat();
+    return (old, await move(old));
+  }
+
+  /// The model list read again from the server, and held there, so the
+  /// next request that needs it waits: what lets it go.
+  Future<Completer<void>> holdModels() async {
+    final hold = owui.holdModels = Completer<void>();
+    addTearDown(() {
+      if (!hold.isCompleted) hold.complete();
+    });
+    // No cached list to answer with first.
+    await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .saveLocalModels(const []);
+    runtime.container.invalidate(modelsProvider);
+    return hold;
   }
 
   test('a chat asked for by its old id answers with its transcript, under '
@@ -277,6 +308,46 @@ void main() {
     expect(escaped, isEmpty);
     expect(await bob, isNot(ada));
     expect(owui.chats.stored.keys, contains(now));
+  });
+
+  test('a send that waits for the models while its chat moves continues '
+      'the moved chat', () async {
+    await signIn('ada@example.com', 'pw-ada');
+    final old = await localChat();
+    final models = await holdModels();
+
+    final sending = turns.send(
+      SendTurn(model: model, text: 'And the next?', chatId: old),
+    );
+    await owui.modelsAsked.future;
+    final now = await move(old);
+    models.complete();
+
+    final accepted = await sending;
+    expect(accepted.chatId, now);
+    await finished(now, messageId: accepted.assistantMessageId);
+    expect((await chats.list()).chats.map((c) => c.id), <String>[now]);
+    expect((await chats.get(now))!.messages, hasLength(4));
+  });
+
+  test('a call that waits for its model while its chat moves holds the '
+      'moved chat', () async {
+    await signIn('ada@example.com', 'pw-ada');
+    final old = await localChat();
+    final models = await holdModels();
+
+    final holding = turns.holdForCall(chatId: old, model: model);
+    await owui.modelsAsked.future;
+    final now = await move(old);
+    models.complete();
+
+    final hold = await holding;
+    addTearDown(hold.release);
+    expect(hold.chatId, now);
+    expect(hold.scope.messages.map((m) => m.role), <String>[
+      'user',
+      'assistant',
+    ]);
   });
 }
 

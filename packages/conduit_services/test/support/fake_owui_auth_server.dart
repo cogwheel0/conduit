@@ -54,6 +54,11 @@ final class FakeOwuiAuthServer {
   Completer<void> settingsAsked = Completer<void>();
   Completer<void> sessionChecked = Completer<void>();
 
+  /// While set, a read of the model list waits for it; [modelsAsked]
+  /// completes as one reaches it.
+  Completer<void>? holdModels;
+  Completer<void> modelsAsked = Completer<void>();
+
   /// While set, a sign-in proxy in front turns every request away with its
   /// own sign-in page (HTML), as an expired proxy session does -- but one
   /// carrying the renewed proxy cookie [proxyAccepts], when that is set.
@@ -134,6 +139,8 @@ final class FakeOwuiAuthServer {
     chats._close();
     final settings = holdSettings;
     if (settings != null && !settings.isCompleted) settings.complete();
+    final models = holdModels;
+    if (models != null && !models.isCompleted) models.complete();
     return _server.close(force: true);
   }
 
@@ -329,6 +336,10 @@ final class FakeOwuiAuthServer {
       return json(<String, dynamic>{'status': true});
     }
     if (path == '/api/models' || path == '/api/v1/models') {
+      if (holdModels case final hold?) {
+        if (!modelsAsked.isCompleted) modelsAsked.complete();
+        await hold.future;
+      }
       return json(<String, dynamic>{
         'data': <Object>[
           for (final id in models)
