@@ -311,7 +311,9 @@ pub fn card(request: &UiRequest) -> Card {
             },
             None => Card::Unsupported,
         },
-        UiRequestKind::HermesDecision | UiRequestKind::Unknown => Card::Unsupported,
+        UiRequestKind::HermesDecision
+        | UiRequestKind::LibreChatToolCall
+        | UiRequestKind::Unknown => Card::Unsupported,
     }
 }
 

@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.80.0";
+pub const PROTOCOL_VERSION: &str = "1.81.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -12995,16 +12995,40 @@ pub enum UiRequestKind {
     HermesSecret,
     /// A LibreChat agent paused its run to ask the user something.
     /// `detail` has `question`, an optional `description`, `options` (a list
-    /// of `{label, description?}`) and `multiSelect`; `messageArgs.chatId`
-    /// names the chat. The answer goes back as `UiResponse.text` (an
-    /// option's label, several joined with ", ", or the user's own words)
-    /// with choice `answer` (or `allow`, as the window's question card says
-    /// it); `cancel` stops the reply.
+    /// of `{label, value}`) and `multiSelect`; `messageArgs.chatId` names the
+    /// chat, shown and answered there only, and `messageArgs.progress` the
+    /// question's place in a batch (`2/3`). The answer goes back as
+    /// `UiResponse.text`, with choice `answer` (or `allow`): an option's
+    /// label, several as a JSON list of labels, or the user's own words. The
+    /// core sends each option's value. The card waits until it is answered:
+    /// nothing here stops the reply.
     ///
-    /// A LibreChat tool call waiting for approval is a `toolApproval` with
-    /// `detail.backend` `libreChat`.
+    /// The card is put again, with `detail.failed` true, after the answer
+    /// could not be sent, and with `detail.refusal` (`empty`) for an answer
+    /// the core did not take.
     #[serde(rename = "libreChatQuestion")]
     LibreChatQuestion,
+    /// A LibreChat tool call waiting for the user's decision.
+    /// `messageArgs` has `title` (the tool's name), `message` (its
+    /// description), `chatId` (shown and answered in that chat only) and,
+    /// with several calls, `progress` (`1/2`). `detail` has `arguments` (the
+    /// call's arguments as the user reads them, absent when there are none),
+    /// `editableArguments` (JSON to start an edit from) and
+    /// `allowedDecisions`, the decisions the server allows for the call in
+    /// its order, from `approve`, `reject`, `edit` and `respond`.
+    ///
+    /// The answer is `UiResponse.choice`, one of the allowed decisions; for
+    /// `edit`, `UiResponse.text` holds the arguments to run with as a JSON
+    /// object, and for `respond` what the tool returns instead of running.
+    /// The core checks both. The card waits until it is answered: nothing
+    /// here refuses or stops on its own.
+    ///
+    /// The card is put again, with `detail.failed` true, after the decisions
+    /// could not be sent, and with `detail.refusal` (`notAllowed`,
+    /// `invalidArguments`, `empty`) and `detail.typed` (what was sent) for an
+    /// answer the core did not take.
+    #[serde(rename = "libreChatToolCall")]
+    LibreChatToolCall,
     /// Hermes holds a switch to another model (a pricier, data-sharing or
     /// smaller-context one) until the user confirms it: `messageArgs.model`
     /// (the model's name), when Hermes gave one `messageArgs.reason`, and
