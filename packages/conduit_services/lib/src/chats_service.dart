@@ -519,6 +519,7 @@ final class ChatsService {
   /// onto a chat that has since been deleted elsewhere is an ordinary thing,
   /// not an error worth a banner.
   Future<ChatDetail?> get(String id) async {
+    id = await _current(id);
     // A Hermes session: its transcript is Hermes's, not the database's.
     if (hermesSessionOf(id) case final sessionId? when _hermes != null) {
       final hermes = _hermes;
@@ -787,6 +788,7 @@ final class ChatsService {
       TagList(tags: _tagsFrom(await _api.getAllChatTags()));
 
   Future<TagList> addTag(ChatTagEdit edit) async {
+    edit = edit.copyWith(chatId: await _current(edit.chatId));
     final name = edit.name.trim();
     // Open WebUI refuses "none" too: it is what its filter UI means by
     // "untagged".
@@ -802,6 +804,7 @@ final class ChatsService {
   }
 
   Future<TagList> removeTag(ChatTagEdit edit) async {
+    edit = edit.copyWith(chatId: await _current(edit.chatId));
     final tags = await _api.removeChatTag(edit.chatId, edit.name.trim());
     await _afterEnvelopeChange(edit.chatId);
     return TagList(tags: _tagsFrom(tags));
@@ -851,6 +854,7 @@ final class ChatsService {
   static bool _isDirectLocal(String id) => id.startsWith('direct-local:');
 
   Future<ChatList> rename(String id, String title) async {
+    id = await _current(id);
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
       throw const RpcError(
@@ -874,6 +878,7 @@ final class ChatsService {
   }
 
   Future<ChatList> setPinned(String id, {required bool value}) async {
+    id = await _current(id);
     if (_isDirectLocal(id)) {
       await mutations.pinConversation(_container, id, value);
     } else if (_isLibreChat(id)) {
@@ -885,6 +890,7 @@ final class ChatsService {
   }
 
   Future<ChatList> setArchived(String id, {required bool value}) async {
+    id = await _current(id);
     await _archive(id, value);
     return _refresh();
   }
@@ -967,6 +973,7 @@ final class ChatsService {
   }
 
   Future<ChatList> delete(String id) async {
+    id = await _current(id);
     // Never on the server: forgetting it here is the whole delete.
     if (_temporary.contains(id)) {
       _temporary.delete(id);
@@ -996,6 +1003,9 @@ final class ChatsService {
   /// Carries on past a failure and reports it: a conversation already
   /// deleted elsewhere is no reason to leave the other nineteen alone.
   Future<BulkChatsResult> bulk(BulkChats request) async {
+    request = request.copyWith(
+      chatIds: <String>[for (final id in request.chatIds) await _current(id)],
+    );
     final failed = <String>[];
     for (final id in request.chatIds.toSet()) {
       try {
@@ -1026,6 +1036,7 @@ final class ChatsService {
   /// Every message on every branch, for the overview, from the
   /// local copy -- which keeps the whole tree, not just the path shown.
   Future<ChatTree> tree(String chatId) async {
+    chatId = await _current(chatId);
     final database = _isDirectLocal(chatId)
         ? _container.read(directLocalDatabaseProvider)
         : _container.read(appDatabaseProvider);
@@ -1059,6 +1070,7 @@ final class ChatsService {
   /// answer to the same message in the same role (Continue from This
   /// Response). Refused while the chat is answering.
   Future<ChatDetail?> setCurrent(ChatCurrent request) async {
+    request = request.copyWith(chatId: await _current(request.chatId));
     _refuseWhileAnswering(request.chatId);
     // The last answer's own pulls first: one that read the server before
     // this change and lands after it would put the old branch back. And a
@@ -1183,6 +1195,7 @@ final class ChatsService {
 
   /// [chatId] as the core loads it, or not found.
   Future<Conversation> _load(String chatId) async {
+    chatId = await _current(chatId);
     try {
       return await readSettled(
         _container,
@@ -1196,6 +1209,10 @@ final class ChatsService {
       );
     }
   }
+
+  /// The id [id] goes by now, for a request that still names a chat's
+  /// `local:` id after it moved to the server's ([currentChatId]).
+  Future<String> _current(String id) => currentChatId(_container, id);
 
   void _refuseWhileAnswering(String chatId) {
     if (turns?.isRunning(chatId) ?? false) {
@@ -1235,6 +1252,7 @@ final class ChatsService {
   /// [ForkChat.messageId]: Open WebUI's fork, through the core, stored here
   /// as the server made it. Every window's sidebar lists it.
   Future<ChatForked> fork(ForkChat request) async {
+    request = request.copyWith(chatId: await _current(request.chatId));
     _refuseWhileAnswering(request.chatId);
     if (_isLibreChat(request.chatId)) {
       // LibreChat's fork: the chat up to that message, copied on its
@@ -1265,6 +1283,7 @@ final class ChatsService {
   /// [ExportChat.chatId] as a file: the JSON backup Open WebUI imports, every
   /// branch, or the shown branch as Markdown, read from the stored copy.
   Future<ChatExportFile> export(ExportChat request) async {
+    request = request.copyWith(chatId: await _current(request.chatId));
     final conversation = await _load(request.chatId);
     final owner = captureChatMutationOwner(_container, conversation);
     final now = _now();
@@ -1308,6 +1327,7 @@ final class ChatsService {
   /// Asks the server's model for a title, as the phone's Generate Title
   /// does, and saves it unless the chat was renamed meanwhile.
   Future<GeneratedTitle> generateTitle(String chatId) async {
+    chatId = await _current(chatId);
     if (!_titlesBeingGenerated.add(chatId)) {
       throw const RpcError(
         code: ConduitErrorCodes.conflict,
@@ -1347,6 +1367,7 @@ final class ChatsService {
   /// does, or read, as opening it does, or as the user's own Mark as Read
   /// does ([MarkUnread.explicit]).
   Future<ChatList> markUnread(MarkUnread request) async {
+    request = request.copyWith(chatId: await _current(request.chatId));
     if (request.unread) {
       try {
         await markConversationUnread(_container, request.chatId);
@@ -1432,6 +1453,7 @@ final class ChatsService {
   /// WebUI merges the chat's top-level keys, so sending `system` alone
   /// leaves the transcript as it was.
   Future<ChatDetail?> setSystemPrompt(ChatSystemPrompt request) async {
+    request = request.copyWith(chatId: await _current(request.chatId));
     final settings = _chatSettings;
     if (settings == null) {
       // No settings service (tests): the legacy field, as before.
@@ -1623,6 +1645,7 @@ final class ChatsService {
   }
 
   Future<ChatList> move(MoveChat request) async {
+    request = request.copyWith(chatId: await _current(request.chatId));
     await _api.moveConversationToFolder(request.chatId, request.folderId);
     await _afterEnvelopeChange(request.chatId);
     return _refresh();
@@ -1632,6 +1655,7 @@ final class ChatsService {
   /// ([ShareChat.publish]), or only read; and who may open it, set when
   /// [ShareChat.audience] says (the core's access grants for the chat).
   Future<ChatShare> share(ShareChat request) async {
+    request = request.copyWith(id: await _current(request.id));
     final id = request.id;
     String? shareId;
     String? url;
@@ -1748,6 +1772,7 @@ final class ChatsService {
   ];
 
   Future<ChatShare> unshare(String id) async {
+    id = await _current(id);
     try {
       await deleteConversationShareLink(_container, id);
     } on Object catch (error) {

@@ -160,6 +160,37 @@ Conversation withChatStorageProvenance(
   return annotated.copyWith(metadata: metadata);
 }
 
+/// The id [chatId] goes by now. A chat made here keeps a `local:` id until
+/// the server stores it, then moves to the server's id (`route.remap`); a
+/// request that still names the old id, from a window that missed the move,
+/// means the chat it became. Only the active Open WebUI account's moves
+/// count: they are recorded in its own database, so an old id of another
+/// account's names nothing here. Any other id, and one that never moved,
+/// comes back as it is.
+Future<String> currentChatId(dynamic ref, String chatId) async {
+  final identity = ChatStorageIdentity.parse(chatId);
+  if (identity.storage != null &&
+      identity.storage != ChatStorageKind.openWebUi) {
+    return chatId;
+  }
+  if (!identity.rawId.startsWith('local:')) return chatId;
+  final repository =
+      ref.read(chatDatabaseRepositoryProvider) as ChatDatabaseRepository;
+  final location = repository.openWebUiLocation;
+  if (location == null) return chatId;
+  final moved = await repository.resolveCommittedChatRemapTarget(
+    location,
+    recordedChatId: identity.rawId,
+  );
+  if (moved == null) return chatId;
+  return identity.storage == null
+      ? moved
+      : ChatStorageIdentity(
+          rawId: moved,
+          storage: ChatStorageKind.openWebUi,
+        ).scopedId;
+}
+
 ChatStorageKind? chatStorageKindOf(Conversation? conversation) {
   if (conversation == null) return null;
   return chatStorageFromConversation(conversation);
