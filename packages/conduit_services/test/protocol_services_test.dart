@@ -262,7 +262,8 @@ void main() {
     expect(seen, isNot(contains(ConduitEvents.hermesChanged)));
   });
 
-  test('a reading stopped as transports close hears its window answer the '
+  test('a reading stopped as transports close lets go before closing waits '
+      'for anything, takes no next sentence, and hears its window answer the '
       'stop, so closing does not wait out the timeout', () async {
     // Not about databases: on files, a rare late write in db/ at teardown
     // (cause unknown, older than this test) failed the directory's delete.
@@ -275,7 +276,8 @@ void main() {
     final window = json_rpc.Peer(pipe.foreign);
     addTearDown(window.close);
     // The window's speech engine: it answers every command, and says what
-    // the answer to the stop was.
+    // it was asked to say and what the answer to the stop was.
+    final said = <SpeechCommand>[];
     final spoke = Completer<void>();
     final stopAnswered = Completer<Object?>();
     registerEventSink(
@@ -288,8 +290,9 @@ void main() {
           SpeechReport(id: command.id, value: true).toJson(),
         );
         switch (command.kind) {
-          case SpeechCommandKind.deviceSpeak when !spoke.isCompleted:
-            spoke.complete();
+          case SpeechCommandKind.deviceSpeak:
+            said.add(command);
+            if (!spoke.isCompleted) spoke.complete();
           case SpeechCommandKind.deviceStop when !stopAnswered.isCompleted:
             answered.then(
               stopAnswered.complete,
@@ -297,60 +300,6 @@ void main() {
             );
           default:
         }
-      },
-    );
-    unawaited(window.listen());
-    await handshakeAndAsk(window);
-    await window.sendRequest(
-      ConduitMethods.eventsSubscribe,
-      const EventSubscription().toJson(),
-    );
-    await window.sendRequest(
-      ConduitMethods.speechPreview,
-      const SpeechPreview(
-        text: 'The harbour lights come on one by one as evening settles in.',
-      ).toJson(),
-    );
-    await spoke.future;
-
-    var closed = false;
-    final closing = built.closeTransports().then((_) => closed = true);
-
-    expect(await stopAnswered.future, isA<Map<dynamic, dynamic>>());
-    await pumpEventQueue();
-    expect(closed, isTrue);
-    await closing;
-    // Stopped: from here a report reaches nothing.
-    expect(built.core.speechReports, isNull);
-  });
-
-  test('once transports begin closing, a reading takes no next sentence: '
-      'the end of its sentence arriving meanwhile starts nothing', () async {
-    await startDesktop(memoryDatabases: true);
-    final built = services()..attach(runtime.container);
-    final pipe = StreamChannelController<String>(sync: true);
-    final session = built.openSession(pipe.local, sessionId: 'phone');
-    addTearDown(session.close);
-    unawaited(session.listen());
-    final window = json_rpc.Peer(pipe.foreign);
-    addTearDown(window.close);
-    final said = <SpeechCommand>[];
-    final spoke = Completer<void>();
-    registerEventSink(
-      window,
-      onEvent: (envelope) {
-        if (envelope.event != ConduitEvents.speechCommand) return;
-        final command = SpeechCommand.fromJson(envelope.payload);
-        if (command.kind == SpeechCommandKind.deviceSpeak) {
-          said.add(command);
-          if (!spoke.isCompleted) spoke.complete();
-        }
-        window
-            .sendRequest(
-              ConduitMethods.speechReport,
-              SpeechReport(id: command.id, value: true).toJson(),
-            )
-            .ignore();
       },
     );
     unawaited(window.listen());
@@ -370,7 +319,8 @@ void main() {
     );
     await spoke.future;
 
-    final closing = built.closeTransports();
+    var closed = false;
+    final closing = built.closeTransports().then((_) => closed = true);
     // Before closing has waited for anything (a call's stop can take
     // seconds), the reading is let go.
     expect(TtsManager.instance.isPlaying, isFalse);
@@ -386,8 +336,18 @@ void main() {
     } on json_rpc.RpcException {
       // Refused once the reading has stopped: nothing to advance either way.
     }
+
+    expect(
+      await stopAnswered.future,
+      isA<Map<dynamic, dynamic>>(),
+      reason: "the window's answer to the stop was refused",
+    );
+    await pumpEventQueue();
+    expect(closed, isTrue);
     await closing;
     expect(said, hasLength(1), reason: 'no next sentence after closing began');
+    // Stopped: from here a report reaches nothing.
+    expect(built.core.speechReports, isNull);
   });
 
   test('closing again after disposal shows sessions nothing', () async {
