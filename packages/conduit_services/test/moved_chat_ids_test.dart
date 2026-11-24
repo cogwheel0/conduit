@@ -41,8 +41,10 @@ void main() {
   late String model;
   late List<EventEnvelope> heard;
   late _MoveLookups moves;
+  void Function()? beforeBranchCheck;
 
   setUp(() async {
+    beforeBranchCheck = null;
     heard = <EventEnvelope>[];
     temporary = Directory.systemTemp.createTempSync('moved-chat-ids');
     addTearDown(() => temporary.deleteSync(recursive: true));
@@ -69,7 +71,12 @@ void main() {
     addTearDown(accounts.dispose);
     auth = AuthService(runtime.container);
     addTearDown(auth.dispose);
-    chats = ChatsService(runtime.container, events: events)..turns = turns;
+    // The branch check's waits pass at once: no test waits on real time.
+    chats = ChatsService(
+      runtime.container,
+      events: events,
+      pause: (_) async => beforeBranchCheck?.call(),
+    )..turns = turns;
     addTearDown(chats.dispose);
     final saved = await DirectService(runtime.container).save(
       DirectConnectionEdit(

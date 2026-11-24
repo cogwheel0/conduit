@@ -225,6 +225,7 @@ final class ChatsService {
     this._container, {
     EventBus? events,
     DateTime Function()? now,
+    Future<void> Function(Duration)? pause,
     TemporaryChats? temporary,
     HermesService? hermes,
     MessageBlocks? blocks,
@@ -234,6 +235,7 @@ final class ChatsService {
        _queued = queued,
        blocks = blocks ?? MessageBlocks(),
        _now = now ?? DateTime.now,
+       _pause = pause ?? Future<void>.delayed,
        _temporary = temporary ?? TemporaryChats() {
     if (events != null) {
       _announceListChanges();
@@ -395,6 +397,9 @@ final class ChatsService {
   /// that only reads the list does not have to build one.
   final EventBus? _events;
   final DateTime Function() _now;
+
+  /// How the branch check waits ([_confirmBranch]).
+  final Future<void> Function(Duration) _pause;
 
   /// The same memory `TurnsService` writes temporary conversations to.
   final TemporaryChats _temporary;
@@ -1137,7 +1142,7 @@ final class ChatsService {
     Future<String> Function() select,
   ) async {
     for (var attempt = 0; attempt < 3; attempt++) {
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await _pause(const Duration(milliseconds: 300));
       try {
         final raw = await _api.getChatRaw(chatId);
         final chat = raw?['chat'];
