@@ -96,7 +96,9 @@ final class _Authority {
 
   static const Object silent = Object();
 
-  final Map<String, Object?> readyPayload = const {'session_authority': true};
+  /// What `gateway.ready` says. An empty payload makes this a legacy
+  /// dashboard socket, which resolves a Bot Chat by `session_id` only.
+  Map<String, Object?> readyPayload = const {'session_authority': true};
   final channel = _MockWebSocketChannel();
   final sink = _MockWebSocketSink();
   final incoming = StreamController<dynamic>.broadcast();
@@ -2341,6 +2343,40 @@ void main() {
         ..has((e) => e.reason, 'reason').equals('profile_mismatch');
       check(gateway.calls('session.resume')).length.equals(1);
       check(gateway.calls('session.create')).isEmpty();
+    },
+  );
+
+  test(
+    'a legacy dashboard socket fails closed on a bot chat it cannot resume',
+    () async {
+      final gateway = _Authority()..readyPayload = const {};
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          throw const _Refusal(4130, 'Session too large to resume');
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+
+      Object? failure;
+      try {
+        await service.openBotChat(
+          const HermesBot(name: 'researcher', title: 'Research'),
+        );
+      } catch (error) {
+        failure = error;
+      }
+      check(failure)
+          .isA<HermesDesktopRpcException>()
+          .has((error) => error.code, 'code')
+          .equals(4130);
+      // A legacy socket mints a second "Bot Chat" on any create, so a refusal
+      // that is not "not found" must never reach the title lookup or one.
+      check(gateway.calls('session.create')).isEmpty();
+      final resumes = gateway.calls('session.resume');
+      check(resumes).length.equals(1);
+      check(resumes.single.containsKey('session_id')).isTrue();
+      check(resumes.single.containsKey('title')).isFalse();
     },
   );
 

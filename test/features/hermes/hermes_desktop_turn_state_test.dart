@@ -549,56 +549,6 @@ void main() {
   });
 
   test(
-    'a legacy bot chat fails closed on non-not-found resume errors without creating a duplicate',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
-      final harness = _GatewayHarness();
-      final rpc = HermesDesktopRpcClient(
-        channelFactory: (_, _, {httpClient}) => harness.channel,
-      );
-      final service = HermesDesktopApiService(
-        config: HermesConfig(
-          enabled: true,
-          baseUrl: 'https://hermes.example',
-          mode: HermesBackendMode.desktopGateway,
-          desktopProfile: 'default',
-          desktopCredentials: HermesDesktopCredentials(
-            legacyToken: 'session-token',
-          ),
-        ),
-        dio: _statusDio(),
-        rpc: rpc,
-      );
-      addTearDown(() async {
-        service.close();
-        await harness.dispose();
-      });
-
-      harness.errorResponder = (method) => method == 'session.resume'
-          ? const {'code': 4130, 'message': 'Session too large to resume'}
-          : null;
-
-      Object? failure;
-      try {
-        await service.openBotChat(
-          const HermesBot(name: 'researcher', title: 'Research'),
-        );
-      } catch (error) {
-        failure = error;
-      }
-      check(failure)
-          .isA<HermesDesktopRpcException>()
-          .has((e) => e.code, 'code')
-          .equals(4130);
-
-      check(
-        harness.sent.where((frame) => frame['method'] == 'session.create'),
-      ).isEmpty();
-    },
-  );
-
-  test(
     'bot chat transcripts use gateway history instead of dashboard REST',
     () async {
       SharedPreferences.setMockInitialValues({});
