@@ -10,6 +10,11 @@
 //!   and an agent answer; send and stream; Stop; Regenerate;
 //! * rename, pin, archive, Duplicate and delete in the list;
 //! * a tool approval;
+//! * a paused reply's cards: Approve, Reject, Edit (an edit that is not a
+//!   JSON object refused on the card, then one that is), Respond, a call
+//!   only Respond answers, two questions answered by value, a card waiting
+//!   across the main window closing and opening, and a card that shows only
+//!   in its own chat;
 //! * a prompt with variables;
 //! * a memory added and deleted in Settings › Personalization;
 //! * a share link;
@@ -117,6 +122,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= chats(dir, cx).await;
     pass &= agent_stop_regenerate(&fake, dir, cx).await;
     pass &= approval(dir, cx).await;
+    pass &= pauses(dir, cx).await;
     pass &= tools(&fake, dir, cx).await;
     pass &= prompt(dir, cx).await;
     pass &= list_actions(&fake, dir, cx).await;
@@ -387,6 +393,306 @@ async fn approval(dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= ok(
         "Allow runs the tool and the answer goes on",
         wait_answer(cx, Duration::from_secs(60)).await && cx.update(last_answer).contains("06:40"),
+    );
+    pass
+}
+
+/// The chat on screen.
+fn open_chat(cx: &mut App) -> Option<String> {
+    cx.global::<AppState>()
+        .stores
+        .navigation
+        .read(cx)
+        .selection()
+        .chat_id()
+}
+
+/// The paused reply's card the chat on screen shows.
+fn pause_card(cx: &mut App) -> Option<conduit_protocol::UiRequest> {
+    let chat = open_chat(cx);
+    cx.global::<AppState>()
+        .stores
+        .ui_requests
+        .read(cx)
+        .top_for(chat.as_deref())
+        .filter(|r| {
+            matches!(
+                r.kind,
+                UiRequestKind::LibreChatToolCall | UiRequestKind::LibreChatQuestion
+            )
+        })
+        .cloned()
+}
+
+/// Waits for a card in the chat on screen other than `after`, drawn.
+async fn wait_pause_card(
+    after: Option<&str>,
+    cx: &mut AsyncApp,
+) -> Option<conduit_protocol::UiRequest> {
+    let after = after.map(str::to_string);
+    let shown = wait_until(cx, Duration::from_secs(30), move |cx| {
+        pause_card(cx).is_some_and(|r| Some(&r.request_id) != after.as_ref())
+    })
+    .await;
+    if !shown {
+        return None;
+    }
+    // The card draws, and its fields are its own.
+    settle(cx, 400).await;
+    cx.update(pause_card)
+}
+
+fn in_approvals<R>(
+    cx: &mut AsyncApp,
+    f: impl FnOnce(
+        &mut crate::views::approvals::ApprovalsView,
+        &mut Window,
+        &mut gpui_kit::Context<crate::views::approvals::ApprovalsView>,
+    ) -> R,
+) -> Option<R> {
+    in_main(cx, |mw, window, cx| {
+        let view = mw.approvals.clone();
+        view.update(cx, |v, cx| f(v, window, cx))
+    })
+}
+
+/// The reply goes on and ends with `text` in it.
+async fn replied(text: &'static str, cx: &mut AsyncApp) -> bool {
+    wait_until(cx, Duration::from_secs(60), move |cx| {
+        last_answer(cx).contains(text) && chat_store(cx).is_some_and(|s| !s.read(cx).is_streaming())
+    })
+    .await
+}
+
+/// Starts a reply that pauses on `prompt` in a new chat, and waits for its
+/// card.
+async fn paused_reply(prompt: &str, cx: &mut AsyncApp) -> Option<conduit_protocol::UiRequest> {
+    new_chat(cx).await;
+    if !select_model("harbour-small", cx).await {
+        return None;
+    }
+    send(prompt, cx).await;
+    wait_pause_card(None, cx).await
+}
+
+/// Every decision a paused reply's card offers, against the fake: each
+/// step checks the reply the server went on to write.
+async fn pauses(dir: &Path, cx: &mut AsyncApp) -> bool {
+    use crate::stores::ui_requests::{Card, LibreChatDecision, card};
+    let mut pass = true;
+
+    // Approve, as the one call allowing every decision offers them all.
+    let Some(first) = paused_reply("Please decide on the tide", cx).await else {
+        return ok("a call that allows every decision pauses the reply", false);
+    };
+    let all = matches!(card(&first), Card::LibreChatTool(t) if t.allowed == [
+        LibreChatDecision::Approve,
+        LibreChatDecision::Reject,
+        LibreChatDecision::Edit,
+        LibreChatDecision::Respond,
+    ]);
+    pass &= ok("the card offers Approve, Reject, Edit and Respond", all);
+    shoot_main(dir, "librechat-pause-decide", cx).await;
+    let first_chat = cx.update(open_chat);
+    pass &= ok(
+        "Approve runs the call",
+        in_approvals(cx, |v, _, cx| v.allow(cx)).unwrap_or(false)
+            && replied("Approved: the next high tide at Port Wren", cx).await,
+    );
+
+    // Reject.
+    pass &= ok(
+        "a second call pauses",
+        paused_reply("Please decide on the tide", cx)
+            .await
+            .is_some(),
+    );
+    pass &= ok(
+        "Reject does not run it",
+        in_approvals(cx, |v, _, cx| v.deny(cx)).unwrap_or(false)
+            && replied("Rejected: I did not look up the tide.", cx).await,
+    );
+
+    // Edit: what is not a JSON object is refused on the card and kept.
+    let edit = paused_reply("Please decide on the tide", cx).await;
+    pass &= ok("a third call pauses", edit.is_some());
+    let refused = in_approvals(cx, |v, window, cx| {
+        v.librechat_compose(LibreChatDecision::Edit, "[\"Gull Haven\"]", window, cx) && !v.allow(cx)
+    })
+    .unwrap_or(false);
+    settle(cx, 300).await;
+    shoot_main(dir, "librechat-pause-edit-refused", cx).await;
+    let (said, kept) = in_approvals(cx, |v, _, cx| v.librechat_refused(cx)).unwrap_or_default();
+    pass &= ok(
+        "an edit that is not a JSON object is refused on the card, as typed",
+        refused && said && kept == "[\"Gull Haven\"]",
+    );
+    let edit_id = edit.map(|r| r.request_id);
+    pass &= ok(
+        "nothing was sent for it: the card still waits",
+        cx.update(pause_card).map(|r| r.request_id) == edit_id,
+    );
+    pass &= ok(
+        "an edited argument runs the call with it",
+        in_approvals(cx, |v, window, cx| {
+            v.librechat_compose(
+                LibreChatDecision::Edit,
+                "{\"harbour\": \"Gull Haven\"}",
+                window,
+                cx,
+            ) && v.allow(cx)
+        })
+        .unwrap_or(false)
+            && replied("Edited: the next high tide at Gull Haven", cx).await,
+    );
+
+    // Respond.
+    pass &= ok(
+        "a fourth call pauses",
+        paused_reply("Please decide on the tide", cx)
+            .await
+            .is_some(),
+    );
+    pass &= ok(
+        "Respond answers in the tool's place",
+        in_approvals(cx, |v, window, cx| {
+            v.librechat_compose(
+                LibreChatDecision::Respond,
+                "High tide at 07:15.",
+                window,
+                cx,
+            ) && v.allow(cx)
+        })
+        .unwrap_or(false)
+            && replied(
+                "Responded: the tool was not run, and returned High tide at 07:15.",
+                cx,
+            )
+            .await,
+    );
+
+    // A call only Respond answers.
+    let only = paused_reply("respond only, please", cx).await;
+    pass &= ok(
+        "a respond-only call offers Respond alone",
+        only.as_ref().is_some_and(|r| {
+            matches!(card(r), Card::LibreChatTool(t) if t.allowed == [LibreChatDecision::Respond])
+        }),
+    );
+    pass &= ok(
+        "⌥⌘↩ approves nothing there",
+        in_approvals(cx, |v, _, cx| !v.allow(cx)).unwrap_or(false),
+    );
+    pass &= ok(
+        "its response goes",
+        in_approvals(cx, |v, window, cx| {
+            v.librechat_compose(
+                LibreChatDecision::Respond,
+                "Closed for the season.",
+                window,
+                cx,
+            ) && v.allow(cx)
+        })
+        .unwrap_or(false)
+            && replied("returned Closed for the season.", cx).await,
+    );
+
+    // Two questions, answered by value.
+    let harbour = paused_reply("Please ask several things", cx).await;
+    pass &= ok(
+        "the first of two questions shows, 1 of 2",
+        harbour.as_ref().is_some_and(
+            |r| matches!(card(r), Card::LibreChatQuestion(q) if q.progress == Some((1, 2))),
+        ),
+    );
+    pass &= ok(
+        "a question has no Cancel",
+        in_approvals(cx, |v, _, cx| !v.deny(cx)).unwrap_or(false),
+    );
+    let picked = in_approvals(cx, |v, window, cx| {
+        v.pick(0, "Gull Haven".into(), window, cx);
+        v.allow(cx)
+    })
+    .unwrap_or(false);
+    let days = wait_pause_card(harbour.as_ref().map(|r| r.request_id.as_str()), cx).await;
+    pass &= ok(
+        "the second, multi-select, follows",
+        picked
+            && days.as_ref().is_some_and(|r| {
+                matches!(card(r), Card::LibreChatQuestion(q) if q.question.multi && q.progress == Some((2, 2)))
+            }),
+    );
+    shoot_main(dir, "librechat-pause-days", cx).await;
+    pass &= ok(
+        "both answers go as their values",
+        in_approvals(cx, |v, window, cx| {
+            v.pick(0, "Monday".into(), window, cx);
+            v.pick(0, "Tuesday".into(), window, cx);
+            v.allow(cx)
+        })
+        .unwrap_or(false)
+            && replied("You chose gull-haven on mon, tue.", cx).await,
+    );
+
+    // A card waits across the main window closing and opening.
+    let waiting = paused_reply("Please decide on the tide", cx).await;
+    let waiting_chat = cx.update(open_chat);
+    if let Some((handle, _)) = cx.update(main_window) {
+        let _ = handle.update(cx, |_, window, _| window.remove_window());
+    }
+    settle(cx, 800).await;
+    cx.update(crate::open_main_window);
+    let back = wait_until(cx, Duration::from_secs(20), |cx| main_window(cx).is_some()).await;
+    if back && cx.update(open_chat) != waiting_chat {
+        let chat = waiting_chat.clone().unwrap_or_default();
+        cx.update(|cx| {
+            let nav = cx.global::<AppState>().stores.navigation.clone();
+            nav.update(cx, |n, cx| n.open(&chat, cx));
+        });
+    }
+    let again = wait_pause_card(None, cx).await;
+    pass &= ok(
+        "the card is there again once the window opens",
+        waiting.is_some() && again.map(|r| r.request_id) == waiting.map(|r| r.request_id),
+    );
+    pass &= ok(
+        "and is answered there",
+        in_approvals(cx, |v, _, cx| v.allow(cx)).unwrap_or(false)
+            && replied("Approved: the next high tide at Port Wren", cx).await,
+    );
+
+    // A card shows only in its own chat.
+    let own = paused_reply("Please decide on the tide", cx).await;
+    let own_chat = cx.update(open_chat).unwrap_or_default();
+    let other = first_chat.unwrap_or_default();
+    cx.update(|cx| {
+        let nav = cx.global::<AppState>().stores.navigation.clone();
+        nav.update(cx, |n, cx| n.open(&other, cx));
+    });
+    settle(cx, 600).await;
+    shoot_main(dir, "librechat-pause-other-chat", cx).await;
+    let elsewhere = cx.update(|cx| {
+        let u = cx.global::<AppState>().stores.ui_requests.read(cx);
+        (u.waits_in_chat(&own_chat), pause_card(cx).is_none())
+    });
+    pass &= ok(
+        "another chat shows no card, and the waiting chat's row is marked",
+        own.is_some() && elsewhere == (true, true),
+    );
+    pass &= ok(
+        "nor answers it",
+        in_approvals(cx, |v, _, cx| !v.allow(cx) && !v.deny(cx)).unwrap_or(false),
+    );
+    cx.update(|cx| {
+        let nav = cx.global::<AppState>().stores.navigation.clone();
+        nav.update(cx, |n, cx| n.open(&own_chat, cx));
+    });
+    let mine = wait_pause_card(None, cx).await;
+    pass &= ok(
+        "its own chat shows it, and answers it",
+        mine.is_some()
+            && in_approvals(cx, |v, _, cx| v.deny(cx)).unwrap_or(false)
+            && replied("Rejected: I did not look up the tide.", cx).await,
     );
     pass
 }

@@ -437,6 +437,39 @@ impl ApprovalsView {
         self.clarify_inputs.get(question).cloned()
     }
 
+    /// Opens Edit or Respond on the LibreChat call on screen and types
+    /// `text` into it (for a test); false when the call does not offer it.
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    pub(crate) fn librechat_compose(
+        &mut self,
+        decision: LibreChatDecision,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(id) = self.for_request.clone() else {
+            return false;
+        };
+        self.compose_for(&id, decision, window, cx);
+        if self.compose != Some(decision) {
+            return false;
+        }
+        let text = text.to_string();
+        self.compose_text
+            .update(cx, |t, cx| t.set_value(text, window, cx));
+        true
+    }
+
+    /// The edit typed was refused on the card (not a JSON object), and
+    /// what it holds.
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    pub(crate) fn librechat_refused(&self, cx: &App) -> (bool, String) {
+        (
+            self.compose_invalid,
+            self.compose_text.read(cx).value().to_string(),
+        )
+    }
+
     /// The masked field a password or secret is typed in.
     #[cfg(all(target_os = "macos", feature = "harness"))]
     pub(crate) fn secret_input(&self) -> Entity<InputState> {
