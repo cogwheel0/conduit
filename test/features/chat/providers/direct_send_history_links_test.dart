@@ -34,6 +34,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -2753,6 +2754,118 @@ void main() {
           jsonDecode(committedAssistant.payload) as Map<String, dynamic>;
       expect(assistantPayload['isStreaming'], isFalse);
       expect(assistantPayload['done'], isTrue);
+    },
+  );
+
+  test(
+    'an Open WebUI session change after a checkpoint keeps the words that '
+    'came after it',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final directLocal = AppDatabase(NativeDatabase.memory());
+      addTearDown(directLocal.close);
+      final epochState = NotifierProvider<_EpochState, Object>(
+        () => _EpochState(Object()),
+      );
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: 'test-adapter',
+        baseUrl: 'http://localhost:11434',
+      );
+      final modelRegistry = DirectModelRegistry();
+      final model = modelRegistry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'model'),
+      ]).single;
+      final adapter = _GatedAdapter();
+      addTearDown(adapter.dispose);
+      final chat = withChatStorageProvenance(
+        await _seedDirectConversation(
+          db: db,
+          chatId: 'checkpoint-chat',
+          modelId: model.id,
+          suffix: 'checkpoint',
+        ),
+        ChatStorageKind.openWebUi,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          selectedModelProvider.overrideWithValue(model),
+          reviewerModeProvider.overrideWithValue(false),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(db),
+          directLocalDatabaseProvider.overrideWithValue(directLocal),
+          chatDatabaseRepositoryProvider.overrideWithValue(
+            ChatDatabaseRepository(
+              openWebUiDatabase: db,
+              directLocalDatabase: directLocal,
+            ),
+          ),
+          directModelRegistryProvider.overrideWithValue(modelRegistry),
+          directConnectionProfilesProvider.overrideWith(
+            () => _Profiles(profile),
+          ),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+          openWebUiAuthSessionEpochProvider.overrideWith(
+            (ref) => ref.watch(epochState),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(openWebUiDatabaseAccessProvider.notifier).open();
+      container.read(activeConversationProvider.notifier).set(chat);
+      container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
+
+      final started = adapter.nextRun();
+      final send = sendMessageWithContainer(
+        container,
+        'Draw the harbour',
+        null,
+      );
+      final run = await started.timeout(const Duration(seconds: 1));
+      addTearDown(run.close);
+      final assistantId = container.read(chatMessagesProvider).last.id;
+      // A checkpoint of the streaming answer, as an MCP approval stores one
+      // while the reply waits on it: its words so far, still streaming.
+      run.add(const DirectContentDelta('Before the approval.'));
+      final placeholder = (await db.messagesDao.getMessage(
+        chat.id,
+        assistantId,
+      ))!;
+      await (db.update(db.messages)
+            ..where((row) => row.id.equals(assistantId)))
+          .write(
+            MessagesCompanion(
+              content: const Value('Before the approval.'),
+              payload: Value(
+                jsonEncode(<String, dynamic>{
+                  ...jsonDecode(placeholder.payload) as Map<String, dynamic>,
+                  'content': 'Before the approval.',
+                  'isStreaming': true,
+                }),
+              ),
+            ),
+          );
+      run.add(const DirectContentDelta(' After the approval.'));
+      // The run takes a buffered word without any I/O: drained, it is in the
+      // answer as the session changes.
+      await pumpEventQueue();
+
+      container.read(epochState.notifier).rotate();
+      await send.timeout(const Duration(seconds: 1));
+
+      final settled = (await db.messagesDao.getMessage(chat.id, assistantId))!;
+      final payload = jsonDecode(settled.payload) as Map<String, dynamic>;
+      expect(payload['isStreaming'], isFalse);
+      expect(payload['content'], contains('After the approval.'));
+      expect(settled.content, contains('After the approval.'));
     },
   );
 
