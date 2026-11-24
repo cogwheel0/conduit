@@ -47,7 +47,11 @@ import 'settled.dart';
 ///   rule), for the window to notify with;
 /// * `channels.changed` when the list changes.
 final class ChannelsService {
-  ChannelsService(this._container, {EventBus? events}) : _events = events {
+  ChannelsService(
+    this._container, {
+    EventBus? events,
+    this.keepsChannelList = true,
+  }) : _events = events {
     if (events == null) return;
     _watches.addAll(<ProviderSubscription<Object?>>[
       _container.listen<AsyncValue<List<Channel>>>(channelsListProvider, (
@@ -112,6 +116,12 @@ final class ChannelsService {
 
   final ProviderContainer _container;
   final EventBus? _events;
+
+  /// Whether this service keeps the channel list in step with the socket:
+  /// unread counts, mutes, and the reload after a reconnect. False over a
+  /// container an app shares, whose own listener already does, and would
+  /// count each message twice with this one.
+  final bool keepsChannelList;
 
   static const _classifier = NotificationEventClassifier();
 
@@ -855,10 +865,11 @@ final class ChannelsService {
       // Unread counts drift while disconnected, and Socket.IO replays no
       // channel history: read the list again, and every list a window
       // shows from its newest page.
-      unawaited(_container.read(channelsListProvider.notifier).refresh());
       for (final key in _watched.keys) {
         _reloaded.add(key);
       }
+      if (!keepsChannelList) return;
+      unawaited(_container.read(channelsListProvider.notifier).refresh());
       _container.invalidate(channelMessagesProvider);
       _container.invalidate(threadMessagesProvider);
     });
@@ -877,9 +888,11 @@ final class ChannelsService {
     try {
       // A mute set here or in another session reaches the list.
       if (parseChannelMuteEvent(event) case final mute?) {
-        _container
-            .read(channelsListProvider.notifier)
-            .setMuted(mute.channelId, mute.isChannelMuted);
+        if (keepsChannelList) {
+          _container
+              .read(channelsListProvider.notifier)
+              .setMuted(mute.channelId, mute.isChannelMuted);
+        }
         return;
       }
       final envelope = event['data'];
@@ -912,7 +925,7 @@ final class ChannelsService {
       }
       if (_listed(channelId) == null) {
         unawaited(_container.read(channelsListProvider.notifier).refresh());
-      } else {
+      } else if (keepsChannelList) {
         _container.read(channelsListProvider.notifier).bumpUnread(channelId);
       }
       final data = envelope is Map ? envelope['data'] : null;

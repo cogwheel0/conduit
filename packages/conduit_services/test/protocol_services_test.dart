@@ -7,8 +7,21 @@ import 'dart:io';
 import 'package:conduit_core/features/chat/read_aloud/device_speech_engine.dart'
     show DeviceSpeechEngine, NoDeviceSpeech;
 import 'package:conduit_core/features/chat/read_aloud/tts_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show currentUserProvider2;
+import 'package:conduit_core/features/channels/providers/channel_providers.dart'
+    show ChannelsList, channelsListProvider;
 import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart'
     show voiceModeInputProvider;
+import 'package:conduit_core/models/channel.dart';
+import 'package:conduit_core/models/socket_health.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show
+        SettledActiveAccountId,
+        settledActiveAccountIdProvider,
+        socketServiceProvider;
+import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/features/direct_connections/providers/apple_pcc_providers.dart'
     show applePccHostProvider;
 import 'package:conduit_core/providers/host_ports.dart'
@@ -572,6 +585,75 @@ void main() {
     expectAppKeepsItsOwn();
   });
 
+  test('over a container an app shares, a channel post is counted and a '
+      'mute applied once, by the app, and still announced', () async {
+    await startDesktop();
+    // The app's container as its signed-in channels screen leaves it: the
+    // socket, the user and the list. The app's own listener counts what
+    // the socket says; it is not built here, so anything counted below was
+    // counted a second time.
+    final socket = _ChannelSocket();
+    final app = ProviderContainer(
+      parent: runtime.container,
+      overrides: [
+        socketServiceProvider.overrideWithValue(socket),
+        settledActiveAccountIdProvider.overrideWith(_SettledAccount.new),
+        currentUserProvider2.overrideWithValue(
+          const User(
+            id: 'me',
+            username: 'robin',
+            email: 'robin@example.com',
+            name: 'Robin',
+            role: 'user',
+          ),
+        ),
+        channelsListProvider.overrideWith(_GardenClub.new),
+      ],
+    );
+    addTearDown(app.dispose);
+    final built = ProtocolServices(
+      events: EventBus(),
+      system: system(),
+      ports: ProtocolHostPorts(
+        window: await WindowPorts.open(),
+        sharesAppContainer: true,
+      ),
+    );
+    addTearDown(built.dispose);
+    addTearDown(built.closeTransports);
+    built.attach(app);
+    final posted = <String>[];
+    built.events.tap((event, _, _) {
+      if (event == ConduitEvents.channelsPosted) posted.add(event);
+    });
+    await app.read(channelsListProvider.future);
+
+    socket.channel(<String, dynamic>{
+      'channel_id': 'c1',
+      'data': <String, dynamic>{
+        'type': 'message',
+        'data': <String, dynamic>{
+          'id': 'm1',
+          'content': 'Seedlings are up',
+          'user': <String, dynamic>{'id': 'u2', 'name': 'Juniper'},
+        },
+      },
+    });
+    socket.channel(<String, dynamic>{
+      'channel_id': 'c1',
+      'data': <String, dynamic>{
+        'type': 'channel:mute',
+        'data': <String, dynamic>{'is_channel_muted': true},
+      },
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    final garden = app.read(channelsListProvider).value!.single;
+    expect(garden.unreadCount, 0);
+    expect(garden.isChannelMuted, isFalse);
+    expect(posted, hasLength(1));
+  });
+
   test('closing again after disposal shows sessions nothing', () async {
     await startDesktop();
     final built = services()..attach(runtime.container);
@@ -720,4 +802,64 @@ final class _HeldWrites extends InMemoryKeyValueStore {
     }
     return super.setBool(key, value);
   }
+}
+
+/// The account the app's socket belongs to, settled.
+class _SettledAccount extends SettledActiveAccountId {
+  @override
+  String? build() => 'account-robin';
+}
+
+class _GardenClub extends ChannelsList {
+  @override
+  Future<List<Channel>> build() async => const <Channel>[
+    Channel(id: 'c1', name: 'garden-club', type: 'group', userId: 'me'),
+  ];
+}
+
+/// The app's socket, as far as the services listen to it.
+class _ChannelSocket implements SocketService {
+  final List<SocketChannelEventHandler> _channel =
+      <SocketChannelEventHandler>[];
+
+  void channel(Map<String, dynamic> event) {
+    for (final handler in List.of(_channel)) {
+      handler(event, null);
+    }
+  }
+
+  @override
+  SocketEventSubscription addChannelEventHandler({
+    String? conversationId,
+    String? sessionId,
+    bool requireFocus = true,
+    required SocketChannelEventHandler handler,
+  }) {
+    _channel.add(handler);
+    return SocketEventSubscription(() => _channel.remove(handler));
+  }
+
+  @override
+  SocketEventSubscription addChatEventHandler({
+    String? conversationId,
+    String? sessionId,
+    String? messageId,
+    bool requireFocus = true,
+    bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
+    required SocketChatEventHandler handler,
+  }) => SocketEventSubscription(() {});
+
+  @override
+  SocketEventSubscription addAppEventHandler(SocketAppEventHandler handler) =>
+      SocketEventSubscription(() {});
+
+  @override
+  Stream<void> get onReconnect => const Stream<void>.empty();
+
+  @override
+  Stream<SocketHealth> get healthStream => const Stream<SocketHealth>.empty();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }

@@ -217,7 +217,11 @@ final class ProtocolServices {
     _mcp = McpService(container);
     _webSearch = WebSearchService(container);
     _notes = NotesService(container, events: events, paths: ports.paths);
-    _channels = ChannelsService(container, events: events);
+    _channels = ChannelsService(
+      container,
+      events: events,
+      keepsChannelList: !shared,
+    );
     _workspace = WorkspaceService(container, events: events);
     _terminals = TerminalsService(
       container,
