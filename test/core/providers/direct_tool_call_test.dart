@@ -283,12 +283,14 @@ void main() {
           required authToken,
           required websocketOnly,
           required allowWebsocketUpgrade,
+          required allowPolling,
         }) {
           return SocketService(
             serverConfig: serverConfig,
             authToken: authToken,
             websocketOnly: websocketOnly,
             allowWebsocketUpgrade: allowWebsocketUpgrade,
+            allowPolling: allowPolling,
             socketFactory: (_, _, _) {
               final base = io.io('http://localhost:19000', <String, dynamic>{
                 'autoConnect': false,
