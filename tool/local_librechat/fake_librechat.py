@@ -687,7 +687,10 @@ class Job:
                 result = "High tide at 06:40."
                 reply = "Approved: the next high tide at Port Wren is at 06:40."
             elif decision == "edit":
-                harbour = (decided.get("editedArguments") or {}).get("harbour", "an unnamed harbour")
+                # The tool runs with the edited arguments, and its call is
+                # shown and saved with them.
+                call = dict(call, args=json.dumps(decided["editedArguments"]))
+                harbour = decided["editedArguments"].get("harbour", "an unnamed harbour")
                 result = "High tide at 06:40."
                 reply = "Edited: the next high tide at %s is at 06:40." % harbour
             elif decision == "respond":
