@@ -697,12 +697,13 @@ final class AccountsService {
     return remove(AccountRef(accountId: activeId, force: request.force));
   }
 
-  /// Whether the active account may be left now: no answer is being written
-  /// there, or [force] was given, in which case the daemon's own answers are
-  /// stopped first. The controller asks the same of the root's own chat and
-  /// of the direct and Hermes runs this process holds.
+  /// Whether the active account may be left now: no answer the change would
+  /// end is being written, or [force] was given, in which case those of the
+  /// daemon's are stopped first, their words kept. An answer in a chat kept
+  /// on this device runs on through the change and is not asked about. The
+  /// controller asks the same of the root's own chat and of the chat scopes.
   Future<bool> _mayLeave({required bool force}) async {
-    final running = turns?.activeChatIds.isNotEmpty ?? false;
+    final running = turns?.answersAnAccountChangeEnds ?? false;
     if (!force) {
       if (running) return false;
       try {
@@ -711,7 +712,7 @@ final class AccountsService {
         return true;
       }
     }
-    await turns?.stopAll();
+    await turns?.stopAnswersAnAccountChangeEnds();
     return true;
   }
 

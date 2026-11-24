@@ -11,6 +11,7 @@ import 'dart:async';
 
 import 'package:riverpod/riverpod.dart';
 
+import 'package:conduit_core/providers/account_change_chats.dart';
 import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
@@ -21,7 +22,6 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         ChatSessionScope,
         chatSessionRegistryProvider,
         isChatStreamingProvider,
-        localChatGenerationActiveProvider,
         openWebUiReplyStreamingProvider,
         stopAllLibreChatRunsProvider,
         stopGenerationProvider,
@@ -57,16 +57,36 @@ Iterable<ChatSessionScope> _liveChatScopes(Ref ref) => ref
     .scopes
     .where((scope) => !scope.isDisposed);
 
+/// The chat session scopes whose chat an account owns, which an account
+/// change closes ([accountChangeEndsChat]); a chat kept on this device
+/// stays open, its reply with it.
+Iterable<ChatSessionScope> _accountChatScopes(Ref ref) =>
+    _liveChatScopes(ref).where(
+      (scope) => accountChangeEndsChat(
+        AccountChange.chatsAccount,
+        chatOwnerOf(scope.conversation),
+      ),
+    );
+
+/// Whether the root's open chat is one an account change closes.
+bool _rootChatEnds(Ref ref) => accountChangeEndsChat(
+  AccountChange.chatsAccount,
+  chatOwnerOf(ref.read(activeConversationProvider)),
+);
+
 /// Whether a reply is still being written that leaving the active account
-/// would cut off, in the root's chat or in any chat session scope. The host
-/// may widen it (background streams it tracks).
+/// would cut off: in the root's chat, or in a chat session scope, the change
+/// closes. A chat kept on this device stays open and its reply runs on, so
+/// it is not counted (nor the on-device generation counter every chat's
+/// Direct run shares). The phone widens it with the background streams it
+/// tracks.
 final accountChangeReplyGuardProvider = Provider<bool Function()>((ref) {
   return () {
     try {
-      return ref.read(isChatStreamingProvider) ||
-          ref.read(localChatGenerationActiveProvider) ||
-          _liveChatScopes(ref)
-              .any((scope) => scope.container.read(isChatStreamingProvider));
+      return (_rootChatEnds(ref) && ref.read(isChatStreamingProvider)) ||
+          _accountChatScopes(
+            ref,
+          ).any((scope) => scope.container.read(isChatStreamingProvider));
     } catch (_) {
       return false;
     }
@@ -116,9 +136,11 @@ final addressChangeStopRepliesProvider = Provider<void Function()>((ref) {
 /// user has agreed to leave the account anyway.
 final accountChangeStopRepliesProvider = Provider<void Function()>((ref) {
   return () {
+    // The root's chat as the host's guard counted it: the phone's asks about
+    // the chat on screen whoever owns it.
     ref.read(stopGenerationProvider)();
     // Each chat session scope's reply too, as the guard counts them.
-    for (final scope in _liveChatScopes(ref)) {
+    for (final scope in _accountChatScopes(ref)) {
       scope.container.read(stopGenerationProvider)();
     }
     // LibreChat replies run on in chats not open, which the guard counts.

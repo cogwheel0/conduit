@@ -18,7 +18,8 @@
 //!   cookies go through `auth.completeExternal`.
 //! * `direct`: a fresh profile, Direct, the fake model as an
 //!   OpenAI-compatible provider (`FAKE_OPENAI_URL`), Test, Save, and the
-//!   direct-only main frame.
+//!   direct-only main frame; then a slow Direct reply that runs to its end
+//!   across a first sign-in to the local Open WebUI (`OWUI_*`).
 //! * `direct-advanced`: Settings › Direct Connections end to end: headers,
 //!   manual models, the Responses API, the history location, a connection
 //!   kept in Open WebUI, Ollama's models, an MCP server signed in with OAuth
@@ -1309,6 +1310,7 @@ async fn direct(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     settle(cx, 800).await;
     shoot_main(dir, "main-direct-only", cx).await;
     settings_tab(Tab::Direct, dir, "settings-direct-saved", cx).await;
+    pass &= direct::reply_across_sign_in(inputs, dir, cx).await;
     pass
 }
 

@@ -140,6 +140,12 @@ final class DirectRunRegistry {
         !reservation._outputFinalized;
   }
 
+  /// Whether any chat's live run ([hasLiveIntent]) writes the assistant
+  /// message [assistantMessageId].
+  bool hasLiveIntentForMessage(String assistantMessageId) => _latest.keys.any(
+    (key) => key.assistantMessageId == assistantMessageId && hasLiveIntent(key),
+  );
+
   /// Reserves an assistant identity before asynchronous attachment/history
   /// preflight begins. A stop or profile edit can then cancel the intent before
   /// an HTTP request exists.
@@ -800,6 +806,21 @@ final class DirectRunRegistry {
     if (pending == null) return null;
     _cancelReservation(pending);
     return Future<void>.value();
+  }
+
+  /// Cancels the live run ([hasLiveIntent]) writing the assistant message
+  /// [assistantMessageId], when exactly one is: a stop that knows the reply
+  /// but not the chat it shows in. Null when there is none, or more than one.
+  Future<void>? cancelForMessage(String assistantMessageId) {
+    final matches = _latest.keys
+        .where(
+          (key) =>
+              key.assistantMessageId == assistantMessageId &&
+              hasLiveIntent(key),
+        )
+        .toList(growable: false);
+    if (matches.length != 1) return null;
+    return cancel(matches.single);
   }
 
   List<Future<void>> cancelProfile(String profileId) {
