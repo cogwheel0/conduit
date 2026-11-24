@@ -9,7 +9,7 @@
 ; of the app's languages (Chinese has none, so it gets English).
 ;
 ; Uninstalling closes a running Conduit and its conduitd first, as Setup
-; does, then removes what this installed: the app's folder, its Start menu
+; does ([Code]), then removes what this installed: the app's folder, its Start menu
 ; entry and its registrations. The user's data
 ; (%LOCALAPPDATA%\Conduit\User Data, its logs, the key in Credential
 ; Manager, the updater's settings in HKCU\Software\Conduit\Updates) is
@@ -60,14 +60,13 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; Rust's Windows target needs Windows 10.
 MinVersion=10.0
-; A running Conduit and its conduitd hold files this replaces: Windows'
-; Restart Manager closes both first (conduitd also ends with the app,
-; through its job object), forced if they don't close. The Restart Manager
-; doesn't start the app again: an interactive install offers to at the end,
-; and an update WinSparkle runs does it ([Run]).
-CloseApplications=force
-CloseApplicationsFilter=*.exe,*.dll
-RestartApplications=no
+; A running Conduit and its conduitd hold files this replaces: [Code]
+; closes both first (PrepareToInstall), forced if they don't close, and
+; nothing else. Inno's own CloseApplications would shut down every program
+; and service with those files open. Setup doesn't start the app again: an
+; interactive install offers to at the end, and an update WinSparkle runs
+; does it ([Run]).
+CloseApplications=no
 ChangesAssociations=yes
 ShowLanguageDialog=no
 WizardStyle=modern
@@ -158,14 +157,14 @@ begin
   Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
 end;
 
-// Closing a running Conduit and its conduitd before Uninstall removes
-// their files (Inno's CloseApplications is Setup's only). Restart Manager
-// lists what has the app's .exe and .dll files open; only the processes
-// whose image is in the app's folder are shut down, through a second
-// session that registers just them. Windows services and other programs
-// that merely have the files open (the antivirus, the Program Compatibility
-// Assistant, Arm's x64 translation cache) are left alone: registering the
-// files and calling RmShutdown stops or kills them too.
+// Closing a running Conduit and its conduitd before their files are
+// replaced (Setup) or removed (Uninstall). Restart Manager lists what has
+// the app's .exe and .dll files open; only the processes whose image is in
+// the app's folder are shut down, through a second session that registers
+// just them. Windows services and other programs that merely have the files
+// open (the antivirus, the Program Compatibility Assistant, Arm's x64
+// translation cache) are left alone: registering the files and calling
+// RmShutdown, as Inno's CloseApplications does, stops or kills them too.
 type
   // RM_UNIQUE_PROCESS: a process id and its start time (FILETIME).
   TRmUniqueProcess = record
@@ -365,6 +364,12 @@ begin
   end;
   // Status 0: they have ended (smoke.ps1 reads this line).
   Log(Format('Restart Manager closed %d Conduit processes: status %d', [Integer(Needed), Status]));
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  CloseRunningApp;
+  Result := '';
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

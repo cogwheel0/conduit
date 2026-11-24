@@ -267,11 +267,13 @@ class UpdateInstall(unittest.TestCase):
         self.assertIn('Filename: "{app}\\conduit-desktop.exe"', run)
         self.assertNotIn("skipifsilent", run)
         self.assertIn("ExpandConstant('{param:RELAUNCH|0}') = '1'", text)
-        # A running Conduit and its conduitd are closed first: Setup through
-        # Inno's CloseApplications; Uninstall, which has none, through [Code]
-        # over the processes running from the app's folder only.
-        self.assertIn("\nCloseApplications=force\n", text)
-        for event in ("procedure CurUninstallStepChanged(",):
+        # A running Conduit and its conduitd are closed first, before Setup
+        # replaces and Uninstall removes their files, by [Code] over the
+        # processes running from the app's folder: never Inno's
+        # CloseApplications, which shuts down every program and service
+        # with those files open.
+        self.assertIn("\nCloseApplications=no\n", text)
+        for event in ("function PrepareToInstall(", "procedure CurUninstallStepChanged("):
             body = text[text.index(event):]
             body = body[:body.index("\nend;")]
             self.assertIn("CloseRunningApp;", body, event)

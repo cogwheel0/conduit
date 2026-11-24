@@ -431,13 +431,16 @@ administrator, into `%LOCALAPPDATA%\Programs\Conduit`:
 - under `HKCU\Software\Classes`: `conduit://`, and Open With for the
   Mac's document types (`OpenWithProgids`, `Applications\conduit-desktop.exe\SupportedTypes`),
   never as their default app;
-- Windows' Restart Manager closes a running Conduit and its conduitd
-  before files are replaced; run with `/RELAUNCH=1` (as WinSparkle runs an
-  update), it starts the app again when it's done;
-- uninstalling closes a running Conduit and its conduitd first (Restart
-  Manager over the app's `.exe` and `.dll` files, in `conduit.iss`'s
-  `[Code]`: Inno Setup's `CloseApplications` is Setup's only), then
-  removes all of that and always keeps the user's data,
+- a running Conduit and its conduitd are closed before files are
+  replaced, and before uninstalling removes them (`conduit.iss`'s
+  `[Code]`): Restart Manager lists what has the app's `.exe` and `.dll`
+  files open, and only the processes running from the install folder are
+  shut down. Inno Setup's `CloseApplications` is off: it shuts down every
+  program and service with those files open, such as Windows' Program
+  Compatibility Assistant service just after the app starts. Run with
+  `/RELAUNCH=1` (as WinSparkle runs an update), Setup starts the app again
+  when it's done;
+- uninstalling removes all of that and always keeps the user's data,
   without asking: chats and files saved on the computer, settings and logs
   in `%LOCALAPPDATA%\Conduit`, and the key that encrypts them in Credential
   Manager (Windows Credentials: the generic credentials named
