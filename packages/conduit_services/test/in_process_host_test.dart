@@ -224,12 +224,18 @@ void main() {
     phone.holdAcknowledgements();
     final events = host.services.events;
     final published = <String>[];
-    // One frame per turn of the event loop, as the turn pipeline emits them
-    // (it coalesces on a timer): each reaches the client before the next.
+    // One frame at a time, as the turn pipeline emits them (it coalesces on
+    // a timer): each one sent reaches the client before the next.
     Future<void> publish(String event, String? scope, int n) async {
       published.add('$event $scope $n');
-      events.publish(event, scope: scope, payload: <String, dynamic>{'n': n});
-      await Future<void>(() {});
+      await phone.delivered(
+        events,
+        () => events.publish(
+          event,
+          scope: scope,
+          payload: <String, dynamic>{'n': n},
+        ),
+      );
     }
 
     for (var n = 1; n <= 40; n++) {
@@ -298,8 +304,9 @@ void main() {
       String scope,
       String messageId,
       Object n,
-    ) async {
-      events.publish(
+    ) => phone.delivered(
+      events,
+      () => events.publish(
         event,
         scope: scope,
         payload: <String, dynamic>{
@@ -307,9 +314,8 @@ void main() {
           'messageId': messageId,
           'n': n,
         },
-      );
-      await Future<void>(() {});
-    }
+      ),
+    );
 
     /// What the client heard last of [messageId]'s answer, by event.
     Map<String, Object?> lastOf(String messageId) => <String, Object?>{
@@ -405,11 +411,13 @@ void main() {
       for (var n = 1; n <= 10; n++) {
         await publish(ConduitEvents.turnDelta, 'local:tide', 'main', n);
       }
-      events.emit(
-        ConduitEventSpecs.routeRemap,
-        const RouteRemap(fromId: 'local:tide', toId: 'tide'),
+      await phone.delivered(
+        events,
+        () => events.emit(
+          ConduitEventSpecs.routeRemap,
+          const RouteRemap(fromId: 'local:tide', toId: 'tide'),
+        ),
       );
-      await Future<void>(() {});
       await catchUp();
       final remappedAt = phone.events.indexWhere(
         (e) => e.event == ConduitEvents.routeRemap,
@@ -427,11 +435,12 @@ void main() {
       for (var n = 1; n <= 10; n++) {
         await publish(ConduitEvents.turnDelta, 'chat-a', 'main', n);
       }
-      final heard = phone.events.length;
       await phone.session.close();
-      phone.releaseAcknowledgements();
-      await Future<void>(() {});
-      check(phone.events).length.equals(heard);
+      // Off the bus: no path, a late acknowledgement's release included, can
+      // send it anything.
+      check(events.lastSeqFor('phone')).equals(0);
+      check(events.wantedBy('phone', ConduitEvents.turnDelta, 'chat-a'))
+          .isFalse();
     });
   });
 
@@ -746,7 +755,7 @@ final class _NoFrames implements FlushScheduler, PostFrameScheduler {
 
 /// A Swift screen's session, as strings both ways.
 final class _Client {
-  _Client(InProcessProtocolHost host, String id) {
+  _Client(InProcessProtocolHost host, this.id) {
     final pipe = _pipe;
     session = host.open(
       id,
@@ -770,12 +779,24 @@ final class _Client {
   final StreamChannelController<String> _pipe = StreamChannelController<String>(
     sync: true,
   );
+  final String id;
   late final InProcessSession session;
   late final json_rpc.Peer peer;
   final List<EventEnvelope> events = <EventEnvelope>[];
   final StreamController<EventEnvelope> _heard =
       StreamController<EventEnvelope>.broadcast(sync: true);
   Completer<void>? _acknowledged;
+
+  /// Runs [publish] on [events], and waits until the client has what it was
+  /// sent: nothing, when every event was held back.
+  Future<void> delivered(EventBus events, void Function() publish) async {
+    final before = events.lastSeqFor(id);
+    publish();
+    final sent = events.lastSeqFor(id);
+    if (sent == before) return;
+    if (this.events.isNotEmpty && this.events.last.seq >= sent) return;
+    await _heard.stream.firstWhere((e) => e.seq >= sent);
+  }
 
   /// The next event that passes [test], from now on.
   Future<EventEnvelope> next(bool Function(EventEnvelope) test) =>
