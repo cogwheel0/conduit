@@ -54,7 +54,19 @@ goes after what is held for it, whether published or sent straight to the
 session (`sendTo`, as a catch-up does), which is why the gate is told of
 direct sends as well as asked about published ones. A chat the client stops
 watching is owed nothing held, and frames held under a chat's old id move to
-its new one on `route.remap`.
+its new one on `route.remap`. Catching up on acknowledgements, held frames go
+only while the client has room; a chat's next event still takes everything
+held for it first.
+
+The count has to be exact for that. The JSON-RPC peer hands a message to the
+transport a step after the bus delivers it, so an event is counted from the
+moment the gate lets it through, and told from a reply where it is handed
+over by how a notification begins.
+
+A send the transport fails ends the session at once: the client would
+otherwise read the next event or reply as if nothing were missing.
+`InProcessSession.closed` tells the binding, the client reconnects, and the
+new session catches up.
 
 ## Byte routes
 
@@ -62,8 +74,11 @@ The byte routes travel as frames (`ByteFrame`): a 12-byte header (stream,
 kind, flags, reserved, length) and up to 64 KiB of payload. Flow control is by
 reply: the client sends the next chunk once the host's future for the last one
 completes, and the host sends the next chunk of an answer once the client's
-reply comes. Either side can cancel. Tunnels need a socket both ways and are
-refused.
+reply comes. A chunk over 64 KiB is refused either way. Either side can
+cancel; the client's cancel is answered once the host has let go of the
+stream, so its number can be used again. A frame the client fails to take
+ends that stream alone. Tunnels need a socket both ways and are refused by
+path, without asking services the app keeps.
 
 **Chunk ownership.** A chunk a host hands a route is the route's: the host
 never writes to its bytes again, so a route may keep it without copying. This
