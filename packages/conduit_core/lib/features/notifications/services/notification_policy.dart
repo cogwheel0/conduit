@@ -86,13 +86,16 @@ bool notificationKindEnabled(NotificationKind kind, AppSettings settings) =>
 /// there.
 ///
 /// In order:
-/// 1. the master toggle, then the toggle for [kind];
+/// 1. the master toggle, then the toggle for [kind]: off, nothing alerts,
+///    though a channel message goes on to be counted (Open WebUI counts
+///    before it reads any notification setting);
 /// 2. content the user is looking at, but only in the foreground (in the
 ///    background no view is seen, so the chat just left still notifies, as
 ///    Open WebUI's `(notViewingChat) || isInBackground`);
 /// 3. a channel message counts as unread from here on;
-/// 4. [alert] false (a channel set to mentions only, not mentioning the user)
-///    shows nothing, as in Open WebUI; nor does a channel message that is
+/// 4. either toggle off from step 1, or [alert] false (a channel set to
+///    mentions only, not mentioning the user), shows nothing, as in Open
+///    WebUI; nor does a channel message that is
 ///    neither a mention nor [direct] while
 ///    [AppSettings.notificationChannelMentionsOnly] is on;
 /// 5. the cue plays for every alert when "Sound" and "Sound Always" are on;
@@ -108,19 +111,18 @@ NotificationDecision decideNotification({
   bool mention = false,
   bool direct = false,
 }) {
-  if (!settings.notificationsEnabled) return NotificationDecision.suppressed;
-  if (!notificationKindEnabled(kind, settings)) {
-    return NotificationDecision.suppressed;
-  }
+  final countsUnread = kind == NotificationKind.channelMessage;
+  final alerts =
+      settings.notificationsEnabled && notificationKindEnabled(kind, settings);
+  if (!alerts && !countsUnread) return NotificationDecision.suppressed;
   if (foreground && viewing) return NotificationDecision.suppressed;
 
-  final countsUnread = kind == NotificationKind.channelMessage;
   final mentionsOnly =
       kind == NotificationKind.channelMessage &&
       settings.notificationChannelMentionsOnly &&
       !mention &&
       !direct;
-  if (!alert || mentionsOnly) {
+  if (!alerts || !alert || mentionsOnly) {
     return NotificationDecision(
       surface: NotificationSurface.suppressed,
       countsUnread: countsUnread,

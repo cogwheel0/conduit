@@ -330,13 +330,55 @@ void main() {
       check(unreads.single.kind).equals(NotificationKind.channelMessage);
     });
 
-    test('suppressed notifications have no side effects', () async {
+    // Open WebUI counts a channel message before it reads any notification
+    // setting (`+layout.svelte`): switching alerts off leaves the unread
+    // count rising, and only the alert goes.
+    for (final (name, settings, scopeEnabled) in <(
+      String,
+      AppSettings,
+      ScopeNotificationsEnabled?,
+    )>[
+      ('notifications', allOn.copyWith(notificationsEnabled: false), null),
+      (
+        'channel notifications',
+        allOn.copyWith(notificationChannelEnabled: false),
+        null,
+      ),
+      ("the account's notifications", allOn, (_) => false),
+    ]) {
+      for (final foreground in [true, false]) {
+        final where = foreground ? 'foreground' : 'background';
+        test('with $name off, a channel message alerts nothing but counts '
+            'as unread once ($where)', () async {
+          final router = build(
+            settings: settings,
+            scopeEnabled: scopeEnabled,
+            foreground: foreground,
+          );
+          check(await router.route(_channel()))
+              .equals(NotificationSurface.suppressed);
+          check(await router.route(_channel()))
+              .equals(NotificationSurface.suppressed);
+          check(unreads).deepEquals([_channel()]);
+          check(banners).isEmpty();
+          check(claims).isEmpty();
+          verifyNeverShown();
+          verifyNever(() => sound.play());
+        });
+      }
+    }
+
+    test('with notifications off, the channel on screen still counts '
+        'nothing', () async {
       final router = build(
         settings: allOn.copyWith(notificationsEnabled: false),
+        view: const ActiveView(
+          channelId: 'chan-1',
+          openWebUiAccountId: 'acct-1',
+        ),
       );
-      await router.route(_channel());
+      await router.route(_channel(id: 'chan-1'));
       check(unreads).isEmpty();
-      verifyNever(() => sound.play());
     });
 
     // Open WebUI 0.12.1: a channel set to mentions only keeps counting
