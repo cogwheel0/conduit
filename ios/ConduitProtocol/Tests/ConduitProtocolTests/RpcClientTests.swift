@@ -6,12 +6,20 @@ import XCTest
 private final class MemoryTransport: RpcTransport, @unchecked Sendable {
   let sent: AsyncStream<Data>
   private let continuation: AsyncStream<Data>.Continuation
+  private let lock = NSLock()
+  private var count = 0
 
   init() {
     (sent, continuation) = AsyncStream<Data>.makeStream()
   }
 
+  /// How many frames went out.
+  var sentCount: Int {
+    lock.withLock { count }
+  }
+
   func send(_ frame: Data) async throws {
+    lock.withLock { count += 1 }
     continuation.yield(frame)
   }
 }
@@ -171,6 +179,78 @@ final class RpcClientTests: XCTestCase {
       return XCTFail("no event")
     }
     XCTAssertEqual(event, .unknown(name: "future.thing", payload: payload))
+  }
+
+  private func pong(_ id: JSONValue, uptime: Int64) throws -> Data {
+    try frame(
+      .object([
+        "jsonrpc": .string("2.0"), "id": id,
+        "result": .object(["uptimeMs": .int(uptime), "serverTimeMs": .int(0)]),
+      ]))
+  }
+
+  func testACancelledCallStopsWaitingAndItsLateReplyIsDropped() async throws {
+    let transport = MemoryTransport()
+    let client = RpcClient(transport: transport)
+    var sent = transport.sent.makeAsyncIterator()
+
+    let call = Task { try await client.call(Methods.SystemPing.self) }
+    let request = try await nextSent(&sent)
+    call.cancel()
+    do {
+      _ = try await call.value
+      XCTFail("the call succeeded")
+    } catch is CancellationError {}
+    let waiting = await client.waitingCalls
+    XCTAssertEqual(waiting, 0)
+
+    // The reply comes after all: nobody waits on it, and the next call
+    // still gets its own.
+    await client.receive(try pong(request["id"]!, uptime: 1))
+    async let next = client.call(Methods.SystemPing.self)
+    let nextRequest = try await nextSent(&sent)
+    await client.receive(try pong(nextRequest["id"]!, uptime: 2))
+    let answer = try await next
+    XCTAssertEqual(answer.uptimeMs, 2)
+  }
+
+  func testACallCancelledBeforeItStartsSendsNothing() async throws {
+    let transport = MemoryTransport()
+    let client = RpcClient(transport: transport)
+
+    let call = Task {
+      withUnsafeCurrentTask { $0?.cancel() }
+      return try await client.call(Methods.SystemPing.self)
+    }
+    do {
+      _ = try await call.value
+      XCTFail("the call succeeded")
+    } catch is CancellationError {}
+    let waiting = await client.waitingCalls
+    XCTAssertEqual(waiting, 0)
+    XCTAssertEqual(transport.sentCount, 0)
+  }
+
+  func testACancelRacingTheReplySettlesTheCallOnce() async throws {
+    let transport = MemoryTransport()
+    let client = RpcClient(transport: transport)
+    var sent = transport.sent.makeAsyncIterator()
+
+    for round in 1...20 {
+      let call = Task { try await client.call(Methods.SystemPing.self) }
+      let request = try await nextSent(&sent)
+      let replyFrame = try pong(request["id"]!, uptime: Int64(round))
+      async let reply: Void = client.receive(replyFrame)
+      call.cancel()
+      await reply
+      // Either outcome, never both: a second resume would trap.
+      do {
+        let answer = try await call.value
+        XCTAssertEqual(answer.uptimeMs, round)
+      } catch is CancellationError {}
+      let waiting = await client.waitingCalls
+      XCTAssertEqual(waiting, 0)
+    }
   }
 
   func testCallsStillWaitingFailWhenTheTransportCloses() async throws {

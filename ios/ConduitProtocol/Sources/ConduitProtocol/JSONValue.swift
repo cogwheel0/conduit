@@ -53,7 +53,8 @@ public enum JSONValue: Codable, Equatable, Sendable {
     case (.int(let a), .int(let b)): return a == b
     case (.double(let a), .double(let b)): return a == b
     case (.int(let a), .double(let b)), (.double(let b), .int(let a)):
-      return Double(a) == b
+      // Exact: converting the integer to a double would round it first.
+      return Int64(exactly: b) == a
     case (.string(let a), .string(let b)): return a == b
     case (.array(let a), .array(let b)): return a == b
     case (.object(let a), .object(let b)): return a == b

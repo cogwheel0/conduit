@@ -148,11 +148,36 @@ final class ConformanceTests: XCTestCase {
     XCTAssertEqual(try JSONValue(encoding: ServerReachability.notOpenWebUi), .string("notOpenWebUi"))
   }
 
-  func testAFieldWithADefaultReadsNullAsTheDefault() throws {
-    let error = try JSONValue.object(["code": .string("net.serverError"), "retryable": .null])
-      .decode(RpcError.self)
-    XCTAssertFalse(error.retryable)
-    XCTAssertEqual(error.args, [:])
+  func testNumbersCompareByExactValue() {
+    XCTAssertEqual(JSONValue.int(3), .double(3.0))
+    XCTAssertNotEqual(JSONValue.int(9_007_199_254_740_993), .double(9_007_199_254_740_992))
+  }
+
+  func testGeneratedFieldsReadAMissingKeyOrANullAsTheirDartDefault() throws {
+    let required: [String: JSONValue] = [
+      "id": .string("m1"), "channelId": .string("c1"), "createdAtMs": .int(1),
+    ]
+    // A string, a bool, an int, a list and an enum value.
+    let defaulted = ["content", "pinned", "replyCount", "reactions", "senderKind"]
+    for asNull in [false, true] {
+      var json = required
+      if asNull { for key in defaulted { json[key] = .null } }
+      let message = try JSONValue.object(json).decode(ChannelMessageDto.self)
+      XCTAssertEqual(message.content, "", "null: \(asNull)")
+      XCTAssertFalse(message.pinned, "null: \(asNull)")
+      XCTAssertEqual(message.replyCount, 0, "null: \(asNull)")
+      XCTAssertEqual(message.reactions, [], "null: \(asNull)")
+      XCTAssertEqual(message.senderKind, .user, "null: \(asNull)")
+
+      // A nested DTO, whose own fields default too (`files` to true).
+      let options = try JSONValue.object(asNull ? ["attachments": .null] : [:])
+        .decode(ComposerOptions.self)
+      XCTAssertEqual(options.attachments, AttachmentAvailability(), "null: \(asNull)")
+      XCTAssertTrue(options.attachments.files, "null: \(asNull)")
+      let nested = try JSONValue.object(["attachments": .object(asNull ? ["files": .null] : [:])])
+        .decode(ComposerOptions.self)
+      XCTAssertTrue(nested.attachments.files, "null: \(asNull)")
+    }
   }
 
   func testCallsAreTypedByTheirMethod() throws {

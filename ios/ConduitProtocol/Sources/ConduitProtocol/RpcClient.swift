@@ -127,21 +127,36 @@ public actor RpcClient {
   }
 
   /// Calls `method` with `params` and decodes its reply.
+  ///
+  /// Cancelling the task stops the wait with `CancellationError`, and a reply
+  /// that comes later is dropped. JSON-RPC has no cancel, so the core may
+  /// still run the request.
   public func call<M: ConduitMethod>(_ method: M.Type, _ params: M.Params) async throws -> M.Result {
     let id = nextId
     nextId += 1
     let frame = try JSONEncoder().encode(
       OutgoingRequest(jsonrpc: jsonRpcVersion, id: id, method: M.name, params: params)
     )
-    let result: JSONValue = try await withCheckedThrowingContinuation { continuation in
-      pending[id] = continuation
-      Task { [transport] in
-        do {
-          try await transport.send(frame)
-        } catch {
-          self.settle(id, with: .failure(error))
+    let result: JSONValue = try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        // Cancelled before it was asked: nothing goes out.
+        if Task.isCancelled {
+          continuation.resume(throwing: CancellationError())
+          return
+        }
+        pending[id] = continuation
+        Task { [transport] in
+          do {
+            try await transport.send(frame)
+          } catch {
+            self.settle(id, with: .failure(error))
+          }
         }
       }
+    } onCancel: {
+      // Settled through the actor, which resumes a call once: a reply that
+      // wins the race leaves nothing here to resume.
+      Task { await self.settle(id, with: .failure(CancellationError())) }
     }
     do {
       return try result.decode(M.Result.self)
@@ -193,6 +208,9 @@ public actor RpcClient {
       continuation.resume(throwing: error)
     }
   }
+
+  /// How many calls are waiting for their reply.
+  var waitingCalls: Int { pending.count }
 
   private func settle(_ id: Int64, with result: Result<JSONValue, Error>) {
     pending.removeValue(forKey: id)?.resume(with: result)
