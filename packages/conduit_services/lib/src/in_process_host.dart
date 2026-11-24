@@ -421,18 +421,26 @@ final class InProcessSession {
   static bool _intermediate(String event) =>
       event == ConduitEvents.turnDelta || event == ConduitEvents.turnBlocks;
 
+  /// The answer a frame is the whole state of: a comparison streams several
+  /// in one chat. A frame naming no message stands for its chat's.
+  static String _key(
+    String event,
+    String scope,
+    Map<String, dynamic> payload,
+  ) => '$event $scope ${payload['messageId'] ?? ''}';
+
   bool _admit(String event, String? scope, Map<String, dynamic> payload) {
     if (_closed || scope == null) return true;
     final intermediate = _intermediate(event);
     if (intermediate && _unacknowledged >= _limit) {
-      final key = '$event $scope';
+      final key = _key(event, scope, payload);
       _held.remove(key);
       _held[key] = (event: event, scope: scope, payload: payload);
       return false;
     }
     if (_held.isNotEmpty) {
       // This one is newer than one of its kind held for the chat.
-      if (intermediate) _held.remove('$event $scope');
+      if (intermediate) _held.remove(_key(event, scope, payload));
       _release(scope);
     }
     return true;

@@ -286,6 +286,84 @@ void main() {
     expect(heard, contains('${ConduitEvents.syncStatus} null 20'));
   });
 
+  group('frames held for a client that falls behind', () {
+    late InProcessProtocolHost host;
+    late _Client phone;
+    late EventBus events;
+
+    Future<void> watch(List<String> scopes) => phone.ask(
+      ConduitMethods.eventsSubscribe,
+      EventSubscription(scopes: scopes).toJson(),
+    );
+
+    setUp(() async {
+      await startApp();
+      (host, _) = await startHost(limit: 4);
+      events = host.services.events;
+      phone = connect(host, 'phone');
+      await phone.handshake();
+      await watch(<String>['chat-a', 'chat-b']);
+    });
+
+    // One frame per turn of the event loop, as the turn pipeline emits them.
+    Future<void> publish(
+      String event,
+      String scope,
+      String messageId,
+      Object n,
+    ) async {
+      events.publish(
+        event,
+        scope: scope,
+        payload: <String, dynamic>{
+          'chatId': scope,
+          'messageId': messageId,
+          'n': n,
+        },
+      );
+      await Future<void>(() {});
+    }
+
+    /// What the client heard last of [messageId]'s answer, by event.
+    Map<String, Object?> lastOf(String messageId) => <String, Object?>{
+      for (final e in phone.events)
+        if (e.payload['messageId'] == messageId) e.event: e.payload['n'],
+    };
+
+    /// Lets the client catch up, and waits until it has every message sent.
+    Future<void> catchUp() async {
+      final caughtUp = phone.next((e) => e.payload['n'] == 'caught up');
+      phone.releaseAcknowledgements();
+      await publish(ConduitEvents.syncStatus, 'chat-b', 'marker', 'caught up');
+      await caughtUp;
+    }
+
+    test('each answer of a comparison keeps its own latest state', () async {
+      phone.holdAcknowledgements();
+      for (var n = 1; n <= 20; n++) {
+        // The companion streams first, as `_emitCompanionDeltas` does, and
+        // stops at 10; the main answer goes on.
+        if (n <= 10) {
+          await publish(ConduitEvents.turnDelta, 'chat-a', 'companion', n);
+          await publish(ConduitEvents.turnBlocks, 'chat-a', 'companion', n);
+        }
+        await publish(ConduitEvents.turnDelta, 'chat-a', 'main', n);
+        await publish(ConduitEvents.turnBlocks, 'chat-a', 'main', n);
+      }
+      await catchUp();
+      expect(lastOf('companion'), <String, Object?>{
+        ConduitEvents.turnDelta: 10,
+        ConduitEvents.turnBlocks: 10,
+      });
+      expect(lastOf('main'), <String, Object?>{
+        ConduitEvents.turnDelta: 20,
+        ConduitEvents.turnBlocks: 20,
+      });
+      phone.expectNumberedWithoutGaps();
+    });
+
+  });
+
   group('byte routes over frames', () {
     late HttpServer site;
     late Uint8List picture;
