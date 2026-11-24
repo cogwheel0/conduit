@@ -474,9 +474,15 @@ final class ProtocolServices {
     // cannot start again what is being closed.
     _transportsClosed = true;
     if (_attached && !_disposed) _core = _buildCore(transports: false);
-    await _calls?.dispose();
-    // Its stop asks the window, whose answer still reaches it until now.
-    await _speech?.dispose();
+    // The reading lets go before anything here waits (a call's stop can take
+    // seconds), so a sentence ending meanwhile starts no next one. Its stop
+    // asks the window, whose answer reaches it until the stop is done.
+    final speechStopping = _speech?.dispose();
+    try {
+      await _calls?.dispose();
+    } finally {
+      await speechStopping;
+    }
     _speechStopped = true;
     if (_attached && !_disposed) _core = _buildCore(transports: false);
     await _terminals?.dispose();

@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/features/chat/read_aloud/tts_manager.dart';
 import 'package:conduit_core/features/chat/read_aloud/text_to_speech_controller.dart'
     show readAloudLiveDeviceSpeechProvider;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
@@ -315,6 +316,72 @@ void main() {
     await closing;
     // Stopped: from here a report reaches nothing.
     expect(built.core.speechReports, isNull);
+  });
+
+  test('once transports begin closing, a reading takes no next sentence: '
+      'the end of its sentence arriving meanwhile starts nothing', () async {
+    await startDesktop();
+    final built = services()..attach(runtime.container);
+    final pipe = StreamChannelController<String>(sync: true);
+    final session = built.openSession(pipe.local, sessionId: 'phone');
+    addTearDown(session.close);
+    unawaited(session.listen());
+    final window = json_rpc.Peer(pipe.foreign);
+    addTearDown(window.close);
+    final said = <SpeechCommand>[];
+    final spoke = Completer<void>();
+    registerEventSink(
+      window,
+      onEvent: (envelope) {
+        if (envelope.event != ConduitEvents.speechCommand) return;
+        final command = SpeechCommand.fromJson(envelope.payload);
+        if (command.kind == SpeechCommandKind.deviceSpeak) {
+          said.add(command);
+          if (!spoke.isCompleted) spoke.complete();
+        }
+        window
+            .sendRequest(
+              ConduitMethods.speechReport,
+              SpeechReport(id: command.id, value: true).toJson(),
+            )
+            .ignore();
+      },
+    );
+    unawaited(window.listen());
+    await handshakeAndAsk(window);
+    await window.sendRequest(
+      ConduitMethods.eventsSubscribe,
+      const EventSubscription().toJson(),
+    );
+    await window.sendRequest(
+      ConduitMethods.speechPreview,
+      const SpeechPreview(
+        text:
+            'The harbour lights come on one by one as the evening settles '
+            'in. A small wooden boat drifts slowly past the green buoy near '
+            'the pier.',
+      ).toJson(),
+    );
+    await spoke.future;
+
+    final closing = built.closeTransports();
+    // Before closing has waited for anything (a call's stop can take
+    // seconds), the reading is let go.
+    expect(TtsManager.instance.isPlaying, isFalse);
+    // The first sentence ends meanwhile.
+    try {
+      await window.sendRequest(
+        ConduitMethods.speechReport,
+        SpeechReport(
+          kind: SpeechReportKind.complete,
+          utterance: said.single.utterance,
+        ).toJson(),
+      );
+    } on json_rpc.RpcException {
+      // Refused once the reading has stopped: nothing to advance either way.
+    }
+    await closing;
+    expect(said, hasLength(1), reason: 'no next sentence after closing began');
   });
 
   test('closing again after disposal shows sessions nothing', () async {
