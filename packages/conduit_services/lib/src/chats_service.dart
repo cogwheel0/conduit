@@ -1229,21 +1229,7 @@ final class ChatsService {
     }
   }
 
-  /// The id [id] goes by now, for a request that still names a chat's
-  /// `local:` id after it moved to the server's ([currentChatId]); null for
-  /// an id that cannot have moved, so the request goes on with no wait and
-  /// under the account it came under. A lookup is read for that account:
-  /// once another is in charge, the request is refused, as one that reached
-  /// the core then would be.
-  Future<String>? _moved(String id) {
-    final current = currentChatId(_container, id);
-    if (current is String) return null;
-    final account = AccountScope.capture(_container);
-    return current.then((moved) {
-      account.require('the chat\'s id was read');
-      return moved;
-    });
-  }
+  Future<String>? _moved(String id) => movedChatId(_container, id);
 
   void _refuseWhileAnswering(String chatId) {
     if (turns?.isRunning(chatId) ?? false) {

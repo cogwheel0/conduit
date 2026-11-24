@@ -486,6 +486,10 @@ final class FakeOwuiChats {
   /// Open WebUI keeps a message's id only for a batch of one.
   bool answerHeldInPlace = false;
 
+  /// Tool calls answered with `POST /api/v1/chats/{id}/messages/{id}/resolve`,
+  /// as `chatId/messageId`.
+  final List<String> resolutions = <String>[];
+
   /// Messages deleted with `DELETE /api/v1/chats/{id}/messages/{id}`, as
   /// `chatId/messageId`.
   final List<String> deletedMessages = <String>[];
@@ -1188,6 +1192,31 @@ final class FakeOwuiChats {
         'task_ids': <String>[task],
         'chat_id': chat,
       });
+    }
+    // A tool call answered: the answer that asked goes on as a task.
+    final resolve = RegExp(
+      r'^/api/v1/chats/([^/]+)/messages/([^/]+)/resolve$',
+    ).firstMatch(path);
+    if (post && resolve != null) {
+      await request.drain<void>();
+      final chat = resolve[1]!;
+      if (!stored.containsKey(chat)) {
+        return json(<String, dynamic>{'detail': 'not found'}, 404);
+      }
+      resolutions.add('$chat/${resolve[2]}');
+      final task = 'task-${++_tasks}';
+      _running[task] = chat;
+      unawaited(_run(task, chat, resolve[2]!, null));
+      return json(<String, dynamic>{
+        'task_ids': <String>[task],
+      });
+    }
+    // Merge Responses, streamed in the response as Open WebUI streams it,
+    // and held after its first word as an answer is ([holdStream]).
+    if (post && path == '/api/v1/tasks/moa/completions') {
+      await request.drain<void>();
+      await _streamTo(response, null);
+      return true;
     }
     if (post && path.startsWith('/api/tasks/stop/')) {
       await request.drain<void>();

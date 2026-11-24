@@ -8,6 +8,8 @@ import 'package:conduit_core/models/openwebui_registry.dart'
 import 'package:conduit_core/persistence/account_scoped_preferences.dart'
     show currentPreferenceAccountId;
 import 'package:conduit_core/providers/app_providers.dart'
+    show currentChatId;
+import 'package:conduit_core/providers/app_providers.dart'
     show activeServerProvider, openWebUiAuthSessionEpochProvider;
 import 'package:conduit_core/providers/primary_account_providers.dart'
     show PrimaryAccountRef, primaryAccountProvider;
@@ -206,4 +208,20 @@ final class AccountScope {
       return null;
     }
   }
+}
+
+/// The id the chat [chatId] names goes by now, for a request that still
+/// names a chat's `local:` id after it moved to the server's
+/// ([currentChatId]); null for an id that cannot have moved, so the request
+/// goes on with no wait and under the account it came under. A lookup is
+/// read for that account: once another is in charge, the request is
+/// refused, as one that reached the core then would be.
+Future<String>? movedChatId(ProviderContainer container, String chatId) {
+  final current = currentChatId(container, chatId);
+  if (current is String) return null;
+  final account = AccountScope.capture(container);
+  return current.then((moved) {
+    account.require('the chat\'s id was read');
+    return moved;
+  });
 }

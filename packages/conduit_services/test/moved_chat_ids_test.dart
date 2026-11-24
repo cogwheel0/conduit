@@ -106,16 +106,21 @@ void main() {
     return id;
   }
 
-  /// [chatId]'s turn's end, as heard already or once it is.
-  Future<void> finished(String chatId) {
-    bool ends(EventEnvelope e) =>
-        e.event == ConduitEvents.turnFinished && e.payload['chatId'] == chatId;
-    if (heard.any(ends)) return Future<void>.value();
+  /// The end of [chatId]'s turn (the one answering [messageId], when
+  /// given), as heard already or once it is.
+  Future<void> finished(String chatId, {String? messageId}) {
+    bool ends(String event, Map<String, dynamic> payload) =>
+        event == ConduitEvents.turnFinished &&
+        payload['chatId'] == chatId &&
+        (messageId == null || payload['messageId'] == messageId);
+    if (heard.any((e) => ends(e.event, e.payload))) {
+      return Future<void>.value();
+    }
     final done = Completer<void>();
-    events.attach('finished-$chatId', (e) {
-      if (ends(e) && !done.isCompleted) done.complete();
+    final untap = events.tap((event, _, payload) {
+      if (ends(event, payload) && !done.isCompleted) done.complete();
     });
-    return done.future;
+    return done.future.whenComplete(untap);
   }
 
   /// A chat with one question and its answer, made here and then stored by
@@ -198,6 +203,30 @@ void main() {
     await certified(ada);
     expect((await chats.get(now))!.summary.title, isNot('Not Bob\'s to name'));
     expect(bob, isNot(ada));
+  });
+
+  test('a regenerate and an edit by the old id answer in the moved chat',
+      () async {
+    await signIn('ada@example.com', 'pw-ada');
+    final (old, now) = await movedChat();
+    final asked = (await chats.get(now))!.messages;
+
+    final again = await turns.regenerate(
+      RegenerateTurn(chatId: old, messageId: asked.last.id),
+    );
+    expect(again.chatId, now);
+    await finished(now, messageId: again.assistantMessageId);
+
+    final edited = await turns.edit(
+      EditTurn(chatId: old, messageId: asked.first.id, text: 'Which drawer?'),
+    );
+    expect(edited.chatId, now);
+    await finished(now, messageId: edited.assistantMessageId);
+
+    expect((await chats.list()).chats.map((c) => c.id), <String>[now]);
+    final transcript = (await chats.get(now))!.messages;
+    expect(transcript.first.content, 'Which drawer?');
+    expect(transcript.last.id, edited.assistantMessageId);
   });
 
   test('a batch naming an old id is refused, and changes nothing, once '

@@ -8,6 +8,7 @@ import 'package:conduit_core/database/database_provider.dart'
     show appDatabaseProvider, openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/model.dart' as core;
+import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/connectivity_service.dart'
     show isOnlineProvider;
@@ -1110,5 +1111,134 @@ void main() {
         .pullChatNow(chatId);
     // The pull after the turn, and this one.
     expect(owui.requests.where(chatRead).length - readsBefore, 2);
+  });
+
+  test('a merge asked for by a chat\'s old id is told under its current id, '
+      'and its stop by the old id stops it', () async {
+    const chatId = 'chat-drawer';
+    final chats = owui.chats..seed(chatId, userId: 'user-ada');
+    // A comparison already answered, as Open WebUI keeps one: two answers
+    // to one question, one per model slot.
+    final stamp = DateTime.utc(2026, 11, 20, 9).millisecondsSinceEpoch ~/ 1000;
+    Map<String, dynamic> answer(String id, int slot, String text) =>
+        <String, dynamic>{
+          'id': id,
+          'parentId': 'drawer-q',
+          'childrenIds': <String>[],
+          'role': 'assistant',
+          'content': text,
+          'model': 'kettle-model',
+          'modelIdx': slot,
+          'done': true,
+          'timestamp': stamp,
+        };
+    (chats.stored[chatId]!['chat'] as Map<String, dynamic>)
+      ..['models'] = <String>['kettle-model', 'kettle-model']
+      ..['history'] = <String, dynamic>{
+        'currentId': 'drawer-a',
+        'messages': <String, dynamic>{
+          'drawer-q': <String, dynamic>{
+            'id': 'drawer-q',
+            'parentId': null,
+            'childrenIds': <String>['drawer-a', 'drawer-b'],
+            'role': 'user',
+            'content': 'Which drawer?',
+            'models': <String>['kettle-model', 'kettle-model'],
+            'timestamp': stamp,
+          },
+          'drawer-a': answer('drawer-a', 0, 'The top one.'),
+          'drawer-b': answer('drawer-b', 1, 'The bottom one.'),
+        },
+      };
+    await runtime.container
+        .read(syncEngineProvider.notifier)
+        .pullChatNow(chatId);
+    // The chat was made here as `local:drawer`, and moved to the server's
+    // id once stored there: the move as the core records it.
+    await runtime.container
+        .read(appDatabaseProvider)!
+        .syncMetaDao
+        .setChatRemapTarget('local:drawer', chatId);
+
+    final told = <({String? scope, Map<String, dynamic> payload})>[];
+    final untap = events.tap((event, scope, payload) {
+      if (event == ConduitEvents.messagesMerge) {
+        told.add((scope: scope, payload: payload));
+      }
+    });
+    addTearDown(untap);
+    final words = chats.holdStream = Completer<void>();
+    addTearDown(() {
+      if (!words.isCompleted) words.complete();
+    });
+    const merge = MergeTurn(
+      chatId: 'local:drawer',
+      messageId: 'drawer-a',
+      targetId: 'drawer-a',
+    );
+    await clock.during(turns.merge(merge));
+    expect(turns.mergeRunning(chatId), isTrue);
+
+    await clock.during(turns.merge(merge.copyWith(stop: true)));
+    // Let go, so a merge the stop missed ends with every word.
+    words.complete();
+    await until(() => told.any((e) => e.payload['running'] == false));
+    for (final event in told) {
+      expect(event.scope, chatId);
+      expect(event.payload['chatId'], chatId);
+    }
+    expect(told.last.payload['text'], isNot(chats.answer));
+    expect(turns.mergeRunning(chatId), isFalse);
+  });
+
+  test('an answer to a prompt saved in a chat, sent by the chat\'s old id, '
+      'goes through', () async {
+    const chatId = 'chat-shelf';
+    final chats = owui.chats..seed(chatId, userId: 'user-ada');
+    final finished = <String>[];
+    final untap = events.tap((event, _, payload) {
+      if (event == ConduitEvents.turnFinished) {
+        finished.add(TurnFinished.fromJson(payload).messageId);
+      }
+    });
+    addTearDown(untap);
+    final asked = await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Shall I dust the shelf?',
+        ),
+      ),
+    );
+    subscribeWindow(events, turns, 'window', <String>[chatId]);
+    await until(() => finished.contains(asked.assistantMessageId));
+    // The chat was made here as `local:shelf`, and moved to the server's
+    // id once stored there: the move as the core records it.
+    await runtime.container
+        .read(appDatabaseProvider)!
+        .syncMetaDao
+        .setChatRemapTarget('local:shelf', chatId);
+
+    await clock.during(
+      turns.resolveStoredPrompt(
+        'local:shelf',
+        OpenWebUiPendingToolPrompt(
+          messageId: asked.assistantMessageId,
+          callId: 'call-dust',
+          toolName: 'dust_shelf',
+          prompt: const OpenWebUiComposerPrompt(
+            identity: 'call-dust',
+            kind: OpenWebUiComposerPromptKind.toolApproval,
+          ),
+        ),
+        OpenWebUiToolCallAction.approve,
+        null,
+      ),
+    );
+    expect(chats.resolutions, <String>['$chatId/${asked.assistantMessageId}']);
+    await until(
+      () => finished.where((id) => id == asked.assistantMessageId).length > 1,
+    );
   });
 }

@@ -709,6 +709,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
     // The account the words are for: every wait below (the model, the
     // rights, the chat) is followed by its check, last as the turn starts.
     final account = AccountScope.capture(_container);
+    if (_moved(request.chatId) case final moved?) {
+      request = request.copyWith(chatId: await moved);
+    }
     _refuseDeleted(request.chatId);
     // `@` users and channels and `$` skills, in Open WebUI's wire format.
     final text = composerWireText(request.text, request.mentions).trim();
@@ -928,6 +931,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
     Future<String?> Function()? selectedNow,
   }) async {
     final account = AccountScope.capture(_container);
+    if (_moved(request.chatId) case final moved?) {
+      request = request.copyWith(chatId: await moved);
+    }
     _refuseTemporary(request.chatId);
     final session = await _sessionFor(request.chatId, account: account);
     _Claim? claim;
@@ -1013,6 +1019,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// its answer and everything after it.
   Future<SendTurnAccepted> edit(EditTurn request) async {
     final account = AccountScope.capture(_container);
+    if (_moved(request.chatId) case final moved?) {
+      request = request.copyWith(chatId: await moved);
+    }
     _refuseTemporary(request.chatId);
     final text = request.text.trim();
     if (text.isEmpty) {
@@ -1206,6 +1215,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
 
   Future<int> deleteMessages(DeleteMessages request) async {
     final account = AccountScope.capture(_container);
+    if (_moved(request.chatId) case final moved?) {
+      request = request.copyWith(chatId: await moved);
+    }
     final session = await _sessionFor(request.chatId, account: account);
     var reserved = false;
     _Claim? claim;
@@ -1283,6 +1295,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// once more as it ends. [MergeTurn.stop] stops the running merge.
   Future<MergeStarted> merge(MergeTurn request) async {
     final account = AccountScope.capture(_container);
+    if (_moved(request.chatId) case final moved?) {
+      request = request.copyWith(chatId: await moved);
+    }
     if (request.stop) {
       final session = _sessionOf(request.chatId);
       final running = session?.merge;
@@ -1548,6 +1563,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// only refuses what cannot be rated and tells the windows afterwards, so
   /// the thumb comes back from the stored copy like everything else does.
   Future<void> rate(RateTurn request) async {
+    if (_moved(request.chatId) case final moved?) {
+      request = request.copyWith(chatId: await moved);
+    }
     if (request.rating != 1 && request.rating != -1) {
       throw const RpcError(
         code: ConduitErrorCodes.invalidParams,
@@ -1584,10 +1602,13 @@ final class TurnsService implements ChatTurns, AddressReplies {
     // The account the Stop was asked under: a stranded answer is read before
     // it is stopped, and nothing is stopped once another account is in charge.
     final account = AccountScope.capture(_container);
-    final current = currentChatId(_container, chatId);
-    if (current is! String) {
-      chatId = await current;
-      if (!account.isCurrent) return;
+    if (_moved(chatId) case final moved?) {
+      try {
+        chatId = await moved;
+      } on RpcError {
+        // Another account in charge: nothing of the asker's to stop.
+        return;
+      }
     }
     final session = _sessionOf(chatId);
     final turn = session?.turn;
@@ -2149,6 +2170,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     bool temporary = false,
   }) async {
     final account = AccountScope.capture(_container);
+    if (_moved(chatId) case final moved?) chatId = await moved;
     final chosen = await _resolveModel(model);
     account.require('the call\'s model was read');
     await _requireBackendFor(chosen);
@@ -2987,6 +3009,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// `turns.retryQueued`: sends a queued answer's request again now.
   Future<OkResult> retryQueued(QueuedTurnRef ref) async {
     final account = AccountScope.capture(_container);
+    if (_moved(ref.chatId) case final moved?) {
+      ref = ref.copyWith(chatId: await moved);
+    }
     final session = await _sessionFor(ref.chatId, account: account);
     try {
       final info = await _queuedInfo(session, ref.messageId);
@@ -3009,6 +3034,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// `turns.removeQueued`: removes a queued answer before it goes out.
   Future<OkResult> removeQueued(QueuedTurnRef ref) async {
     final account = AccountScope.capture(_container);
+    if (_moved(ref.chatId) case final moved?) {
+      ref = ref.copyWith(chatId: await moved);
+    }
     final session = await _sessionFor(ref.chatId, account: account);
     try {
       final info = await _queuedInfo(session, ref.messageId);
@@ -3565,6 +3593,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// chat opened later finds it: from its open scope, else its stored
   /// transcript. None for a chat this server does not store.
   Future<OpenWebUiPendingToolPrompt?> storedPrompt(String chatId) async {
+    if (_moved(chatId) case final moved?) chatId = await moved;
     if (temporary.contains(chatId) || hermesSessionOf(chatId) != null) {
       return null;
     }
@@ -3605,6 +3634,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     Map<String, dynamic>? answers,
   ) async {
     final account = AccountScope.capture(_container);
+    if (_moved(chatId) case final moved?) chatId = await moved;
     final session = await _sessionFor(chatId, account: account);
     _Claim? claim;
     try {
@@ -3714,6 +3744,15 @@ final class TurnsService implements ChatTurns, AddressReplies {
   // Scopes
   // ---------------------------------------------------------------------------
 
+  /// The id a request's chat goes by now, when it names one by the `local:`
+  /// id it had before the server stored it ([movedChatId]): replaced as the
+  /// request comes in, so all it does is under the current id. Null for no
+  /// chat, a temporary one, or one that cannot have moved.
+  Future<String>? _moved(String? chatId) =>
+      chatId == null || temporary.contains(chatId)
+      ? null
+      : movedChatId(_container, chatId);
+
   _ChatSession? _sessionOf(String chatId) {
     for (final session in _sessions) {
       if (session.chatId == chatId) return session;
@@ -3748,15 +3787,6 @@ final class TurnsService implements ChatTurns, AddressReplies {
     // Whatever the caller waited for before this (a model, the backend),
     // an open chat too is handed only to the account that asked.
     account.require('the chat was asked for');
-    // A chat asked for by the `local:` id it had before the server stored
-    // it is the chat it became.
-    if (chatId != null && !temporary.contains(chatId)) {
-      final current = currentChatId(_container, chatId);
-      if (current is! String) {
-        chatId = await current;
-        account.require('the chat\'s id was read');
-      }
-    }
     _refuseDeleted(chatId);
     if (chatId != null) {
       final existing = _sessionOf(chatId);
