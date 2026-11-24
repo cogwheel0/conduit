@@ -46,6 +46,7 @@
 		C07CD0FC676C9F75CE320600 /* FlutterConduitBridgeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07CD1E93C33B4AE1AD1A0F2 /* FlutterConduitBridgeHost.swift */; };
 		C07E03850D838F4CC4E73700 /* ShareImportBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C076D53F677D9AB9577FCB47 /* ShareImportBridge.swift */; };
 		C07FFD404BC56A760606B800 /* PlatformEnvironmentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07D6E81F9707D1BBEDB9BB5 /* PlatformEnvironmentBridge.swift */; };
+		C7E3A1F12F6B4D5E8A9B0C11 /* ProtocolProbeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E3A1F02F6B4D5E8A9B0C11 /* ProtocolProbeBridge.swift */; };
 		C862768ACA28888E71623A15 /* PushLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D57D5B0E1798A4A8E62B0CF /* PushLedger.swift */; };
 		CA4A256DAFB6E4374BC67B91 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */; };
 		D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */; };
@@ -186,6 +187,7 @@
 		C07CD1E93C33B4AE1AD1A0F2 /* FlutterConduitBridgeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterConduitBridgeHost.swift; sourceTree = "<group>"; };
 		C07D6E81F9707D1BBEDB9BB5 /* PlatformEnvironmentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformEnvironmentBridge.swift; sourceTree = "<group>"; };
 		C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeIosTtsBridge.swift; sourceTree = "<group>"; };
+		C7E3A1F02F6B4D5E8A9B0C11 /* ProtocolProbeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolProbeBridge.swift; sourceTree = "<group>"; };
 		D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePasteBridge.swift; sourceTree = "<group>"; };
 		D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeKeyboardAttachmentBridge.swift; sourceTree = "<group>"; };
 		D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSheetBridge.swift; sourceTree = "<group>"; };
@@ -504,6 +506,7 @@
 				D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */,
 				D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */,
 				D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */,
+				C7E3A1F02F6B4D5E8A9B0C11 /* ProtocolProbeBridge.swift */,
 				D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */,
 				D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */,
 				D2A0B2222F5E4D6C7B8A9012 /* ConduitCarPlayBridge.swift */,
@@ -857,6 +860,7 @@
 				D2A0B4022F5E4D6C7B8A9012 /* RecordingActivityBridge.swift in Sources */,
 				D2A0B4042F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift in Sources */,
 				D2A0B2412F5E4D6C7B8A9012 /* PccBridge.swift in Sources */,
+				C7E3A1F12F6B4D5E8A9B0C11 /* ProtocolProbeBridge.swift in Sources */,
 				D2A0B2512F5E4D6C7B8A9012 /* DisplayBoostBridge.swift in Sources */,
 				D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */,
 				D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */,
