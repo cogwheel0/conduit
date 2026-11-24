@@ -371,7 +371,7 @@ async fn approval(dir: &Path, cx: &mut AsyncApp) -> bool {
         let u = cx.global::<AppState>().stores.ui_requests.read(cx);
         u.queue
             .iter()
-            .any(|r| r.message_code == "librechat.toolApproval")
+            .any(|r| r.message_code == "librechat.toolCall")
     })
     .await;
     pass &= ok("the paused tool call asks for approval", asked);

@@ -155,14 +155,16 @@ pub struct FormQuestion<'a> {
     pub input: Option<Entity<InputState>>,
 }
 
-/// Every question of a clarify form, scrolling past ~360 pt.
+/// Every question of a clarify form, scrolling past ~360 pt. With no
+/// `on_skip` its questions have no Skip (a LibreChat question waits for its
+/// answer).
 #[allow(clippy::too_many_arguments)]
 pub fn clarify_form(
     id: &str,
     questions: Vec<FormQuestion<'_>>,
     enabled: bool,
     on_pick: OnPick,
-    on_skip: OnSkip,
+    on_skip: Option<OnSkip>,
     l10n: &L10n,
     window: &mut Window,
     cx: &mut App,
@@ -210,8 +212,7 @@ pub fn clarify_form(
                             label.clone()
                         }),
                 )
-                .when(!q.locked, |d| {
-                    let on_skip = on_skip.clone();
+                .when_some(on_skip.clone().filter(|_| !q.locked), |d, on_skip| {
                     d.child(skip_toggle(
                         format!("hermes-skip-{id}-{qi}"),
                         skipped,

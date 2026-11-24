@@ -86,8 +86,108 @@ pub enum Card {
         model: String,
         reason: Option<String>,
     },
+    /// A LibreChat run paused on a tool call: one button per decision its
+    /// server allows, in the server's order.
+    LibreChatTool(LibreChatTool),
+    /// A LibreChat agent's question: its options (one, or several), or
+    /// words of one's own when it offers none. It has no Cancel: it waits.
+    LibreChatQuestion(LibreChatQuestion),
     /// A kind this window does not host: answer on mobile or the web.
     Unsupported,
+}
+
+/// A decision on a paused LibreChat tool call, as the wire names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibreChatDecision {
+    Approve,
+    Reject,
+    /// Run it with arguments typed as a JSON object.
+    Edit,
+    /// Answer in the tool's place with text.
+    Respond,
+}
+
+impl LibreChatDecision {
+    pub fn wire(self) -> &'static str {
+        match self {
+            Self::Approve => "approve",
+            Self::Reject => "reject",
+            Self::Edit => "edit",
+            Self::Respond => "respond",
+        }
+    }
+
+    fn from_wire(name: &str) -> Option<Self> {
+        [Self::Approve, Self::Reject, Self::Edit, Self::Respond]
+            .into_iter()
+            .find(|d| d.wire() == name)
+    }
+}
+
+/// Why the daemon put a LibreChat card again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PauseProblem {
+    /// The answers could not be sent: answer again.
+    Failed,
+    /// A decision the server does not allow for this call.
+    NotAllowed,
+    /// An edit that is not a JSON object.
+    InvalidArguments,
+    /// A response or an answer with no text.
+    Empty,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LibreChatTool {
+    pub tool: String,
+    pub description: String,
+    /// The arguments it would run with, as shown.
+    pub arguments: String,
+    /// What an edit starts from: the arguments as pretty JSON.
+    pub editable: String,
+    pub allowed: Vec<LibreChatDecision>,
+    /// Its place among the calls the run paused on: (1-based, of).
+    pub progress: Option<(usize, usize)>,
+    pub problem: Option<PauseProblem>,
+    /// What was typed into the answer the daemon did not take.
+    pub typed: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LibreChatQuestion {
+    /// The question as a form question: its choices go back by label, as
+    /// the card shows them (the daemon sends their values).
+    pub question: ClarifyQuestion,
+    pub description: String,
+    pub progress: Option<(usize, usize)>,
+    pub problem: Option<PauseProblem>,
+}
+
+/// `messageArgs.progress` ("2/3").
+fn pause_progress(request: &UiRequest) -> Option<(usize, usize)> {
+    let raw = arg(request, "progress")?;
+    let (index, count) = raw.split_once('/')?;
+    let (index, count) = (index.parse().ok()?, count.parse().ok()?);
+    (index >= 1 && index <= count && count > 1).then_some((index, count))
+}
+
+/// `detail.failed` / `detail.refusal`: why the card is put again.
+fn pause_problem(detail: &Value) -> Option<PauseProblem> {
+    match detail.get("refusal").and_then(Value::as_str) {
+        Some("notAllowed") => return Some(PauseProblem::NotAllowed),
+        Some("invalidArguments") => return Some(PauseProblem::InvalidArguments),
+        Some("empty") => return Some(PauseProblem::Empty),
+        _ => {}
+    }
+    (detail.get("failed").and_then(Value::as_bool) == Some(true)).then_some(PauseProblem::Failed)
+}
+
+/// Whether `typed` is what an edit may run with: a JSON object.
+pub fn edited_arguments_valid(typed: &str) -> bool {
+    matches!(
+        serde_json::from_str::<Value>(typed.trim()),
+        Ok(Value::Object(_))
+    )
 }
 
 /// What a paid MCP tool's call costs, as Hermes stated it.
@@ -140,17 +240,30 @@ fn arg(r: &UiRequest, key: &str) -> Option<String> {
 
 /// Whether `request` shows (and is answered) while `chat` is open: a held
 /// Hermes model switch is the question of the chat whose message waits
-/// (`detail.chatId`), shown with that chat only and never answered from
-/// another; every other request shows with any chat.
+/// (`detail.chatId`), and a paused LibreChat reply's card that of the chat
+/// it paused in (`messageArgs.chatId`), each shown with that chat only and
+/// never answered from another; every other request shows with any chat.
 pub fn shown_with(request: &UiRequest, chat: Option<&str>) -> bool {
     match request.kind {
-        UiRequestKind::HermesModelSwitch => request
-            .detail
-            .get("chatId")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|owner| chat == Some(owner)),
+        UiRequestKind::HermesModelSwitch
+        | UiRequestKind::LibreChatToolCall
+        | UiRequestKind::LibreChatQuestion => {
+            owner_chat(request).is_some_and(|owner| chat == Some(owner))
+        }
         _ => true,
     }
+}
+
+/// The chat `request` is the question of, when it is one chat's alone.
+fn owner_chat(request: &UiRequest) -> Option<&str> {
+    match request.kind {
+        UiRequestKind::HermesModelSwitch => request.detail.get("chatId").and_then(Value::as_str),
+        UiRequestKind::LibreChatToolCall | UiRequestKind::LibreChatQuestion => {
+            request.message_args.get("chatId").map(String::as_str)
+        }
+        _ => None,
+    }
+    .filter(|id| !id.is_empty())
 }
 
 /// The card for `request`.
@@ -164,23 +277,6 @@ pub fn card(request: &UiRequest) -> Card {
             confirm_label: arg(request, "confirmLabel"),
             cancel_label: arg(request, "cancelLabel"),
         },
-        // A LibreChat run paused on a tool: its description, then the
-        // arguments it would run with.
-        UiRequestKind::ToolApproval if request.message_code == "librechat.toolApproval" => {
-            let arguments = request
-                .detail
-                .get("arguments")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            Card::Tool {
-                title,
-                message: [message.as_str(), arguments]
-                    .into_iter()
-                    .filter(|s| !s.trim().is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n\n"),
-            }
-        }
         UiRequestKind::ToolApproval => Card::Tool { title, message },
         UiRequestKind::InputPrompt => {
             let input = match request.input_type {
@@ -203,42 +299,75 @@ pub fn card(request: &UiRequest) -> Card {
                 cancel_label: arg(request, "cancelLabel"),
             }
         }
-        // A LibreChat agent's question: its options to pick from, or words
-        // of one's own when it offers none. Cancel stops the reply.
+        UiRequestKind::LibreChatToolCall => {
+            let text = |key: &str| {
+                request
+                    .detail
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            let allowed: Vec<LibreChatDecision> = request
+                .detail
+                .get("allowedDecisions")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .filter_map(LibreChatDecision::from_wire)
+                        .collect()
+                })
+                .unwrap_or_default();
+            // Nothing this window can decide: say so, and let it be
+            // answered elsewhere.
+            if allowed.is_empty() {
+                return Card::Unsupported;
+            }
+            Card::LibreChatTool(LibreChatTool {
+                tool: title,
+                description: message,
+                arguments: text("arguments"),
+                editable: text("editableArguments"),
+                allowed,
+                progress: pause_progress(request),
+                problem: pause_problem(&request.detail),
+                typed: request
+                    .detail
+                    .get("typed")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            })
+        }
         UiRequestKind::LibreChatQuestion => {
-            let options: Vec<UiInputOption> = request
+            let choices = request
                 .detail
                 .get("options")
                 .and_then(Value::as_array)
                 .map(|a| {
                     a.iter()
-                        .filter_map(|o| o.get("label").and_then(Value::as_str))
-                        .map(|label| UiInputOption {
-                            value: label.to_string(),
-                            label: label.to_string(),
+                        .filter_map(|o| text_of(o.get("label")))
+                        .map(|label| ClarifyChoice {
+                            value: label.clone(),
+                            label,
+                            recommended: false,
                         })
                         .collect()
                 })
                 .unwrap_or_default();
-            let description = request
-                .detail
-                .get("description")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            Card::Input {
-                title,
-                message: description,
-                placeholder: None,
-                initial: String::new(),
-                input: if options.is_empty() {
-                    InputKind::Text
-                } else {
-                    InputKind::Select(options)
+            Card::LibreChatQuestion(LibreChatQuestion {
+                question: ClarifyQuestion {
+                    id: request.request_id.clone(),
+                    text: text_of(request.detail.get("question")).unwrap_or(title),
+                    choices,
+                    multi: request.detail.get("multiSelect").and_then(Value::as_bool) == Some(true),
+                    locked: false,
+                    locked_answer: None,
                 },
-                confirm_label: None,
-                cancel_label: None,
-            }
+                description: text_of(request.detail.get("description")).unwrap_or_default(),
+                progress: pause_progress(request),
+                problem: pause_problem(&request.detail),
+            })
         }
         UiRequestKind::McpApproval => Card::Mcp {
             server: arg(request, "serverName").unwrap_or_default(),
@@ -311,9 +440,7 @@ pub fn card(request: &UiRequest) -> Card {
             },
             None => Card::Unsupported,
         },
-        UiRequestKind::HermesDecision
-        | UiRequestKind::LibreChatToolCall
-        | UiRequestKind::Unknown => Card::Unsupported,
+        UiRequestKind::HermesDecision | UiRequestKind::Unknown => Card::Unsupported,
     }
 }
 
@@ -419,6 +546,8 @@ pub fn allow(request: &UiRequest, text: Option<String>) -> Option<Answer> {
             let first = choices.iter().find(|c| *c != "deny");
             once.or(first).map(|c| Answer::new(c))
         }
+        // Answered from the card, which holds the decision or the answer.
+        Card::LibreChatTool(_) | Card::LibreChatQuestion(_) => None,
         // Answered with `hermes.decisions.answer`, from the card.
         Card::HermesClarify { .. }
         | Card::HermesSecret { .. }
@@ -437,10 +566,13 @@ pub fn is_hermes_question(request: &UiRequest) -> bool {
 }
 
 /// What ⌥⌘⌫ answers: deny, cancel a prompt, or dismiss with the request's
-/// conservative default.
+/// conservative default. A LibreChat call is rejected (the card offers it
+/// only where its server allows it); a LibreChat question has no such
+/// answer, and the card sends none for it.
 pub fn deny(request: &UiRequest) -> Answer {
     match card(request) {
         Card::Input { .. } => Answer::new("cancel"),
+        Card::LibreChatTool(_) => Answer::new(LibreChatDecision::Reject.wire()),
         Card::Unsupported => Answer::new(&request.default_choice),
         _ => Answer::new("deny"),
     }
@@ -497,6 +629,17 @@ impl UiRequestsStore {
     /// How many requests the dock has while `chat` is open.
     pub fn shown_count(&self, chat: Option<&str>) -> usize {
         self.queue.iter().filter(|r| shown_with(r, chat)).count()
+    }
+
+    /// Whether a paused LibreChat reply in `chat` waits on a card: its row
+    /// is marked, as the card shows only there.
+    pub fn waits_in_chat(&self, chat: &str) -> bool {
+        self.queue.iter().any(|r| {
+            matches!(
+                r.kind,
+                UiRequestKind::LibreChatToolCall | UiRequestKind::LibreChatQuestion
+            ) && owner_chat(r) == Some(chat)
+        })
     }
 
     /// A new daemon session: the daemon sends what is still waiting again.
@@ -1044,5 +1187,28 @@ mod tests {
             daemon.calls::<methods::UiRespond>()[1]["remember"],
             json!(true)
         );
+    }
+
+    #[test]
+    fn a_librechat_card_shows_and_is_answered_only_in_its_own_chat() {
+        for kind in [
+            UiRequestKind::LibreChatToolCall,
+            UiRequestKind::LibreChatQuestion,
+        ] {
+            let paused = request("p", kind, &[("chatId", "chat-a")]);
+            assert!(shown_with(&paused, Some("chat-a")), "{kind:?}");
+            assert!(!shown_with(&paused, Some("chat-b")), "{kind:?}");
+            assert!(!shown_with(&paused, None), "{kind:?}");
+            let mut store_queue = vec![paused.clone()];
+            store_queue.push(request("c", UiRequestKind::Confirm, &[]));
+            assert_eq!(
+                store_queue
+                    .iter()
+                    .filter(|r| shown_with(r, Some("chat-b")))
+                    .map(|r| r.request_id.as_str())
+                    .collect::<Vec<_>>(),
+                ["c"],
+            );
+        }
     }
 }

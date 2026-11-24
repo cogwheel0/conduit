@@ -25,21 +25,26 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::IconName;
 use conduit_components::motion::{self, Anchor, Reveal, specs};
 use conduit_components::views::approval::{
     ALLOW_KEYS, ApprovalAction, ApprovalCard, ApprovalKind, DENY_KEYS, SelectOption,
 };
-use conduit_protocol::{UiRequest, UiRequestKind};
-use gpui_kit::component::input::{InputEvent, InputState};
+use conduit_protocol::UiRequest;
+use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Context, Entity, SharedString, Subscription, Window, div, px,
+    AnyElement, App, ClickEvent, Context, Entity, Role, SharedString, Subscription, Window, div, px,
 };
 
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::Stores;
-use crate::stores::ui_requests::{Answer, Card, InputKind, UiRequestsEvent, allow, card, deny};
+use crate::stores::ui_requests::{
+    Answer, Card, InputKind, LibreChatDecision, LibreChatQuestion, LibreChatTool, PauseProblem,
+    UiRequestsEvent, allow, card, deny, edited_arguments_valid,
+};
 use crate::views::chat::blocks::{is_tool_id, tool_display_name};
 use crate::views::forms;
 use crate::views::hermes_cards::{self, ClarifyDraft, FormQuestion};
@@ -53,6 +58,18 @@ pub struct ApprovalsView {
     selected: usize,
     /// MCP "Always allow" asks once more.
     confirming_always: bool,
+    /// A LibreChat call's Edit or Respond, open on its card, and what is
+    /// typed for it.
+    compose: Option<LibreChatDecision>,
+    compose_text: Entity<TextareaState>,
+    /// The edit typed is not a JSON object: said under the field, and
+    /// nothing sent.
+    compose_invalid: bool,
+    /// Sends of an edit refused here, so the reason is heard again.
+    compose_attempts: u64,
+    /// Focus goes back to the composer on the next frame (a field in the
+    /// card held it, and the card closed it or is answered).
+    refocus_composer: bool,
     /// A Hermes form's answers so far, by question id, and each open
     /// question's own-words field.
     clarify: HashMap<String, ClarifyDraft>,
@@ -76,12 +93,16 @@ struct Parked {
     confirming_always: bool,
     clarify: HashMap<String, ClarifyDraft>,
     clarify_text: HashMap<String, String>,
+    compose: Option<LibreChatDecision>,
+    compose_text: String,
+    compose_invalid: bool,
 }
 
 impl ApprovalsView {
     pub fn new(stores: Stores, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = forms::input("", false, window, cx);
         let secret = forms::input("", true, window, cx);
+        let compose_text = cx.new(|cx| TextareaState::new(window, cx).auto_grow(3, 12));
         let enter = |this: &mut Self,
                      _: &Entity<InputState>,
                      e: &InputEvent,
@@ -98,6 +119,18 @@ impl ApprovalsView {
             cx.observe(&stores.navigation, |_, _, cx| cx.notify()),
             cx.subscribe_in(&input, window, enter),
             cx.subscribe_in(&secret, window, enter),
+            // Typing again clears the reason the edit was refused; Respond's
+            // Send follows what is typed.
+            cx.subscribe_in(
+                &compose_text,
+                window,
+                |this: &mut Self, _, e: &InputEvent, _, cx: &mut Context<Self>| {
+                    if let InputEvent::Change = e {
+                        this.compose_invalid = false;
+                        cx.notify();
+                    }
+                },
+            ),
             // Sent too late: Hermes had its answer from elsewhere, or gave up.
             cx.subscribe(&stores.ui_requests, move |_, _, e, cx| {
                 if let UiRequestsEvent::HermesSettledElsewhere = e {
@@ -115,6 +148,11 @@ impl ApprovalsView {
             secret,
             selected: 0,
             confirming_always: false,
+            compose: None,
+            compose_text,
+            compose_invalid: false,
+            compose_attempts: 0,
+            refocus_composer: false,
             clarify: HashMap::new(),
             clarify_inputs: HashMap::new(),
             _clarify_subscriptions: vec![],
@@ -179,12 +217,42 @@ impl ApprovalsView {
         self.clarify.clear();
         self.clarify_inputs.clear();
         self._clarify_subscriptions.clear();
+        // A field of the card that went held focus: the next card's own
+        // field takes it, or the composer does.
+        if self.compose.take().is_some() {
+            self.refocus_composer = true;
+        }
+        self.compose_invalid = false;
         match card(top) {
             Card::HermesClarify { questions, .. } => {
                 for q in questions.iter().filter(|q| !q.locked) {
                     self.add_clarify_input(q, window, cx);
                 }
             }
+            // A question with nothing to pick takes words.
+            Card::LibreChatQuestion(q) if q.question.choices.is_empty() => {
+                self.add_clarify_input(&q.question, window, cx);
+            }
+            // Put again with what was typed: back in its field, with why.
+            Card::LibreChatTool(t) => match (t.problem, t.typed) {
+                (Some(PauseProblem::InvalidArguments), Some(typed))
+                    if t.allowed.contains(&LibreChatDecision::Edit) =>
+                {
+                    self.open_compose(LibreChatDecision::Edit, typed, window, cx);
+                    self.compose_invalid = true;
+                }
+                (Some(PauseProblem::Empty), typed)
+                    if t.allowed.contains(&LibreChatDecision::Respond) =>
+                {
+                    self.open_compose(
+                        LibreChatDecision::Respond,
+                        typed.unwrap_or_default(),
+                        window,
+                        cx,
+                    );
+                }
+                _ => {}
+            },
             Card::HermesSecret { .. } => {
                 let hint = cx.l10n().hermes_sensitive_response();
                 self.input.update(cx, |i, cx| i.set_value("", window, cx));
@@ -231,6 +299,10 @@ impl ApprovalsView {
             self.selected = parked.selected;
             self.confirming_always = parked.confirming_always;
             self.clarify = parked.clarify;
+            if let Some(decision) = parked.compose {
+                self.open_compose(decision, parked.compose_text, window, cx);
+                self.compose_invalid = parked.compose_invalid;
+            }
             for (id, text) in parked.clarify_text {
                 if let Some(state) = self.clarify_inputs.get(&id) {
                     state.update(cx, |i, cx| i.set_value(text, window, cx));
@@ -256,6 +328,9 @@ impl ApprovalsView {
             input: forms::raw(&self.input, cx),
             selected: self.selected,
             confirming_always: self.confirming_always,
+            compose: self.compose,
+            compose_text: self.compose_text.read(cx).value().to_string(),
+            compose_invalid: self.compose_invalid,
             clarify: self.clarify.clone(),
             clarify_text: self
                 .clarify_inputs
@@ -412,8 +487,10 @@ impl ApprovalsView {
         cx: &mut Context<Self>,
     ) {
         let Some(top) = self.drawn(cx) else { return };
-        let Card::HermesClarify { questions, .. } = card(&top) else {
-            return;
+        let questions = match card(&top) {
+            Card::HermesClarify { questions, .. } => questions,
+            Card::LibreChatQuestion(q) => vec![q.question],
+            _ => return,
         };
         let Some(q) = questions.get(question) else {
             return;
@@ -496,6 +573,11 @@ impl ApprovalsView {
         let Some(request) = self.waiting(request_id, cx) else {
             return false;
         };
+        match card(&request) {
+            Card::LibreChatTool(t) => return self.allow_librechat_tool(&request, &t, cx),
+            Card::LibreChatQuestion(q) => return self.answer_librechat_question(&request, &q, cx),
+            _ => {}
+        }
         if crate::stores::ui_requests::is_hermes_question(&request) {
             return self.allow_hermes(&request, cx);
         }
@@ -530,10 +612,145 @@ impl ApprovalsView {
                 self.answer_hermes(request_id, vec![], Some("decline".into()), cx);
                 return true;
             }
-            Card::HermesClarify { .. } => return false,
+            Card::HermesClarify { .. } | Card::LibreChatQuestion(_) => return false,
+            Card::LibreChatTool(t) => {
+                // An open Edit or Respond closes, deciding nothing.
+                if self.for_request.as_deref() == Some(request_id) && self.compose.is_some() {
+                    self.close_compose(cx);
+                    return true;
+                }
+                if !t.allowed.contains(&LibreChatDecision::Reject) {
+                    return false;
+                }
+            }
             _ => {}
         }
         self.answer(request_id, deny(&request), false, cx);
+        true
+    }
+
+    /// Focus back on the composer, once a field of the card that held it
+    /// is closed or gone.
+    fn refocus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.refocus_composer) && self.compose.is_none() {
+            window.defer(cx, |window, cx| {
+                window.dispatch_action(Box::new(crate::actions::FocusComposer), cx)
+            });
+        }
+    }
+
+    /// Opens a LibreChat call's Edit or Respond on the card on screen, its
+    /// field holding `text`, and moves focus into it.
+    fn open_compose(
+        &mut self,
+        decision: LibreChatDecision,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.compose = Some(decision);
+        self.compose_invalid = false;
+        self.refocus_composer = false;
+        self.compose_text.update(cx, |t, cx| {
+            t.set_value(text, window, cx);
+            t.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Closes the card's Edit or Respond, focus back on the composer.
+    fn close_compose(&mut self, cx: &mut Context<Self>) {
+        self.compose = None;
+        self.compose_invalid = false;
+        self.refocus_composer = true;
+        cx.notify();
+    }
+
+    /// Opens Edit (from the call's arguments) or Respond (empty) on the
+    /// card drawn for `request_id`, while it waits.
+    fn compose_for(
+        &mut self,
+        request_id: &str,
+        decision: LibreChatDecision,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.for_request.as_deref() != Some(request_id) {
+            return;
+        }
+        let Some(Card::LibreChatTool(t)) = self.waiting(request_id, cx).map(|r| card(&r)) else {
+            return;
+        };
+        if !t.allowed.contains(&decision) {
+            return;
+        }
+        let text = match decision {
+            LibreChatDecision::Edit => t.editable.clone(),
+            _ => String::new(),
+        };
+        self.open_compose(decision, text, window, cx);
+    }
+
+    /// ⌥⌘↩ or Send on a LibreChat call: Approve, or the open Edit (a JSON
+    /// object, refused here otherwise with the reason, what was typed
+    /// kept) or Respond (not empty).
+    fn allow_librechat_tool(
+        &mut self,
+        request: &UiRequest,
+        tool: &LibreChatTool,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let id = request.request_id.as_str();
+        let drawn = self.for_request.as_deref() == Some(id);
+        let compose = self.compose.filter(|_| drawn);
+        let answer = match compose {
+            None if tool.allowed.contains(&LibreChatDecision::Approve) => {
+                Answer::new(LibreChatDecision::Approve.wire())
+            }
+            None => return false,
+            Some(LibreChatDecision::Edit) => {
+                let typed = self.compose_text.read(cx).value().to_string();
+                if !edited_arguments_valid(&typed) {
+                    self.compose_invalid = true;
+                    self.compose_attempts += 1;
+                    cx.notify();
+                    return false;
+                }
+                Answer::with_text(LibreChatDecision::Edit.wire(), typed)
+            }
+            Some(LibreChatDecision::Respond) => {
+                let typed = self.compose_text.read(cx).value().trim().to_string();
+                if typed.is_empty() {
+                    return false;
+                }
+                Answer::with_text(LibreChatDecision::Respond.wire(), typed)
+            }
+            Some(_) => return false,
+        };
+        if compose.is_some() {
+            self.refocus_composer = true;
+        }
+        self.answer(id, answer, false, cx);
+        true
+    }
+
+    /// Send on a LibreChat question: the label picked, the labels picked as
+    /// a JSON list, or the words typed (the daemon sends their values).
+    fn answer_librechat_question(
+        &mut self,
+        request: &UiRequest,
+        question: &LibreChatQuestion,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let id = request.request_id.as_str();
+        if self.for_request.as_deref() != Some(id) {
+            return false;
+        }
+        let (draft, typed) = self.draft_of(&question.question, cx);
+        let Some(text) = draft.answer(&question.question, &typed) else {
+            return false;
+        };
+        self.answer(id, Answer::with_text("answer", text), false, cx);
         true
     }
 
@@ -627,11 +844,7 @@ impl ApprovalsView {
             Card::Tool { title, message } => (
                 ApprovalCard::new(
                     id.clone(),
-                    if top.message_code == "librechat.toolApproval" {
-                        l10n.libre_chat_approval_run(&librechat_tool_name(&title))
-                    } else {
-                        tool_question(&title, l10n)
-                    },
+                    tool_question(&title, l10n),
                     message,
                     source,
                     ApprovalKind::Message,
@@ -688,15 +901,7 @@ impl ApprovalsView {
                         // Answering a server's question: Skip answers nothing,
                         // Send sends the choice (Deny and Allow stay the tool
                         // cards' words).
-                        // A LibreChat question's Cancel stops the reply, as on
-                        // the phone.
-                        secondary(cancel_label.unwrap_or_else(|| {
-                            if top.kind == UiRequestKind::LibreChatQuestion {
-                                l10n.cancel()
-                            } else {
-                                l10n.desktop_skip()
-                            }
-                        })),
+                        secondary(cancel_label.unwrap_or_else(|| l10n.desktop_skip())),
                         primary(confirm_label.unwrap_or_else(|| l10n.send())),
                     ],
                 )
@@ -856,7 +1061,14 @@ impl ApprovalsView {
                     })
                 };
                 let form = hermes_cards::clarify_form(
-                    &id, drawn, !answering, on_pick, on_skip, l10n, window, cx,
+                    &id,
+                    drawn,
+                    !answering,
+                    on_pick,
+                    Some(on_skip),
+                    l10n,
+                    window,
+                    cx,
                 );
                 // Hermes' prompt repeats the first question: the line under
                 // the title is the progress, as on the phone.
@@ -937,6 +1149,180 @@ impl ApprovalsView {
                     vec![
                         secondary(l10n.hermes_not_now()),
                         primary(l10n.hermes_set_up()),
+                    ],
+                )
+            }
+            Card::LibreChatTool(t) => {
+                let composing = self.compose.filter(|d| t.allowed.contains(d));
+                let arguments = t.arguments.trim();
+                let kind = if composing.is_some() || arguments.is_empty() || arguments == "{}" {
+                    ApprovalKind::Message
+                } else {
+                    ApprovalKind::Code {
+                        caption: l10n.libre_chat_approval_arguments().into(),
+                        code: t.arguments.clone().into(),
+                    }
+                };
+                let mut card = ApprovalCard::new(
+                    id.clone(),
+                    l10n.libre_chat_approval_run(&librechat_tool_name(&t.tool)),
+                    t.description.clone(),
+                    source,
+                    kind,
+                );
+                if let Some((index, count)) = t.progress {
+                    card = card.step(index - 1, count);
+                }
+                if t.problem == Some(PauseProblem::Failed) {
+                    card = card.note(l10n.libre_chat_answer_failed());
+                }
+                let actions = match composing {
+                    Some(decision) => {
+                        let label: SharedString = if decision == LibreChatDecision::Edit {
+                            l10n.libre_chat_approval_arguments().into()
+                        } else {
+                            l10n.hermes_response().into()
+                        };
+                        let invalid = self
+                            .compose_invalid
+                            .then(|| SharedString::from(l10n.workspace_model_invalid_json()));
+                        let theme = cx.conduit().clone();
+                        let body = div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(6.))
+                            .child(
+                                div()
+                                    .text_size(px(theme.metrics.small))
+                                    .text_color(theme.roles.text_subtle)
+                                    .child(label.clone()),
+                            )
+                            .child(
+                                Textarea::new(&self.compose_text)
+                                    .aria_label(label)
+                                    .disabled(answering),
+                            )
+                            .when_some(invalid, |d, e| {
+                                d.child(
+                                    div()
+                                        .id("librechat-edit-invalid")
+                                        .role(Role::Alert)
+                                        .text_size(px(theme.metrics.small))
+                                        .text_color(theme.roles.danger)
+                                        .child(e.clone())
+                                        .child(
+                                            live_text(
+                                                "librechat-edit-live",
+                                                Some(e),
+                                                Priority::High,
+                                            )
+                                            .attempt(self.compose_attempts),
+                                        ),
+                                )
+                            });
+                        card = card.body(body);
+                        let empty = decision == LibreChatDecision::Respond
+                            && self.compose_text.read(cx).value().trim().is_empty();
+                        vec![
+                            ApprovalAction::new(format!("compose-back-{id}"), l10n.cancel())
+                                .shortcut(DENY_KEYS)
+                                .disabled(answering)
+                                .on_click(deny_cb.clone()),
+                            ApprovalAction::new(
+                                format!("allow-{id}"),
+                                if decision == LibreChatDecision::Edit {
+                                    l10n.send()
+                                } else {
+                                    l10n.hermes_send_response()
+                                },
+                            )
+                            .primary()
+                            .shortcut(ALLOW_KEYS)
+                            .disabled(answering || empty)
+                            .on_click(allow_cb.clone()),
+                        ]
+                    }
+                    None => t
+                        .allowed
+                        .iter()
+                        .map(|&decision| match decision {
+                            LibreChatDecision::Approve => {
+                                primary(l10n.hermes_approval_approve_action())
+                            }
+                            LibreChatDecision::Reject => {
+                                secondary(l10n.hermes_approval_deny_action())
+                            }
+                            LibreChatDecision::Edit | LibreChatDecision::Respond => {
+                                let open = {
+                                    let (this, id) = (this.clone(), id.clone());
+                                    Rc::new(
+                                        move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                                            let _ = this.update(cx, |s, cx| {
+                                                s.compose_for(&id, decision, window, cx)
+                                            });
+                                        },
+                                    )
+                                };
+                                ApprovalAction::new(
+                                    format!("{}-{id}", decision.wire()),
+                                    if decision == LibreChatDecision::Edit {
+                                        l10n.edit()
+                                    } else {
+                                        l10n.libre_chat_approval_respond()
+                                    },
+                                )
+                                .disabled(answering)
+                                .on_click(open)
+                            }
+                        })
+                        .collect(),
+                };
+                (card, actions)
+            }
+            Card::LibreChatQuestion(q) => {
+                let drawn = vec![FormQuestion {
+                    question: &q.question,
+                    draft: self
+                        .clarify
+                        .get(&q.question.id)
+                        .cloned()
+                        .unwrap_or_default(),
+                    input: self.clarify_inputs.get(&q.question.id).cloned(),
+                }];
+                let on_pick: hermes_cards::OnPick = {
+                    let this = this.clone();
+                    Rc::new(move |q, value, window, cx| {
+                        let _ = this.update(cx, |s, cx| s.pick(q, value, window, cx));
+                    })
+                };
+                let form = hermes_cards::clarify_form(
+                    &id, drawn, !answering, on_pick, None, l10n, window, cx,
+                );
+                let (draft, typed) = self.draft_of(&q.question, cx);
+                let ready = draft.answer(&q.question, &typed).is_some();
+                let mut card = ApprovalCard::new(
+                    id.clone(),
+                    q.question.text.clone(),
+                    q.description.clone(),
+                    source,
+                    ApprovalKind::Message,
+                )
+                .tile(IconName::MessageSquare)
+                .body(form);
+                if let Some((index, count)) = q.progress {
+                    card = card.step(index - 1, count);
+                }
+                if q.problem == Some(PauseProblem::Failed) {
+                    card = card.note(l10n.libre_chat_answer_failed());
+                }
+                (
+                    card,
+                    vec![
+                        ApprovalAction::new(format!("allow-{id}"), l10n.send())
+                            .primary()
+                            .shortcut(ALLOW_KEYS)
+                            .disabled(answering || !ready)
+                            .on_click(allow_cb.clone()),
                     ],
                 )
             }
@@ -1166,6 +1552,8 @@ impl Render for ApprovalsView {
         let Some(top) = top else {
             self.park(cx);
             self.for_request = None;
+            self.compose = None;
+            self.refocus(window, cx);
             // Leaving: the last card, as it was, taking nothing.
             if shown.visible
                 && let Some(last) = self.last.clone()
@@ -1201,9 +1589,22 @@ impl Render for ApprovalsView {
         };
         let card_kind = card(&top);
         let mut card = self.card_for(&top, &l10n, window, cx);
-        if count > 1 {
+        // A paused LibreChat reply's card shows its place among the calls
+        // or questions the reply paused on instead.
+        let stepped = matches!(
+            &card_kind,
+            Card::LibreChatTool(LibreChatTool {
+                progress: Some(_),
+                ..
+            }) | Card::LibreChatQuestion(LibreChatQuestion {
+                progress: Some(_),
+                ..
+            })
+        );
+        if count > 1 && !stepped {
             card = card.queue(1, count);
         }
+        self.refocus(window, cx);
         if answering {
             card = card.note(l10n.desktop_answering());
         } else if hermes_failed {
@@ -1489,7 +1890,7 @@ mod replay_tests {
     use std::collections::BTreeMap;
 
     use conduit_components::theme::{ConduitTheme, DesignPrefs, install};
-    use conduit_protocol::{UiInputOption, UiInputType};
+    use conduit_protocol::{UiInputOption, UiInputType, UiRequestKind};
     use gpui_kit::{TestAppContext, VisualTestContext};
     use serde_json::json;
 
@@ -1840,5 +2241,297 @@ mod replay_tests {
         let top = select(&["a", "b"]);
         let sent = view.read_with(vcx, |v, cx| v.typed(&top, cx));
         assert_eq!(sent.as_deref(), Some("b"), "an empty answer would go");
+    }
+}
+
+#[cfg(test)]
+mod librechat_tests {
+    use std::collections::BTreeMap;
+
+    use conduit_components::theme::{ConduitTheme, DesignPrefs, install};
+    use conduit_protocol::{AcceptedResult, UiRequestKind, methods};
+    use gpui_kit::{TestAppContext, VisualTestContext};
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    struct Bench {
+        daemon: FakeDaemon,
+        stores: Stores,
+        view: Entity<ApprovalsView>,
+    }
+
+    fn bench(cx: &mut TestAppContext) -> (Bench, &mut VisualTestContext) {
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-approvals-lc-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&scratch);
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::UiRespond>(AcceptedResult { accepted: true });
+        let rpc = daemon.rpc();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            install(
+                ConduitTheme::new("conduit", false, DesignPrefs::default(), gpui_kit::black()),
+                cx,
+            );
+            cx.set_global(conduit_components::Strings::default());
+            cx.set_global(L10n::new("en"));
+        });
+        let stores = cx.update(|cx| Stores::for_test(rpc, &scratch, cx));
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| ApprovalsView::new(s, window, cx));
+        (
+            Bench {
+                daemon,
+                stores,
+                view,
+            },
+            vcx,
+        )
+    }
+
+    fn paused(id: &str, kind: UiRequestKind, args: &[(&str, &str)], detail: Value) -> UiRequest {
+        let mut message_args = BTreeMap::from([("chatId".to_string(), "chat-a".to_string())]);
+        for (k, v) in args {
+            message_args.insert(k.to_string(), v.to_string());
+        }
+        UiRequest {
+            request_id: id.into(),
+            kind,
+            message_code: "librechat.pause".into(),
+            message_args,
+            detail,
+            timeout_ms: None,
+            default_choice: "none".into(),
+            input_type: None,
+            options: None,
+        }
+    }
+
+    fn tool_call(id: &str, allowed: &[&str], extra: Value) -> UiRequest {
+        let mut detail = json!({
+            "arguments": "{\"harbour\":\"Port Wren\"}",
+            "editableArguments": "{\n  \"harbour\": \"Port Wren\"\n}",
+            "allowedDecisions": allowed,
+        });
+        if let (Some(d), Some(e)) = (detail.as_object_mut(), extra.as_object()) {
+            d.extend(e.clone());
+        }
+        paused(
+            id,
+            UiRequestKind::LibreChatToolCall,
+            &[("title", "lookup_tide"), ("message", "Looks up the tide.")],
+            detail,
+        )
+    }
+
+    fn open(b: &Bench, chat: &str, vcx: &mut VisualTestContext) {
+        b.stores.navigation.update(vcx, |n, cx| n.open(chat, cx));
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+    }
+
+    fn action_ids(b: &Bench, vcx: &mut VisualTestContext) -> Vec<String> {
+        vcx.update(|window, cx| {
+            b.view.update(cx, |v, cx| {
+                let top = v.top(cx).expect("a card");
+                let l10n = cx.l10n().clone();
+                v.card_parts(&top, &l10n, window, cx)
+                    .1
+                    .iter()
+                    .map(|a| a.id.to_string())
+                    .collect()
+            })
+        })
+    }
+
+    fn type_into(b: &Bench, text: &str, vcx: &mut VisualTestContext) {
+        let text = text.to_string();
+        vcx.update(|window, cx| {
+            b.view.update(cx, |v, cx| {
+                v.compose_text
+                    .update(cx, |t, cx| t.set_value(text, window, cx))
+            })
+        });
+    }
+
+    fn compose(b: &Bench, id: &str, decision: LibreChatDecision, vcx: &mut VisualTestContext) {
+        vcx.update(|window, cx| {
+            b.view
+                .update(cx, |v, cx| v.compose_for(id, decision, window, cx))
+        });
+    }
+
+    fn sent(b: &Bench, vcx: &mut VisualTestContext) -> Vec<(String, Option<String>)> {
+        vcx.run_until_parked();
+        b.daemon
+            .calls::<methods::UiRespond>()
+            .iter()
+            .map(|c| {
+                (
+                    c["choice"].as_str().unwrap_or_default().to_string(),
+                    c["text"].as_str().map(str::to_string),
+                )
+            })
+            .collect()
+    }
+
+    /// The card of a reply paused in chat A shows, and is answered, only
+    /// while chat A is open; there it offers the call's allowed decisions
+    /// and no others.
+    #[gpui_kit::test]
+    fn a_call_shows_only_in_its_chat_with_only_its_allowed_decisions(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_request(tool_call("p", &["respond", "reject"], json!({})), cx)
+        });
+        open(&b, "chat-b", vcx);
+        b.view.update(vcx, |v, cx| {
+            assert!(!v.has_request(cx), "shown with another chat");
+            assert!(!v.allow(cx) && !v.deny(cx));
+            v.answer("p", Answer::new("reject"), false, cx);
+        });
+        assert!(sent(&b, vcx).is_empty(), "answered from another chat");
+        b.stores.ui_requests.read_with(vcx, |u, _| {
+            assert!(u.waits_in_chat("chat-a") && !u.waits_in_chat("chat-b"));
+        });
+
+        open(&b, "chat-a", vcx);
+        assert_eq!(action_ids(&b, vcx), ["respond-p", "deny-p"]);
+        // No Approve: ⌥⌘↩ sends nothing; ⌥⌘⌫ rejects.
+        b.view.update(vcx, |v, cx| assert!(!v.allow(cx)));
+        assert!(sent(&b, vcx).is_empty());
+        b.view.update(vcx, |v, cx| assert!(v.deny(cx)));
+        assert_eq!(sent(&b, vcx), [("reject".to_string(), None)]);
+    }
+
+    /// Edit starts from the arguments; what is not a JSON object is refused
+    /// on the card, what was typed kept; an object is sent as typed. The
+    /// daemon's own refusal puts it back the same way.
+    #[gpui_kit::test]
+    fn an_edit_that_is_not_a_json_object_is_refused_and_kept(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_request(tool_call("p", &["approve", "edit"], json!({})), cx)
+        });
+        open(&b, "chat-a", vcx);
+        assert_eq!(action_ids(&b, vcx), ["allow-p", "edit-p"]);
+        compose(&b, "p", LibreChatDecision::Edit, vcx);
+        b.view.read_with(vcx, |v, cx| {
+            assert_eq!(
+                v.compose_text.read(cx).value(),
+                "{\n  \"harbour\": \"Port Wren\"\n}"
+            );
+        });
+        assert_eq!(action_ids(&b, vcx), ["compose-back-p", "allow-p"]);
+        type_into(&b, "[\"Gull Haven\"]", vcx);
+        b.view.update(vcx, |v, cx| assert!(!v.allow(cx)));
+        b.view.read_with(vcx, |v, cx| {
+            assert!(v.compose_invalid);
+            assert_eq!(v.compose_text.read(cx).value(), "[\"Gull Haven\"]");
+        });
+        assert!(
+            sent(&b, vcx).is_empty(),
+            "sent an edit that is not an object"
+        );
+        type_into(&b, "{\"harbour\": \"Gull Haven\"}", vcx);
+        b.view.update(vcx, |v, cx| assert!(v.allow(cx)));
+        assert_eq!(
+            sent(&b, vcx),
+            [(
+                "edit".to_string(),
+                Some("{\"harbour\": \"Gull Haven\"}".to_string())
+            )]
+        );
+
+        // The daemon refused one: it comes back open, typed, with why.
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_settled("p", cx);
+            u.on_request(
+                tool_call(
+                    "p2",
+                    &["approve", "edit"],
+                    json!({"refusal": "invalidArguments", "typed": "[2]"}),
+                ),
+                cx,
+            )
+        });
+        open(&b, "chat-a", vcx);
+        b.view.read_with(vcx, |v, cx| {
+            assert_eq!(v.compose, Some(LibreChatDecision::Edit));
+            assert!(v.compose_invalid);
+            assert_eq!(v.compose_text.read(cx).value(), "[2]");
+        });
+    }
+
+    /// Respond takes words and cannot be sent empty; Cancel closes it,
+    /// deciding nothing.
+    #[gpui_kit::test]
+    fn respond_needs_words_and_cancel_decides_nothing(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_request(tool_call("p", &["respond"], json!({})), cx)
+        });
+        open(&b, "chat-a", vcx);
+        assert_eq!(action_ids(&b, vcx), ["respond-p"]);
+        compose(&b, "p", LibreChatDecision::Respond, vcx);
+        type_into(&b, "   ", vcx);
+        b.view.update(vcx, |v, cx| assert!(!v.allow(cx)));
+        b.view.update(vcx, |v, cx| assert!(v.deny(cx)));
+        b.view.read_with(vcx, |v, _| assert_eq!(v.compose, None));
+        assert!(sent(&b, vcx).is_empty());
+        compose(&b, "p", LibreChatDecision::Respond, vcx);
+        type_into(&b, " High tide at 07:15. ", vcx);
+        b.view.update(vcx, |v, cx| assert!(v.allow(cx)));
+        assert_eq!(
+            sent(&b, vcx),
+            [(
+                "respond".to_string(),
+                Some("High tide at 07:15.".to_string())
+            )]
+        );
+    }
+
+    /// A multi-select question sends the labels picked, as a JSON list (the
+    /// daemon turns them into values); it has Send only, and no Cancel.
+    #[gpui_kit::test]
+    fn a_question_sends_its_picks_and_has_no_cancel(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        let question = paused(
+            "q",
+            UiRequestKind::LibreChatQuestion,
+            &[("title", "Which trails?"), ("progress", "2/2")],
+            json!({
+                "question": "Which trails?",
+                "options": [
+                    {"label": "North Ridge", "value": "north-ridge"},
+                    {"label": "Lake Loop", "value": "lake-loop"},
+                ],
+                "multiSelect": true,
+            }),
+        );
+        b.stores
+            .ui_requests
+            .update(vcx, |u, cx| u.on_request(question, cx));
+        open(&b, "chat-a", vcx);
+        b.view.update(vcx, |v, cx| {
+            assert!(!v.deny(cx), "a question was dismissed");
+            assert!(!v.allow(cx), "sent with nothing picked");
+        });
+        vcx.update(|window, cx| {
+            b.view.update(cx, |v, cx| {
+                v.pick(0, "North Ridge".into(), window, cx);
+                v.pick(0, "Lake Loop".into(), window, cx);
+            })
+        });
+        b.view.update(vcx, |v, cx| assert!(v.allow(cx)));
+        assert_eq!(
+            sent(&b, vcx),
+            [(
+                "answer".to_string(),
+                Some("[\"North Ridge\",\"Lake Loop\"]".to_string())
+            )]
+        );
     }
 }
