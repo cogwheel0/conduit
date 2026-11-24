@@ -440,9 +440,12 @@ fn failed(call: &Entity<CallStore>, cx: &App) -> AnyElement {
         .flatten();
     if let Some(url) = microphone_settings {
         actions.push(
-            Button::new("call-system-settings", l10n.desktop_open_system_settings())
-                .on_click(Rc::new(move |_, _, cx| cx.open_url(url)))
-                .into_any_element(),
+            Button::new(
+                "call-system-settings",
+                crate::stores::dictation::open_settings_label(&l10n),
+            )
+            .on_click(Rc::new(move |_, _, cx| cx.open_url(url)))
+            .into_any_element(),
         );
     } else if microphone || store.failure.is_some() {
         actions.push(

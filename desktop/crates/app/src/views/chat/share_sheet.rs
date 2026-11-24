@@ -154,7 +154,7 @@ impl ShareSheet {
             .filter(|t| !t.trim().is_empty())
             .unwrap_or_else(|| cx.l10n().new_chat());
         super::sheets::close(cx);
-        cx.defer(move |cx| {
+        crate::views::sheet::once_sheet_window_gone(cx, move |cx| {
             let main = cx
                 .try_global::<crate::AppState>()
                 .and_then(|s| s.main_window);

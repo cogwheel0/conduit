@@ -74,6 +74,10 @@ pub struct SheetHost<V: SheetBody> {
     focus: FocusHandle,
     /// How tall the sheet may grow off the Mac ([`dialog_room`]).
     room: Option<f32>,
+    hang: Hang,
+    /// The dialog's title as last set (off the Mac), which follows the
+    /// body's label.
+    title: Option<SharedString>,
     /// The height last asked of the window, so a request never repeats
     /// while AppKit resizes it.
     requested: Rc<Cell<Option<f32>>>,
@@ -225,10 +229,20 @@ pub fn open<V: SheetBody>(
     cx: &mut App,
     build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
 ) -> Option<Entity<V>> {
+    open_on(Hang::NATIVE, parent, width, cx, build)
+}
+
+/// [`open`], hung as `hang`.
+pub(crate) fn open_on<V: SheetBody>(
+    hang: Hang,
+    parent: &Window,
+    width: f32,
+    cx: &mut App,
+    build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
+) -> Option<Entity<V>> {
     if refuse_another(cx) {
         return None;
     }
-    let hang = Hang::NATIVE;
     let over = parent.bounds();
     let room = (hang == Hang::Dialog).then(|| dialog_room(over));
     let opened = conduit_components::window::open_window_clear_root(
@@ -236,14 +250,17 @@ pub fn open<V: SheetBody>(
         cx,
         move |window, cx| {
             let body = cx.new(|cx| build(window, cx));
-            if hang == Hang::Dialog {
+            let title = (hang == Hang::Dialog).then(|| {
                 let label = body.read(cx).label(cx);
                 window.set_window_title(&label);
-            }
+                label
+            });
             let host = cx.new(|cx| SheetHost {
                 body,
                 focus: cx.focus_handle(),
                 room,
+                hang,
+                title,
                 requested: Rc::new(Cell::new(None)),
                 footer_height: Rc::new(Cell::new(0.)),
                 overflowing: Rc::new(Cell::new(false)),
@@ -362,8 +379,14 @@ pub fn begin(parent: &Window, handle: AnyWindowHandle, cx: &mut App) {
 /// asks first when it holds edits, and the sheet ends its own way, which
 /// closes the window. A window no longer the sheet down goes.
 pub(crate) fn window_manager_closes(window: &mut Window, cx: &mut App) -> bool {
-    if current_window(cx) != Some(window.window_handle()) {
+    let handle = window.window_handle();
+    if current_window(cx) != Some(handle) {
         return true;
+    }
+    // Asked already: that question stays, and keeps the keyboard.
+    if crate::shell::sheet::question_up(handle, cx) {
+        conduit_components::chrome::activate(window, cx);
+        return false;
     }
     match cx.try_global::<OpenSheet>().and_then(|o| o.unsaved.clone()) {
         Some(unsaved) => cx.defer(move |cx| (unsaved.ask)(cx)),
@@ -733,6 +756,18 @@ pub fn ask_for_account(
     })
 }
 
+/// Runs `f` (the next sheet, say) once a sheet window being ended has gone.
+/// Off the Mac a dialog's owner is the window in front as it opens
+/// (Windows), and GPUI destroys a closed window from a task of its own,
+/// spawned as the task that closes it ([`crate::views::settings::end_sheet_window`])
+/// runs: so `f` waits for a task spawned after that one.
+pub fn once_sheet_window_gone(cx: &mut App, f: impl FnOnce(&mut App) + 'static) {
+    cx.spawn(async move |cx| {
+        cx.update(|cx| cx.spawn(async move |cx| cx.update(f)).detach());
+    })
+    .detach();
+}
+
 /// Closes the sheet down now (it slides up), from its body or anywhere.
 pub fn dismiss(cx: &mut App) {
     end_sheet(cx, Ending::Own);
@@ -771,7 +806,7 @@ fn end_sheet(cx: &mut App, ending: Ending) {
     // focus where it was.
     crate::views::settings::end_sheet_window(handle, cx);
     if let Some(after) = after {
-        cx.defer(after);
+        once_sheet_window_gone(cx, after);
     }
     // Quit asked about this sheet and it has gone (Discard, or the save it
     // was busy with closed it): the app quits now.
@@ -834,6 +869,12 @@ impl<V: SheetBody> Render for SheetHost<V> {
         let footer_height = self.footer_height.clone();
         let room = self.room;
         let label = self.body.read(cx).label(cx);
+        // A label that changes once the body has loaded (a server's sheet
+        // names the server) renames the dialog.
+        if self.hang == Hang::Dialog && self.title.as_ref() != Some(&label) {
+            window.set_window_title(&label);
+            self.title = Some(label.clone());
+        }
         // The body's scroll, kept by the sheet's window; a scroll asked for
         // from outside a render ([`scroll_to`]) is made here.
         let scroll = window
@@ -1251,6 +1292,126 @@ mod tests {
         );
         let (_, next) = open_closer(vcx, false);
         assert_ne!(next, sheet);
+    }
+
+    /// Opens a sheet on `vcx`'s window that runs `then` once it has been
+    /// dismissed, with whether its own window was still open by then.
+    #[gpui_kit::test]
+    fn the_sheet_after_one_opens_once_its_window_has_gone(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let (_, sheet) = open_closer(vcx, false);
+        let still_open = Rc::new(Cell::new(None));
+        let seen = still_open.clone();
+        vcx.update(|_, cx| {
+            after_dismiss(cx, move |cx| seen.set(Some(cx.windows().contains(&sheet))));
+            dismiss(cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            still_open.get(),
+            Some(false),
+            "the next sheet opened while the last one's window was still there"
+        );
+    }
+
+    /// A body that asks before it closes, its question held open.
+    struct Asker(Rc<Cell<u32>>);
+
+    impl Render for Asker {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    impl SheetBody for Asker {
+        fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+            self.0.set(self.0.get() + 1);
+            let spec = crate::shell::sheet::SheetSpec::new(
+                "Discard edits?",
+                "Synthetic",
+                "Discard",
+                "Keep",
+            );
+            crate::shell::sheet::present_sheet(window, spec, cx).detach();
+        }
+
+        fn label(&self, _: &App) -> SharedString {
+            "Asker".into()
+        }
+    }
+
+    /// The window manager's close again while the sheet's question is up
+    /// asks nothing more: the question stays, and keeps the keyboard.
+    #[gpui_kit::test]
+    fn a_second_close_while_the_question_is_up_asks_nothing(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        let asks = Rc::new(Cell::new(0));
+        let counted = asks.clone();
+        vcx.update(|window, cx| open(window, 400., cx, move |_, _| Asker(counted)))
+            .expect("the sheet opens");
+        vcx.run_until_parked();
+        let sheet = vcx.update(|_, cx| current_window(cx)).unwrap();
+        for _ in 0..2 {
+            let closes = vcx
+                .cx
+                .update(|cx| sheet.update(cx, |_, window, cx| window_manager_closes(window, cx)))
+                .unwrap();
+            assert!(!closes);
+            vcx.run_until_parked();
+        }
+        assert_eq!(asks.get(), 1, "asked again over its own question");
+        assert_eq!(
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::HeldAnswers>().0.len()),
+            1
+        );
+    }
+
+    /// A body whose label changes once it has loaded (a server's sheet
+    /// names the server).
+    struct Renamer(Rc<std::cell::RefCell<String>>);
+
+    impl Render for Renamer {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    impl SheetBody for Renamer {
+        fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+            dismiss(cx);
+        }
+
+        fn label(&self, _: &App) -> SharedString {
+            self.0.borrow().clone().into()
+        }
+    }
+
+    /// Off the Mac the dialog's title (its name to screen readers) follows
+    /// the sheet's label as it changes.
+    #[gpui_kit::test]
+    fn a_dialogs_title_follows_its_label(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let label = Rc::new(std::cell::RefCell::new("Synthetic Settings…".to_string()));
+        let named = label.clone();
+        let body = vcx
+            .update(|window, cx| {
+                open_on(Hang::Dialog, window, 400., cx, move |_, _| Renamer(named))
+            })
+            .expect("the sheet opens");
+        vcx.run_until_parked();
+        let sheet = vcx.update(|_, cx| current_window(cx)).unwrap();
+        let mut sheet_cx = gpui_kit::VisualTestContext::from_window(sheet, &vcx.cx);
+        sheet_cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            sheet_cx.window_title().as_deref(),
+            Some("Synthetic Settings…")
+        );
+        *label.borrow_mut() = "Synthetic Server".into();
+        body.update(&mut sheet_cx, |_, cx| cx.notify());
+        sheet_cx.update(|window, cx| window.draw(cx).clear(cx));
+        sheet_cx.run_until_parked();
+        assert_eq!(sheet_cx.window_title().as_deref(), Some("Synthetic Server"));
     }
 
     #[test]

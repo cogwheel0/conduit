@@ -431,6 +431,36 @@ pub enum ChatStoreEvent {
     AnswerFailed { error: Box<MessageBlockDto> },
 }
 
+/// The failed answers already told ([`ChatStoreEvent::AnswerFailed`]), for
+/// every chat store: a chat opened again gets its last turn replayed, and
+/// one shown in Quick Ask and the main window has two stores, yet a failure
+/// is heard once. Running an answer again under its own id (Direct's
+/// regenerate, Hermes' Retry) starts a new attempt, whose failure is told.
+#[derive(Default)]
+struct ToldFailures {
+    /// The attempt each answer is on, by chat and answer.
+    attempts: HashMap<(String, String), u64>,
+    told: std::collections::HashSet<(String, String, u64)>,
+}
+
+impl gpui_kit::Global for ToldFailures {}
+
+impl ToldFailures {
+    /// Whether this attempt's failure is told now for the first time.
+    fn first_telling(&mut self, chat: &str, answer: &str) -> bool {
+        let key = (chat.to_string(), answer.to_string());
+        let attempt = self.attempts.get(&key).copied().unwrap_or(0);
+        self.told.insert((key.0, key.1, attempt))
+    }
+
+    fn run_again(&mut self, chat: &str, answer: &str) {
+        *self
+            .attempts
+            .entry((chat.to_string(), answer.to_string()))
+            .or_default() += 1;
+    }
+}
+
 /// Where a step of an answer's version arrows landed: version `index`
 /// (1-based) of `total`, and whether it switched the chat's branch on the
 /// server (what VoiceOver is told: "Continuing from version 2 of 3", or the
@@ -523,8 +553,6 @@ pub struct ChatStore {
     /// server holds their question and answers it under new ids, so a reply
     /// that names one later starts no overlay for it.
     held_answers: std::collections::HashSet<String>,
-    /// The answers whose failure was told ([`ChatStoreEvent::AnswerFailed`]).
-    told_failed: std::collections::HashSet<String>,
     /// Bumped by every `chatPrompts.get` asked and every
     /// `chatPrompts.changed`: a reply asked before the latest is dropped.
     prompt_round: u64,
@@ -587,7 +615,6 @@ impl ChatStore {
             hermes,
             queued_busy: Default::default(),
             held_answers: Default::default(),
-            told_failed: Default::default(),
             _prompt: None,
             _fetch: None,
             _refetch: None,
@@ -1110,15 +1137,19 @@ impl ChatStore {
     // ── Events ──────────────────────────────────────────────────────────
 
     /// Tells the views that answer `message_id` failed, with the error its
-    /// row shows, once per answer (a replayed failure is not news).
+    /// row shows, once per attempt ([`ToldFailures`]).
     fn tell_failed(
         &mut self,
         message_id: &str,
         error: Option<MessageBlockDto>,
         cx: &mut Context<Self>,
     ) {
-        if let Some(error) = error
-            && self.told_failed.insert(message_id.to_string())
+        let Some(error) = error else {
+            return;
+        };
+        if cx
+            .default_global::<ToldFailures>()
+            .first_telling(&self.chat_id, message_id)
         {
             cx.emit(ChatStoreEvent::AnswerFailed {
                 error: Box::new(error),
@@ -1317,7 +1348,9 @@ impl ChatStore {
                     detail: e.args.get("detail").cloned().filter(|d| !d.is_empty()),
                     kind: e.args.get("type").cloned().filter(|d| !d.is_empty()),
                 };
+                let error = c.error_block();
                 self.fetch(cx);
+                self.tell_failed(&e.message_id, error, cx);
             }
             _ => {}
         }
@@ -2167,6 +2200,8 @@ impl ChatStore {
             return;
         }
         let switches = self.switches(cx);
+        cx.default_global::<ToldFailures>()
+            .run_again(&self.chat_id, message_id);
         let call = self.rpc.call::<methods::TurnsRegenerate>(&RegenerateTurn {
             chat_id: self.chat_id.clone(),
             message_id: message_id.to_string(),
@@ -3199,54 +3234,143 @@ mod tests {
         });
     }
 
+    /// The `AnswerFailed` errors `store` tells, as they come.
+    fn told_failures(
+        store: &Entity<ChatStore>,
+        cx: &mut TestAppContext,
+    ) -> Rc<RefCell<Vec<String>>> {
+        let told: Rc<RefCell<Vec<String>>> = Rc::default();
+        cx.update(|cx| {
+            let told = told.clone();
+            cx.subscribe(store, move |_, e: &ChatStoreEvent, _| {
+                if let ChatStoreEvent::AnswerFailed { error } = e {
+                    assert_eq!(error.kind, MessageBlockKind::Error);
+                    told.borrow_mut()
+                        .push(error.error.clone().unwrap_or_default());
+                }
+            })
+            .detach();
+        });
+        told
+    }
+
+    fn turn_started(id: &str, companions: &[&str]) -> Event {
+        Event::TurnStarted(TurnStarted {
+            companion_ids: companions.iter().map(|c| c.to_string()).collect(),
+            chat_id: "c1".into(),
+            message_id: id.into(),
+            model: "m".into(),
+        })
+    }
+
+    fn turn_failed(id: &str, detail: &str) -> Event {
+        Event::TurnFailed(TurnFailed {
+            chat_id: "c1".into(),
+            message_id: id.into(),
+            code: "server.error".into(),
+            args: BTreeMap::from([("detail".into(), detail.into())]),
+            partial_text: String::new(),
+        })
+    }
+
     /// A failed answer is told to the views with the error its row shows,
-    /// once: screen readers hear it where the row only draws it.
+    /// once: screen readers hear it where the row only draws it. The same
+    /// failure again (a reconnect's replay) is not news.
     #[gpui_kit::test]
     fn a_failed_answer_is_told_with_the_error_its_row_shows(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "hi")]));
         let (store, _) = open(&daemon, "c1", cx);
-        let events: Rc<RefCell<Vec<ChatStoreEvent>>> = Rc::default();
-        cx.update(|cx| {
-            let events = events.clone();
-            cx.subscribe(&store, move |_, e: &ChatStoreEvent, _| {
-                events.borrow_mut().push(e.clone())
-            })
-            .detach();
-        });
-        let failed = Event::TurnFailed(TurnFailed {
-            chat_id: "c1".into(),
-            message_id: "a1".into(),
-            code: "server.error".into(),
-            args: BTreeMap::from([("detail".into(), "Synthetic model failure".into())]),
-            partial_text: String::new(),
-        });
+        let told = told_failures(&store, cx);
         store.update(cx, |s, cx| {
+            s.on_event(&turn_started("a1", &[]), cx);
+            s.on_event(&turn_failed("a1", "Synthetic model failure"), cx);
+            s.on_event(&turn_failed("a1", "Synthetic model failure"), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(*told.borrow(), ["Synthetic model failure"]);
+    }
+
+    /// In a comparison, an answer other than the first that fails is told
+    /// too; the ones that finish are not.
+    #[gpui_kit::test]
+    fn a_comparisons_failed_answer_is_told(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "hi")]));
+        let (store, _) = open(&daemon, "c1", cx);
+        let told = told_failures(&store, cx);
+        store.update(cx, |s, cx| {
+            s.on_event(&turn_started("a9", &["a9", "b9"]), cx);
+            s.on_event(&turn_failed("b9", "Synthetic second-model failure"), cx);
             s.on_event(
-                &Event::TurnStarted(TurnStarted {
-                    companion_ids: vec![],
+                &Event::TurnCompleted(TurnCompleted {
                     chat_id: "c1".into(),
-                    message_id: "a1".into(),
-                    model: "m".into(),
+                    message_id: "a9".into(),
+                    text: "Synthetic first answer".into(),
+                    reasoning: None,
+                    usage: None,
                 }),
                 cx,
             );
-            s.on_event(&failed, cx);
-            // The same failure again (a reconnect's replay) is not news.
-            s.on_event(&failed, cx);
         });
         cx.run_until_parked();
-        let told: Vec<_> = events
-            .borrow()
-            .iter()
-            .filter_map(|e| match e {
-                ChatStoreEvent::AnswerFailed { error } => Some((**error).clone()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(told.len(), 1, "{told:?}");
-        assert_eq!(told[0].kind, MessageBlockKind::Error);
-        assert_eq!(told[0].error.as_deref(), Some("Synthetic model failure"));
+        assert_eq!(*told.borrow(), ["Synthetic second-model failure"]);
+    }
+
+    /// A chat opened again (or shown in Quick Ask and the main window) gets
+    /// the turn that failed replayed: what was told already stays quiet.
+    #[gpui_kit::test]
+    fn a_failure_told_once_stays_quiet_when_the_chat_opens_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "hi")]));
+        let (first, _) = open(&daemon, "c1", cx);
+        let told = told_failures(&first, cx);
+        first.update(cx, |s, cx| {
+            s.on_event(&turn_started("a1", &[]), cx);
+            s.on_event(&turn_failed("a1", "Synthetic model failure"), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(told.borrow().len(), 1);
+        drop(first);
+        let (again, _) = open(&daemon, "c1", cx);
+        let told_again = told_failures(&again, cx);
+        // The daemon's catch-up: the ended turn's failure, no `turn.started`.
+        again.update(cx, |s, cx| {
+            s.on_event(&turn_failed("a1", "Synthetic model failure"), cx)
+        });
+        cx.run_until_parked();
+        assert!(told_again.borrow().is_empty(), "{:?}", told_again.borrow());
+    }
+
+    /// Run again under the same id (Direct's regenerate, Hermes' Retry), a
+    /// failure is a new attempt's, and told.
+    #[gpui_kit::test]
+    fn a_retry_under_the_same_id_tells_its_own_failure(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![message("u1", "user", "hi"), message("a1", "assistant", "")],
+        ));
+        let (store, _) = open(&daemon, "c1", cx);
+        let told = told_failures(&store, cx);
+        store.update(cx, |s, cx| {
+            s.on_event(&turn_started("a1", &[]), cx);
+            s.on_event(&turn_failed("a1", "Synthetic model failure"), cx);
+        });
+        cx.run_until_parked();
+        daemon.returns::<methods::TurnsRegenerate>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u1".into(),
+            assistant_message_id: "a1".into(),
+        });
+        store.update(cx, |s, cx| s.regenerate("a1", None, cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| {
+            s.on_event(&turn_started("a1", &[]), cx);
+            s.on_event(&turn_failed("a1", "Synthetic model failure"), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(told.borrow().len(), 2, "{:?}", told.borrow());
     }
 
     #[gpui_kit::test]

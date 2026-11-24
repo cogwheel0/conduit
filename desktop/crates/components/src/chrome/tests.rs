@@ -361,6 +361,27 @@ fn the_alt_an_activation_injects_leaves_the_menu_shut(cx: &mut TestAppContext) {
     assert!(is_open(&host, vcx), "the user's Alt is ☰'s");
 }
 
+/// Two activations close together (the app's New Chat from Settings
+/// brings the main window forward twice) inject two Alts: neither opens ☰.
+#[gpui_kit::test]
+fn each_activations_alt_is_owed(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
+    vcx.update(|window, cx| {
+        super::activate(window, cx);
+        super::activate(window, cx);
+    });
+    for _ in 0..2 {
+        vcx.simulate_modifiers_change(Modifiers::alt());
+        vcx.simulate_modifiers_change(Modifiers::none());
+        draw(vcx);
+        assert!(!is_open(&host, vcx), "an activation's Alt opened ☰");
+    }
+    vcx.simulate_modifiers_change(Modifiers::alt());
+    vcx.simulate_modifiers_change(Modifiers::none());
+    draw(vcx);
+    assert!(is_open(&host, vcx), "the user's Alt is ☰'s");
+}
+
 /// Any key between the activation and a lone Alt means the activation's
 /// Alt went elsewhere: that Alt is the user's.
 #[gpui_kit::test]
