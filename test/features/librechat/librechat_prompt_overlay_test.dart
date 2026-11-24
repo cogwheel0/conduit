@@ -121,6 +121,19 @@ void main() {
     expect(resolved.single.answers, isNull);
   });
 
+  testWidgets('a second tap on a card already answered decides nothing it '
+      'did not show', (tester) async {
+    final resolved = await _pump(tester, _approval);
+
+    // Both taps land on the first card before the next one is shown.
+    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+
+    expect(resolved, isEmpty);
+    expect(find.textContaining('Allow delete_file to run?'), findsOneWidget);
+  });
+
   testWidgets('a call that may only be answered offers just Respond, and '
       'sends the text', (tester) async {
     final resolved = await _pump(

@@ -99,6 +99,7 @@ void main() {
       check(first.editableArguments).equals('{\n  "text": "hi"\n}');
       check(
         await pause.decide(
+          'call-a',
           const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
         ),
       ).equals(LibreChatPauseStep.next);
@@ -112,6 +113,7 @@ void main() {
       check(second.editableArguments).equals('{}');
       check(
         await pause.decide(
+          'call-b',
           const LibreChatToolDecisionInput(
             LibreChatToolDecision.respond,
             responseText: 'Sample result',
@@ -134,23 +136,27 @@ void main() {
       // Not in this call's list.
       check(
         await pause.decide(
+          'call-a',
           const LibreChatToolDecisionInput(LibreChatToolDecision.respond),
         ),
       ).equals(LibreChatPauseStep.notAllowed);
       // An edit runs the tool with a JSON object only.
       check(
         await pause.decide(
+          'call-a',
           const LibreChatToolDecisionInput(LibreChatToolDecision.edit),
         ),
       ).equals(LibreChatPauseStep.invalidArguments);
       check(pause.current!.id).equals('call-a');
 
       await pause.decide(
+          'call-a',
         const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
       );
       // A response needs words.
       check(
         await pause.decide(
+          'call-b',
           const LibreChatToolDecisionInput(
             LibreChatToolDecision.respond,
             responseText: '   ',
@@ -181,10 +187,12 @@ void main() {
         failWith: () => failing ? StateError('offline') : null,
       );
       await pause.decide(
+          'call-a',
         const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
       );
       check(
         await pause.decide(
+          'call-b',
           const LibreChatToolDecisionInput(LibreChatToolDecision.reject),
         ),
       ).equals(LibreChatPauseStep.failed);
@@ -194,6 +202,7 @@ void main() {
       failing = false;
       check(
         await pause.decide(
+          'call-b',
           const LibreChatToolDecisionInput(LibreChatToolDecision.reject),
         ),
       ).equals(LibreChatPauseStep.sent);
@@ -202,19 +211,74 @@ void main() {
       check(sent.last.decisions!.keys).deepEquals(['call-a', 'call-b']);
     });
 
+    test('an answer naming a card that is not up is refused, so a repeat '
+        'never decides a call the user did not see', () async {
+      final (:pause, :sent) = _pause(_tools);
+      const approve = LibreChatToolDecisionInput(
+        LibreChatToolDecision.approve,
+      );
+
+      // Not shown yet.
+      check(await pause.decide('call-b', approve))
+          .equals(LibreChatPauseStep.stale);
+      check(await pause.decide('call-a', approve))
+          .equals(LibreChatPauseStep.next);
+      // The first card answered again, as a second tap on it would.
+      check(await pause.decide('call-a', approve))
+          .equals(LibreChatPauseStep.stale);
+      check(pause.current!.id).equals('call-b');
+      check(sent).isEmpty();
+    });
+
+    test('a repeat while the answer goes out is busy, and after a failed '
+        'send only the card put back takes an answer', () async {
+      var failing = true;
+      final hold = Completer<void>();
+      final (:pause, :sent) = _pause(
+        _tools,
+        hold: hold,
+        failWith: () => failing ? StateError('offline') : null,
+      );
+      const reject = LibreChatToolDecisionInput(LibreChatToolDecision.reject);
+      await pause.decide(
+        'call-a',
+        const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
+      );
+      final sending = pause.decide('call-b', reject);
+      check(await pause.decide('call-b', reject))
+          .equals(LibreChatPauseStep.busy);
+      hold.complete();
+      check(await sending).equals(LibreChatPauseStep.failed);
+
+      failing = false;
+      // The first call keeps its decision: only the card put back is up.
+      check(
+        await pause.decide(
+          'call-a',
+          const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
+        ),
+      ).equals(LibreChatPauseStep.stale);
+      check(await pause.decide('call-b', reject))
+          .equals(LibreChatPauseStep.sent);
+      check(sent).length.equals(2);
+    });
+
     test('nothing more is taken while the answer goes out, or once it has',
         () async {
       final hold = Completer<void>();
       final (:pause, :sent) = _pause(_tools, hold: hold);
       await pause.decide(
+          'call-a',
         const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
       );
       final sending = pause.decide(
+          'call-b',
         const LibreChatToolDecisionInput(LibreChatToolDecision.reject),
       );
       check(pause.sending).isTrue();
       check(
         await pause.decide(
+          'call-b',
           const LibreChatToolDecisionInput(LibreChatToolDecision.reject),
         ),
       ).equals(LibreChatPauseStep.busy);
@@ -224,6 +288,7 @@ void main() {
       check(pause.sending).isFalse();
       check(
         await pause.decide(
+          'call-b',
           const LibreChatToolDecisionInput(LibreChatToolDecision.reject),
         ),
       ).equals(LibreChatPauseStep.busy);
@@ -245,7 +310,7 @@ void main() {
       check(first.answerFor('Rome')).equals('Rome');
       check(first.answerFor('Lyon, I think')).equals('Lyon, I think');
       check(
-        await pause.answer(first.answerFor('Paris')),
+        await pause.answer('q1', first.answerFor('Paris')),
       ).equals(LibreChatPauseStep.next);
 
       final second = pause.current! as LibreChatQuestionCard;
@@ -253,7 +318,7 @@ void main() {
       check(second.answerFor('["Mon","Tue"]')).equals('monday, Tue');
       check(second.answerFor('weekends')).equals('weekends');
       check(
-        await pause.answer(second.answerFor('["Mon","Tue"]')),
+        await pause.answer('q2', second.answerFor('["Mon","Tue"]')),
       ).equals(LibreChatPauseStep.sent);
 
       check(sent.single.answers).isNotNull().deepEquals({
@@ -263,9 +328,18 @@ void main() {
       check(sent.single.decisions).isNull();
     });
 
+    test('an answer naming a question that is not up is refused', () async {
+      final (:pause, :sent) = _pause(_questions);
+      check(await pause.answer('q2', 'mon')).equals(LibreChatPauseStep.stale);
+      check(await pause.answer('q1', 'paris')).equals(LibreChatPauseStep.next);
+      check(await pause.answer('q1', 'rome')).equals(LibreChatPauseStep.stale);
+      check(pause.current!.id).equals('q2');
+      check(sent).isEmpty();
+    });
+
     test('an empty answer is not taken', () async {
       final (:pause, :sent) = _pause(_questions);
-      check(await pause.answer('  ')).equals(LibreChatPauseStep.empty);
+      check(await pause.answer('q1', '  ')).equals(LibreChatPauseStep.empty);
       check(pause.current!.id).equals('q1');
       check(sent).isEmpty();
     });
@@ -282,7 +356,7 @@ void main() {
         }),
       );
       check(pause.current!.id).equals('call-q');
-      check(await pause.answer('yes')).equals(LibreChatPauseStep.sent);
+      check(await pause.answer('call-q', 'yes')).equals(LibreChatPauseStep.sent);
       check(sent.single.answers).isNotNull().deepEquals({'call-q': 'yes'});
     });
   });
@@ -297,10 +371,11 @@ void main() {
     check(pause.current).isNull();
     check(
       await pause.decide(
+          'call-a',
         const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
       ),
     ).equals(LibreChatPauseStep.busy);
-    check(await pause.answer('yes')).equals(LibreChatPauseStep.busy);
+    check(await pause.answer('q1', 'yes')).equals(LibreChatPauseStep.busy);
     check(sent).isEmpty();
   });
 }

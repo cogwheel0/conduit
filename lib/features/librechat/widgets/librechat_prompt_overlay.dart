@@ -124,7 +124,7 @@ final class _LibreChatComposerPromptOverlayState
       sending: _pause.sending,
       onDecision: (decision) {
         if (_pause.sending) return;
-        _take(_pause.decide(decision));
+        _take(_pause.decide(card.id, decision));
       },
     );
   }
@@ -145,7 +145,9 @@ final class _LibreChatComposerPromptOverlayState
       multiSelect: card.multiSelect,
       onSubmit: (value) async {
         if (_pause.sending) return false;
-        final step = await _take(_pause.answer(card.answerFor(value)));
+        final step = await _take(
+          _pause.answer(card.id, card.answerFor(value)),
+        );
         return step == LibreChatPauseStep.next ||
             step == LibreChatPauseStep.sent;
       },

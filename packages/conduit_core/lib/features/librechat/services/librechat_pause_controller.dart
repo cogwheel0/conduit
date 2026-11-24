@@ -28,6 +28,11 @@ enum LibreChatPauseStep {
   /// The run's answer is going out, or has gone: nothing more is taken.
   busy,
 
+  /// An answer for a card that is not the one up: one already answered, or
+  /// one not shown yet. A window that answers twice, or late, never decides
+  /// a card the user did not see.
+  stale,
+
   /// A decision the server does not allow for this call.
   notAllowed,
 
@@ -230,11 +235,17 @@ final class LibreChatPauseController {
     return null;
   }
 
-  /// Decides the current tool call.
-  Future<LibreChatPauseStep> decide(LibreChatToolDecisionInput decision) {
+  /// Decides the tool call [cardId], which must be the one up.
+  Future<LibreChatPauseStep> decide(
+    String cardId,
+    LibreChatToolDecisionInput decision,
+  ) {
     final card = current;
     if (_sending || _sent || card is! LibreChatToolCard) {
       return Future.value(LibreChatPauseStep.busy);
+    }
+    if (card.id != cardId || _decisions.containsKey(cardId)) {
+      return Future.value(LibreChatPauseStep.stale);
     }
     if (!card.allowed.contains(decision.decision)) {
       return Future.value(LibreChatPauseStep.notAllowed);
@@ -255,12 +266,15 @@ final class LibreChatPauseController {
     return _send(card.id, decisions: Map.of(_decisions));
   }
 
-  /// Answers the current question with [answer], as
-  /// [LibreChatQuestionCard.answerFor] makes it.
-  Future<LibreChatPauseStep> answer(String answer) {
+  /// Answers the question [cardId], which must be the one up, with
+  /// [answer], as [LibreChatQuestionCard.answerFor] makes it.
+  Future<LibreChatPauseStep> answer(String cardId, String answer) {
     final card = current;
     if (_sending || _sent || card is! LibreChatQuestionCard) {
       return Future.value(LibreChatPauseStep.busy);
+    }
+    if (card.id != cardId || _answers.containsKey(cardId)) {
+      return Future.value(LibreChatPauseStep.stale);
     }
     if (answer.trim().isEmpty) return Future.value(LibreChatPauseStep.empty);
     _answers[card.id] = answer;
