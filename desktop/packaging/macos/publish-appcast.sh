@@ -173,6 +173,18 @@ replace_feed_asset() {
   if [ -z "$current" ] && [ -n "$previous" ]; then
     die "the feed release has $prev_name but no $name: a publication stopped half way; rename $prev_name to $name first (docs/RELEASING-DESKTOP.md)"
   fi
+  # A re-run after a publication that stopped part way: a feed already live
+  # stays as it is, so its last copy is kept. A live copy that cannot be
+  # read back is replaced as usual.
+  if [ -n "$current" ]; then
+    local live
+    live="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed-live.XXXXXX")" && [ -d "$live" ] &&
+      gh release download "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" -p "$name" -D "$live" >/dev/null 2>&1 &&
+      cmp -s "$new" "$live/$name" && {
+      log "$name is already live, byte for byte: left as it is"
+      return 0
+    }
+  fi
   gh release upload "$APPCAST_RELEASE_TAG" "$staged/$stage" -R "$RELEASE_REPO" ||
     die "the new $name did not upload; the live one is unchanged"
   uploaded="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \

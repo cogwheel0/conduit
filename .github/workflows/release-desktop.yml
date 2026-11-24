@@ -1132,7 +1132,8 @@ jobs:
             sed "s/@VERSION@/$VERSION/g" desktop/packaging/release-notes.md
           } >>"$GITHUB_STEP_SUMMARY"
 
-  # Publishing a desktop draft makes its feeds live, all three or none.
+  # Publishing a desktop draft makes its three feeds live. It runs once the
+  # release is public (GitHub lets no workflow stop a publication).
   # Checked first, before anything changes: the publish gate (every OS's
   # files and feeds, as `release` checked the draft; a release it refuses
   # goes back to a draft). Then the Mac's appcast as before: it is this
@@ -1141,7 +1142,10 @@ jobs:
   # keeps every item the live feed has (a release published since this
   # draft was built would otherwise drop out), and it is signed with the
   # key installed copies have. Then the Windows and Linux feeds by the same
-  # rules. Only then is each published.
+  # rules. Only then is each published, the Mac's first. GitHub has no way
+  # to swap three files at once: when one publication fails after another
+  # went live, re-run this job. A feed already live is left as it is
+  # (publish-appcast.sh), and the rest go live.
   feed:
     name: Publish the update feed
     if: >-

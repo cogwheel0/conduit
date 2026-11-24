@@ -21,9 +21,11 @@ GitHub release. There are no beta releases; a `-beta.N` tag is refused.
   newer version is out, from its own signed feed; the package manager
   installs it.
 
-Publishing is all or nothing: a release that lacks any OS's files or feed,
-or whose files don't verify, is never published ([The publish
-gate](#the-publish-gate)).
+All or nothing: a draft is complete only once every OS's files and feeds
+are on it and verify, and no feed goes live for a release that lacks any of
+them ([The publish gate](#the-publish-gate)). GitHub lets no workflow stop
+a person publishing a draft, so the check made at publication runs after
+the release is public: a release it refuses is put back to a draft.
 
 **Contents**
 
@@ -59,10 +61,7 @@ git tag desktop-v1.2.0 && git push origin desktop-v1.2.0
    │    ─ "winlinux-feeds": each OS's feed signed with its own key
    │    ─ "smoke-windows" + "smoke-linux": installed on fresh runners
    │
-   ▼  "release": onto the draft:
-   │    Conduit-1.2.0-windows-x64-setup.exe, appcast-windows.xml, THIRD_PARTY_NOTICES-windows.md,
-   │    SHA256SUMS-windows.txt, conduit-desktop_1.2.0-1_amd64.deb, conduit-desktop-1.2.0-1.x86_64.rpm,
-   │    appcast-linux.xml, THIRD_PARTY_NOTICES-linux.md, SHA256SUMS-linux.txt
+   ▼  "release": the Windows and Linux files onto the draft (step 3 of "Making a release" lists them)
    │  then the publish gate on everything the draft carries, then the release notes
    │
    ▼  a person checks the draft and publishes it
@@ -73,8 +72,8 @@ git tag desktop-v1.2.0 && git push origin desktop-v1.2.0
    ▼  installed copies find 1.2.0 on their next check (daily, or Check for Updates…)
 ```
 
-Nothing reaches installed copies until the draft is published, and nothing
-is published unless the gate passes.
+Nothing reaches installed copies until the draft is published, and no feed
+changes unless the gate passes.
 
 ## One-time setup
 
@@ -338,17 +337,19 @@ private keys again in job `winlinux-feeds`, which signs the feeds.
    with the package manager and the app starts. (The install smokes did
    this on fresh runners; a VM is a real desktop.) Add anything worth saying
    to the release notes.
-5. **Publish** it, never as "Latest" (that stays the mobile app's):
+5. **Publish** it, only once it has its release notes (the gate passed on
+   the draft), and never as "Latest" (that stays the mobile app's):
 
    ```sh
    gh release edit desktop-v1.2.0 --draft=false --latest=false
    ```
 
    (In the web UI: untick "Set as the latest release" before Publish.)
-6. **The feeds go live.** Publishing starts job *feed*. It runs the publish
-   gate again on the published release's files; a release it refuses goes
-   back to a draft and no feed changes. Then it checks that the draft's
-   `appcast.xml` matches `SHA256SUMS.txt`, that its newest item is
+6. **The feeds go live.** Publishing starts job *feed*, once the release
+   is public. It runs the publish gate again on the release's files; a
+   release it refuses goes back to a draft and no feed changes. Then it
+   checks that the draft's `appcast.xml` matches `SHA256SUMS.txt`, that its
+   newest item is
    this version at this release's DMG, and that it keeps every item the
    live feed has; it downloads that DMG from its public URL and checks it
    against `SHA256SUMS.txt` and against the item's signed enclosure (its
@@ -393,41 +394,43 @@ between that look and the upload is the one case this does not close.
 
 ## The publish gate
 
-One tag releases every OS, and none is published without the others.
+One tag releases every OS, and no OS's feed goes live without the others.
 `desktop/packaging/release_gate.sh check` decides it, on the release's
 files as GitHub serves them, and lists every problem it finds:
 
-- every file is there: the DMG, the dSYMs, `appcast.xml` and
-  `SHA256SUMS.txt`; the Windows installer, `appcast-windows.xml`,
-  `THIRD_PARTY_NOTICES-windows.md` and `SHA256SUMS-windows.txt`; the .deb,
-  the .rpm, `appcast-linux.xml`, `THIRD_PARTY_NOTICES-linux.md` and
-  `SHA256SUMS-linux.txt`;
-- each checksum file lists exactly its OS's other files, and each matches;
+- every file in [Making a release](#making-a-release), step 3, is there
+  (`release_gate.sh assets --os mac|windows|linux --version X.Y.Z` prints
+  the exact names);
+- each checksum file lists exactly its OS's other files, and each matches
+  (one that cannot be read refuses the release);
 - each feed is signed with the key installed copies of that OS have
   (`SPARKLE_PUBLIC_ED_KEY`, `WINDOWS_PUBLIC_ED_KEY`,
   `LINUX_PUBLIC_ED_KEY`), and its newest item is this version: the Mac's
   at this release's DMG, with its length and EdDSA signature, the Windows
-  one at this release's installer, likewise; the Linux one names the
-  release page;
+  one at this release's installer, likewise; the Windows and Linux items
+  name this release's page;
 - each OS's notices were made for it.
 
-It runs twice. At the end of the tag's run, job *release* runs it on the
-draft once every file is on it, and only then writes the release notes, so
-a draft whose notes still say it is being built is incomplete and the run
-says why. When the draft is published, job *feed* runs it again before
-any feed changes: a release it refuses is **put back to a draft**, so no
-OS's files stay public without the others, and no feed changes. A gate that
-could not run (a lookup or a download failed) changes nothing and says so;
-re-run the job.
+It runs twice:
+
+- **Before publication.** At the end of the tag's run, job *release* runs
+  it on the draft once every file is on it, and only then writes the
+  release notes. A draft whose notes still say it is being built is
+  incomplete, and the run says why. This is the check to rely on: publish
+  only a draft that has its notes.
+- **After publication.** GitHub lets no workflow stop a person publishing a
+  draft, so job *feed* starts once the release is already public, and runs
+  the gate again before any feed changes. A release it refuses is **put back
+  to a draft** and no feed changes, so installed copies are offered
+  nothing. Until then, and if putting it back fails (the job says so; do it
+  by hand), its files are public. A gate that could not run (a lookup or a
+  download failed) changes nothing, the release stays public, and the job
+  says so: re-run it.
 
 The dry run (workflow_dispatch) runs it on the dry run's files, which must
 pass, then takes each file away in turn and checks that the gate refuses
 the release and names that file. `release_gate_test.sh`, which
-`desktop.yml` runs, checks it against synthetic releases: each file missing,
-files changed after their checksums, checksum files that leave a file out
-or list another, feeds signed with another key or none, a feed for another
-version, items at another URL, an installer or a DMG its signed item doesn't
-describe, another OS's notices.
+`desktop.yml` runs, checks each refusal against synthetic releases.
 
 ## The release notes
 
@@ -860,6 +863,14 @@ newest one in the feed, and `appcast.sh` would refuse it the same way. If
 the change still needs to ship, release a version above the newest build
 in the feed. To avoid this, wait for each release's feed job to pass before
 tagging the next one.
+
+**The feed job fails part way through publishing** (say `appcast.xml` went
+live, then the Windows upload failed): GitHub has no way to swap the three
+files at once, so for now Mac copies are offered the release and Windows or
+Linux copies are not. Re-run the feed job. Its checks pass again, a feed
+that is already live, byte for byte, is left as it is (its last copy stays
+`*.previous.xml`), and the rest go live. If it stopped between a feed's two
+renames, put that feed back first, as below.
 
 **The first publication fails** (the feed release is still a draft):
 nothing is live and no installed copy reads a draft. Re-run the feed job;

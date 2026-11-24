@@ -27,6 +27,8 @@
 #   (WINDOWS_PUBLIC_ED_KEY, LINUX_PUBLIC_ED_KEY), keeps the last one as
 #   appcast-<os>.previous.xml, stops on a half-stopped publication of it,
 #   never makes the feed release, and never touches the Mac's files.
+# * a feed already live, byte for byte (a re-run after a publication that
+#   stopped part way), is left as it is, its last copy kept, for every OS.
 # * winlinux_feed_state says live or new for each OS's feed, and stops on
 #   a half-stopped publication or a lookup that fails; feed_signing_key
 #   names the key the published feed is signed with (the current one, or
@@ -480,10 +482,11 @@ mac_untouched() { [ "$(asset_named appcast.xml)" = "7 appcast.xml" ] && cmp -s "
   [ -z "$(asset_named appcast.previous.xml)" ]; }
 sign_feed "$tmp/good-unsigned.xml" "$tmp/good-key-c.xml" "$tmp/key-c.der"
 export WINDOWS_PUBLIC_ED_KEY="$key_b" LINUX_PUBLIC_ED_KEY="$key_c"
-publish_os() { # os feed [env...]
+publish_os() { # os feed [env options and assignments...]
   local os="$1" xml="$2"
   shift 2
-  env APPCAST_HOSTING=release-asset "$@" "$here/publish-appcast.sh" "$xml" --push --os "$os"
+  # env takes its options (-u) before any assignment.
+  env "$@" APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$xml" --push --os "$os"
 }
 
 feed_release "7 appcast.xml"
@@ -494,8 +497,14 @@ if grep -q 'WINDOWS_PUBLIC_ED_KEY' "$tmp/out.txt" && [ "$(gh_calls)" = "$before"
 else
   fail "a Windows feed signed with the Mac's key: $(tail -1 "$tmp/out.txt"); gh calls $before -> $(gh_calls); files: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
 fi
+before="$(gh_calls)"
 expect 1 "a Windows feed is never published without WINDOWS_PUBLIC_ED_KEY" \
   publish_os windows "$tmp/good-other-key.xml" -u WINDOWS_PUBLIC_ED_KEY
+if grep -q 'WINDOWS_PUBLIC_ED_KEY is not set' "$tmp/out.txt" && [ "$(gh_calls)" = "$before" ]; then
+  pass "it is refused for the missing key, before anything reached GitHub"
+else
+  fail "a Windows feed without WINDOWS_PUBLIC_ED_KEY: $(tail -1 "$tmp/out.txt"); gh calls $before -> $(gh_calls)"
+fi
 expect 0 "the first Windows feed joins the published feed release" publish_os windows "$tmp/good-other-key.xml"
 if cmp -s "$STUB_ASSETS/$(asset_named appcast-windows.xml)" "$tmp/good-other-key.xml" && mac_untouched &&
   [ -z "$(asset_named appcast-windows.previous.xml)" ] && [ "$(ls "$STUB_ASSETS" | wc -l | tr -d ' ')" = 2 ]; then
@@ -504,9 +513,11 @@ else
   fail "after the first Windows feed the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
 fi
 first_windows="$(asset_named appcast-windows.xml)"
-expect 0 "the next Windows feed replaces it" publish_os windows "$tmp/good-other-key.xml"
+sed 's#desktop-v1.3.0#desktop-v1.3.1#' "$tmp/good-unsigned.xml" >"$tmp/next-unsigned.xml"
+sign_feed "$tmp/next-unsigned.xml" "$tmp/next-other-key.xml" "$tmp/key-b.der"
+expect 0 "the next Windows feed replaces it" publish_os windows "$tmp/next-other-key.xml"
 if [ "$(asset_named appcast-windows.previous.xml)" = "${first_windows%% *} appcast-windows.previous.xml" ] &&
-  [ -n "$(asset_named appcast-windows.xml)" ] && mac_untouched; then
+  cmp -s "$STUB_ASSETS/$(asset_named appcast-windows.xml)" "$tmp/next-other-key.xml" && mac_untouched; then
   pass "the last Windows feed is kept as appcast-windows.previous.xml, and the Mac's files are untouched"
 else
   fail "after the next Windows feed the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
@@ -538,6 +549,31 @@ expect 0 "without --push it only says what it would do" \
   env APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$tmp/good-other-key.xml" --os windows
 grep -q 'appcast-windows.xml' "$tmp/out.txt" && [ "$(gh_calls)" = "$before" ] &&
   pass "and it names appcast-windows.xml, with no call to GitHub" || fail "a Windows dry publication: $(cat "$tmp/out.txt")"
+
+# A re-run of the feed job after a publication that stopped part way (the
+# Mac's feed live, Windows' not yet): a feed that is already live, byte for
+# byte, is left as it is, its last copy kept, and the rest go on.
+already_live() { # label name feed [publish-appcast.sh args...]
+  local label="$1" name="$2" xml="$3" base="${2%.xml}"
+  shift 3
+  feed_release
+  [ "$name" = appcast.xml ] || cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
+  cp "$xml" "$STUB_ASSETS/11 $name"
+  printf '<rss/>older\n' >"$STUB_ASSETS/12 $base.previous.xml"
+  local files uploads
+  files="$(ls "$STUB_ASSETS" | tr '\n' ' ')"
+  uploads="$(grep -c '^gh release upload' "$STUB_LOG")"
+  expect 0 "$label" env APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$xml" --push "$@"
+  if [ "$(ls "$STUB_ASSETS" | tr '\n' ' ')" = "$files" ] && cmp -s "$STUB_ASSETS/11 $name" "$xml" &&
+    grep -qx '<rss/>older' "$STUB_ASSETS/12 $base.previous.xml" && grep -q 'already live' "$tmp/out.txt" &&
+    [ "$(grep -c '^gh release upload' "$STUB_LOG")" = "$uploads" ]; then
+    pass "$label: nothing uploaded or renamed, the last copy kept"
+  else
+    fail "$label: files $(ls "$STUB_ASSETS" | tr '\n' ' '); $(tail -1 "$tmp/out.txt")"
+  fi
+}
+already_live "the Mac's feed already live is left as it is" appcast.xml "$tmp/good.xml"
+already_live "a Windows feed already live is left as it is" appcast-windows.xml "$tmp/good-other-key.xml" --os windows
 
 # winlinux_feed_state: what the release workflow adds an OS's release to.
 # `live` once its feed is published, `new` for its first release; it stops
