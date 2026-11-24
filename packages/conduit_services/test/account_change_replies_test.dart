@@ -248,21 +248,18 @@ void main() {
 
   test('Switch Anyway with a Direct reply in a chat Ada\'s account keeps '
       'stops it first, keeping the words that came', () async {
+    // Serves chats and a socket: the chat syncs to the server's id, so its
+    // scope keeps its transcript as the switched-back account's socket
+    // binds, and the window is told the words the run has taken in.
+    owui.models = const <String>['harbor-model'];
     final ada = await signIn('ada@example.com', 'pw-ada');
     final bob = await signIn('bob@example.com', 'pw-bob');
     await accounts.switchTo(AccountRef(accountId: ada));
     await certified(ada);
-    // The provider's hold, not the window's words: a chat not yet synced
-    // loses its scope's transcript as the socket of the account switched
-    // back to binds, so its words reach no window until the stop reads them
-    // from the stored copy.
-    final held = provider.held('third');
-    final accepted = await turns.send(
+    final chatId = await sendUntil(
       SendTurn(model: directModel, text: 'hold:third Part of it'),
+      'Part of it',
     );
-    final chatId = accepted.chatId;
-    follow(chatId);
-    await held;
 
     final blocked = await accounts.switchTo(AccountRef(accountId: bob));
     expect(blocked.outcome, AccountChangeOutcome.blockedByActiveReply);
@@ -274,7 +271,9 @@ void main() {
 
     await accounts.switchTo(AccountRef(accountId: ada));
     await certified(ada);
-    final answer = await storedAnswer(chatId);
+    // Synced to the server meanwhile, the chat goes by the server's id now.
+    final listed = (await chats.list()).chats;
+    final answer = await storedAnswer(listed.single.id);
     expect(answer.content.trim(), 'Part of it');
     expect(answer.streaming, isFalse);
   });
