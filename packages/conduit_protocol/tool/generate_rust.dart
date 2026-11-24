@@ -25,6 +25,15 @@ const Map<String, String> _handWritten = <String, String>{
 };
 
 Future<void> main(List<String> args) async {
+  try {
+    await _generate(args);
+  } on GeneratorError catch (error) {
+    stderr.writeln('generate_rust: $error');
+    exitCode = 1;
+  }
+}
+
+Future<void> _generate(List<String> args) async {
   final check = args.contains('--check');
   final package = Directory.fromUri(Platform.script.resolve('..'));
   final repo = package.parent.parent;
@@ -112,7 +121,8 @@ final class RustEmitter {
     return '$header$_out';
   }
 
-  void _docs(List<String> lines, [String indent = '']) {
+  void _docs(List<String> dart, [String indent = '']) {
+    final lines = _rustdoc(dart);
     var start = 0;
     var end = lines.length;
     while (start < end && lines[start].isEmpty) {
@@ -811,6 +821,40 @@ final class RustEmitter {
 // ---------------------------------------------------------------------------
 // Names and literals
 // ---------------------------------------------------------------------------
+
+/// A doc comment's [lines] as rustdoc reads them: a Dart reference
+/// (`[RpcError.code]`) becomes a code span, and a fence that names no
+/// language is marked `text`, which rustdoc would otherwise run as a test.
+List<String> _rustdoc(List<String> lines) {
+  final reference = RegExp(
+    r'\[([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\](?![(\[])',
+  );
+  final out = <String>[];
+  var inFence = false;
+  for (var line in lines) {
+    if (line.trimLeft().startsWith('```')) {
+      if (!inFence && line.trimLeft() == '```') {
+        line = line.replaceFirst('```', '```text');
+      }
+      inFence = !inFence;
+    } else if (!inFence) {
+      line = _outsideCodeSpans(
+        line,
+        (text) => text.replaceAllMapped(reference, (m) => '`${m[1]}`'),
+      );
+    }
+    out.add(line);
+  }
+  return out;
+}
+
+String _outsideCodeSpans(String line, String Function(String) transform) {
+  final parts = line.split('`');
+  return <String>[
+    for (var i = 0; i < parts.length; i++)
+      i.isEven ? transform(parts[i]) : parts[i],
+  ].join('`');
+}
 
 String _option(String? name) => name == null ? 'None' : 'Some(${_str(name)})';
 

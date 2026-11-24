@@ -130,16 +130,18 @@ final class GeneratorError implements Exception {
   final String message;
 
   @override
-  String toString() => 'generate_rust: $message';
+  String toString() => message;
 }
 
 /// Everything the generator needs from `lib/src`, in a stable order: files
 /// by name, declarations as written.
 final class ProtocolSource {
-  ProtocolSource._(this.handWritten);
+  ProtocolSource._(Set<String> handWritten)
+    : handWritten = Set.unmodifiable(handWritten);
 
-  /// [handWritten]: types the protocol declares by hand rather than as DTOs,
-  /// which a generator writes in its own language.
+  /// [handWritten]: type names a generator writes by hand in its own
+  /// language; [isType] accepts them as types whether or not this source
+  /// declares them.
   factory ProtocolSource.read(
     Directory dir, {
     Set<String> handWritten = const <String>{},
@@ -512,13 +514,11 @@ final class ProtocolSource {
 /// A doc comment's lines with `///` stripped, dartdoc references turned
 /// into code spans (`[Foo]` means nothing to rustdoc), and untagged code
 /// fences marked `text` so rustdoc does not compile them as doctests.
+/// The doc comment's lines as the Dart source writes them, without the
+/// `///` and one space after it.
 List<String> _docs(Comment? comment) {
   if (comment == null) return const <String>[];
-  final reference = RegExp(
-    r'\[([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\](?![(\[])',
-  );
   final lines = <String>[];
-  var inFence = false;
   for (final token in comment.tokens) {
     final lexeme = token.lexeme;
     if (!lexeme.startsWith('///')) {
@@ -526,29 +526,9 @@ List<String> _docs(Comment? comment) {
     }
     var line = lexeme.substring(3);
     if (line.startsWith(' ')) line = line.substring(1);
-    line = line.trimRight();
-    if (line.trimLeft().startsWith('```')) {
-      if (!inFence && line.trimLeft() == '```') {
-        line = line.replaceFirst('```', '```text');
-      }
-      inFence = !inFence;
-    } else if (!inFence) {
-      line = _outsideCodeSpans(
-        line,
-        (text) => text.replaceAllMapped(reference, (m) => '`${m[1]}`'),
-      );
-    }
-    lines.add(line);
+    lines.add(line.trimRight());
   }
   return lines;
-}
-
-String _outsideCodeSpans(String line, String Function(String) transform) {
-  final parts = line.split('`');
-  return <String>[
-    for (var i = 0; i < parts.length; i++)
-      i.isEven ? transform(parts[i]) : parts[i],
-  ].join('`');
 }
 
 String pascalCase(String name) => name[0].toUpperCase() + name.substring(1);
