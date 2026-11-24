@@ -176,7 +176,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
           AccountChange.openWebUiSession,
           reason: 'account-changed',
         );
-        this.temporary.clear();
+        _forgetTemporaryEndedBy(AccountChange.openWebUiSession);
       }),
       _container.listen<Object?>(apiServiceProvider, (previous, next) {
         if (!identical(previous, next)) {
@@ -194,7 +194,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       ) {
         if (previous == null || previous == next) return;
         _closeEndedBy(AccountChange.chatsAccount, reason: 'account-changed');
-        this.temporary.clear();
+        _forgetTemporaryEndedBy(AccountChange.chatsAccount);
       }),
       // The terminal the account selects (`terminal.select`) is every open
       // chat's from then on: whichever way its next turn goes out (typed,
@@ -3160,7 +3160,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     ChatMessage? answer, {
     String? failure,
   }) {
-    if (turn.finished) return;
+    if (turn.finished || turn.expiring) return;
     // A comparison's answers that had not ended end with the turn.
     for (final id in turn.companions.keys.toList()) {
       if (turn.companions[id]!.finished) continue;
@@ -4015,7 +4015,11 @@ final class TurnsService implements ChatTurns, AddressReplies {
     if (!session.scope.isDisposed) {
       final conversation = session.scope.conversation;
       if (conversation != null && _isTemporaryConversation(conversation)) {
-        temporary.replace(conversation.id, session.scope.messages);
+        if (session.forgetsTemporary) {
+          temporary.forget(conversation.id);
+        } else {
+          temporary.replace(conversation.id, session.scope.messages);
+        }
       }
     }
     if (afterRead) {
@@ -4027,10 +4031,23 @@ final class TurnsService implements ChatTurns, AddressReplies {
   }
 
   /// Who owns [session]'s chat ([chatOwnerOf]).
-  ChatOwner _ownerOf(_ChatSession session) => chatOwnerOf(
-    session.scope.isDisposed ? null : session.scope.conversation,
-    chatId: session.chatId,
-  );
+  ChatOwner _ownerOf(_ChatSession session) {
+    final conversation = session.scope.isDisposed
+        ? null
+        : session.scope.conversation;
+    if (_isTemporaryConversation(conversation)) {
+      return _temporaryOwner(session.scope.messages);
+    }
+    return chatOwnerOf(conversation, chatId: session.chatId);
+  }
+
+  /// A temporary chat is stored nowhere, so it carries no owner of its own:
+  /// one a Direct (or Apple) model answers is no account's, and any other is
+  /// taken as the Open WebUI account's.
+  static ChatOwner _temporaryOwner(Iterable<ChatMessage> messages) =>
+      messages.any((m) => m.metadata?['transport'] == kDirectTransport)
+      ? ChatOwner.device
+      : ChatOwner.openWebUi;
 
   /// Whether [change] closes [session]'s chat ([accountChangeEndsChat]).
   bool _endedBy(AccountChange change, _ChatSession session) {
@@ -4070,6 +4087,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
       },
     );
     for (final session in ending) {
+      // Another session's, or another account's: neither kept for the next,
+      // nor written back as the scope closes. A new client for the same
+      // session keeps it.
+      session.forgetsTemporary = change != AccountChange.openWebUiClient;
       final pending = session.pending;
       if (pending != null && !pending.started.isCompleted) {
         pending.started.completeError(
@@ -4081,6 +4102,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       final turn = session.turn;
       if (turn != null && !turn.finished && turn.clientOwned) {
+        turn.expiring = true;
         // No other turn takes the chat while this one settles.
         _sessions.remove(session);
         final closing = _closeAfterStop(session, turn);
@@ -4090,6 +4112,19 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       if (turn != null && !turn.finished) _endExpired(session, turn);
       _close(session, afterRead: true);
+    }
+  }
+
+  /// Forgets the temporary chats [change] ends: one an account owned must
+  /// not be read or continued under the next. One kept on this device (a
+  /// Direct chat's) stays, as its scope does when one is open.
+  void _forgetTemporaryEndedBy(AccountChange change) {
+    for (final id in temporary.ids) {
+      final open = _sessionOf(id);
+      final owner = open != null
+          ? _ownerOf(open)
+          : _temporaryOwner(temporary.transcript(id));
+      if (accountChangeEndsChat(change, owner)) temporary.forget(id);
     }
   }
 
@@ -4118,6 +4153,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// Tells the windows [turn] ended because its account's session did, with
   /// the words it had.
   void _endExpired(_ChatSession session, _Turn turn) {
+    if (turn.finished) return;
     turn.finished = true;
     if (!turn.ended.isCompleted) turn.ended.complete();
     turn.ticker?.cancel();
@@ -4720,6 +4756,10 @@ final class _ChatSession {
   /// Requests preparing a turn in this chat; it is not let go meanwhile.
   int holds = 0;
 
+  /// An account change ended this temporary chat: its transcript goes with
+  /// its scope rather than being kept for the next account.
+  bool forgetsTemporary = false;
+
   /// Requests a window made that [TurnsService._requireIdle] let through and
   /// that have not yet started their turn or ended: a queued batch waits for
   /// them ([TurnsService._untilQuiet]).
@@ -4967,6 +5007,11 @@ final class _Turn {
   bool announced = false;
   bool finished = false;
   bool stopped = false;
+
+  /// An account change closed its chat: it ends as session expired once its
+  /// run has stored the words that came ([TurnsService._closeAfterStop]),
+  /// never as completed by the answer it stores meanwhile.
+  bool expiring = false;
   Timer? ticker;
 
   /// A comparison's other answers, by id.

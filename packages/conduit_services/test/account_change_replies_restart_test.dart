@@ -16,6 +16,7 @@ import 'package:test/test.dart';
 
 import 'support/core.dart';
 import 'support/scripted_openai.dart';
+import 'support/window.dart';
 
 /// A Direct reply the daemon stops under, and one a daemon that died left
 /// stored as still being written: each opens as a finished answer.
@@ -25,19 +26,25 @@ void main() {
 
   setUp(() async {
     temporary = Directory.systemTemp.createTempSync('account-change-restart');
+    addTearDown(() => temporary.deleteSync(recursive: true));
     provider = await ScriptedOpenAi.start();
+    addTearDown(provider.close);
   });
 
-  tearDown(() async {
-    await provider.close();
-    temporary.deleteSync(recursive: true);
-  });
-
-  /// Starts a daemon on [temporary] and sends a Direct reply the provider
-  /// holds after its words, returning the chat once they have come.
-  Future<(CoreRuntime, TurnsService, String)> holdReply(String key) async {
+  /// A daemon on [temporary] whose Direct reply the provider holds after
+  /// its words; returned once the window has been told them.
+  ///
+  /// [abandoned]: the daemon dies rather than stops, so its turns are never
+  /// disposed.
+  Future<(CoreRuntime, TurnsService, String)> holdReply(
+    String key, {
+    bool abandoned = false,
+  }) async {
     final runtime = await startTestCore(temporary);
-    final turns = TurnsService(runtime.container, EventBus());
+    addTearDown(runtime.dispose);
+    final events = EventBus();
+    final turns = TurnsService(runtime.container, events);
+    if (!abandoned) addTearDown(turns.dispose);
     final saved = await DirectService(runtime.container).save(
       DirectConnectionEdit(
         name: 'Scripted',
@@ -50,15 +57,22 @@ void main() {
       saved.connections.single.id,
       'scripted-model',
     );
-    final asked = provider.asked('hold:$key');
+    final told = Completer<void>();
+    String? chatId;
+    events.attach('window', (envelope) {
+      if (envelope.event == ConduitEvents.turnDelta &&
+          envelope.payload['chatId'] == chatId &&
+          '${envelope.payload['text']}'.trim() == 'Words before the pause' &&
+          !told.isCompleted) {
+        told.complete();
+      }
+    });
     final accepted = await turns.send(
       SendTurn(model: model, text: 'hold:$key Words before the pause'),
     );
-    await asked;
-    while (!provider.steps.contains('$key holding')) {
-      await pumpEventQueue();
-    }
-    await pumpEventQueue(times: 100);
+    chatId = accepted.chatId;
+    subscribeWindow(events, turns, 'window', <String>[accepted.chatId]);
+    await told.future;
     return (runtime, turns, accepted.chatId);
   }
 
@@ -78,22 +92,26 @@ void main() {
     };
   }
 
+  /// A daemon on [temporary] again, after the last one stopped.
+  Future<(CoreRuntime, ChatsService)> restart() async {
+    final runtime = await startTestCore(temporary);
+    addTearDown(runtime.dispose);
+    final chats = ChatsService(runtime.container, events: EventBus());
+    addTearDown(chats.dispose);
+    return (runtime, chats);
+  }
+
   test('quitting while a Direct reply streams stores the words that came as '
       'a finished answer, without waiting on the provider', () async {
     final (runtime, turns, chatId) = await holdReply('quit');
     await turns.dispose();
-    await runtime.dispose().timeout(
-      const Duration(seconds: 20),
-      onTimeout: () => fail('the quit waited on the provider'),
-    );
+    await runtime.dispose();
     expect(provider.steps, isNot(contains('quit released')));
 
-    final again = await startTestCore(temporary);
-    final chats = ChatsService(again.container, events: EventBus());
-    addTearDown(() async {
-      chats.dispose();
-      await again.dispose();
-    });
+    final (again, chats) = await restart();
+    final stored = await storedPayload(again, chatId);
+    expect('${stored['content']}'.trim(), 'Words before the pause');
+    expect(stored['isStreaming'], isFalse);
     final answer = (await chats.get(chatId))!.messages.last;
     expect(answer.content.trim(), 'Words before the pause');
     expect(answer.streaming, isFalse);
@@ -106,7 +124,7 @@ void main() {
     final crashed = Completer<String>();
     runZonedGuarded(() async {
       try {
-        final (runtime, _, chatId) = await holdReply('crash');
+        final (runtime, _, chatId) = await holdReply('crash', abandoned: true);
         await runtime.dispose();
         crashed.complete(chatId);
       } on Object catch (error, stackTrace) {
@@ -115,12 +133,7 @@ void main() {
     }, (_, _) {});
     final chatId = await crashed.future;
 
-    final again = await startTestCore(temporary);
-    final chats = ChatsService(again.container, events: EventBus());
-    addTearDown(() async {
-      chats.dispose();
-      await again.dispose();
-    });
+    final (again, chats) = await restart();
     expect((await storedPayload(again, chatId))['isStreaming'], isTrue);
     final answer = (await chats.get(chatId))!.messages.last;
     expect(answer.role, 'assistant');

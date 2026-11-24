@@ -7,8 +7,11 @@ import 'dart:io';
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/models/model.dart' show Model;
+import 'package:conduit_core/providers/app_providers.dart' show modelsProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 import 'support/core.dart';
@@ -20,10 +23,8 @@ import 'support/window.dart';
 /// A reply streaming while the Open WebUI account changes: a chat the
 /// account does not own (Direct kept on this device, Hermes) stays open and
 /// its reply runs to the end; a chat the account owns closes, its reply
-/// ending as stopped with the words that came.
-///
-/// One daemon for the file, tests in order: `PreferencesStore` and Hive are
-/// process-wide.
+/// ending as stopped with the words that came. Each case has a daemon of its
+/// own.
 void main() {
   late Directory temporary;
   late CoreRuntime runtime;
@@ -36,36 +37,68 @@ void main() {
   late AccountsService accounts;
   late AuthService auth;
   late ChatsService chats;
+  late DirectService direct;
   late String directModel;
-  final heard = <EventEnvelope>[];
-  final finishing = <String, Completer<TurnFinished>>{};
-  final windowScopes = <String>[];
+  late List<EventEnvelope> heard;
+  late Map<String, Completer<TurnFinished>> finishing;
+  late List<(String, String, Completer<void>)> awaitedText;
+  late List<String> windowScopes;
 
-  setUpAll(() async {
+  setUp(() async {
+    heard = <EventEnvelope>[];
+    finishing = <String, Completer<TurnFinished>>{};
+    awaitedText = <(String, String, Completer<void>)>[];
+    windowScopes = <String>[];
     temporary = Directory.systemTemp.createTempSync('account-change-replies');
+    addTearDown(() => temporary.deleteSync(recursive: true));
     runtime = await startTestCore(temporary);
+    addTearDown(runtime.dispose);
     owui = await FakeOwuiAuthServer.start(
       users: const {
         'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
         'bob@example.com': (id: 'user-bob', name: 'Bob', password: 'pw-bob'),
       },
     );
+    addTearDown(owui.close);
     provider = await ScriptedOpenAi.start();
+    addTearDown(provider.close);
     hermesServer = await FakeHermesServer.start();
+    addTearDown(hermesServer.close);
     events = EventBus();
     events.attach('window', (envelope) {
       heard.add(envelope);
+      final chatId = envelope.payload['chatId'];
       if (envelope.event == ConduitEvents.turnFinished) {
-        final finished = TurnFinished.fromJson(envelope.payload);
-        finishing.remove(finished.chatId)?.complete(finished);
+        finishing
+            .remove(chatId)
+            ?.complete(TurnFinished.fromJson(envelope.payload));
+      }
+      if (envelope.event == ConduitEvents.turnDelta) {
+        final text = '${envelope.payload['text']}'.trim();
+        awaitedText.removeWhere((waiter) {
+          final (id, words, done) = waiter;
+          if (id != chatId || text != words) return false;
+          done.complete();
+          return true;
+        });
       }
     });
     hermes = HermesService(runtime.container, events: events);
     turns = TurnsService(runtime.container, events, hermes: hermes);
+    addTearDown(turns.dispose);
     accounts = AccountsService(runtime.container, events: events, turns: turns);
+    addTearDown(accounts.dispose);
     auth = AuthService(runtime.container);
-    chats = ChatsService(runtime.container, events: events, hermes: hermes);
-    final saved = await DirectService(runtime.container).save(
+    addTearDown(auth.dispose);
+    chats = ChatsService(
+      runtime.container,
+      events: events,
+      hermes: hermes,
+      temporary: turns.temporary,
+    );
+    addTearDown(chats.dispose);
+    direct = DirectService(runtime.container);
+    final saved = await direct.save(
       DirectConnectionEdit(
         name: 'Scripted',
         kind: DirectKind.openai,
@@ -79,27 +112,44 @@ void main() {
     );
   });
 
-  tearDownAll(() async {
-    accounts.dispose();
-    await turns.dispose();
-    chats.dispose();
-    await provider.close();
-    await hermesServer.close();
-    await owui.close();
-    await runtime.dispose();
-    temporary.deleteSync(recursive: true);
-  });
+  /// [chatId]'s turn's end: as heard already, or once it is.
+  Future<TurnFinished> finished(String chatId) {
+    for (final e in heard) {
+      if (e.event == ConduitEvents.turnFinished &&
+          e.payload['chatId'] == chatId) {
+        return Future<TurnFinished>.value(TurnFinished.fromJson(e.payload));
+      }
+    }
+    return finishing.putIfAbsent(chatId, Completer<TurnFinished>.new).future;
+  }
 
   void follow(String chatId) {
     windowScopes.add(chatId);
     subscribeWindow(events, turns, 'window', List<String>.of(windowScopes));
   }
 
-  Future<TurnFinished> finished(String chatId) =>
-      finishing.putIfAbsent(chatId, Completer<TurnFinished>.new).future;
+  /// Sends [turn] and returns its chat once the window has been told
+  /// [words], all of the answer before the provider holds it.
+  Future<String> sendUntil(SendTurn turn, String words) async {
+    final accepted = await turns.send(turn);
+    final shown = Completer<void>();
+    awaitedText.add((accepted.chatId, words, shown));
+    follow(accepted.chatId);
+    await shown.future.timeout(
+      const Duration(seconds: 20),
+      onTimeout: () => throw StateError(
+        'never told "$words": ${[
+          for (final e in heard)
+            if (e.payload['chatId'] == accepted.chatId)
+              '${e.event} ${e.payload['text']}',
+        ]}',
+      ),
+    );
+    return accepted.chatId;
+  }
 
-  List<String> told(String chatId, {int from = 0}) => <String>[
-    for (final e in heard.skip(from))
+  List<String> told(String chatId) => <String>[
+    for (final e in heard)
       if (e.payload['chatId'] == chatId &&
           (e.event == ConduitEvents.turnCompleted ||
               e.event == ConduitEvents.turnFailed ||
@@ -124,35 +174,40 @@ void main() {
     watch.close();
   }
 
-  Future<String> activeAccount() async =>
-      (await accounts.list()).activeAccountId!;
+  /// Adds an account for [email] and signs in to it; its id.
+  Future<String> signIn(String email, String password) async {
+    await accounts.add(
+      AddAccount(server: ServerDraft(name: 'Lab', url: owui.url), force: true),
+    );
+    await auth.loginWithPassword(
+      PasswordLogin(username: email, password: password),
+    );
+    final id = (await accounts.list()).activeAccountId!;
+    await certified(id);
+    return id;
+  }
+
+  /// Signs in again to the account in use: a new session for it.
+  Future<void> signInAgain(String email, String password) async {
+    await auth.loginWithPassword(
+      PasswordLogin(username: email, password: password),
+    );
+    await certified((await accounts.list()).activeAccountId!);
+  }
 
   Future<ChatMessageDto> storedAnswer(String chatId) async =>
       (await chats.get(chatId))!.messages.lastWhere(
         (m) => m.role == 'assistant',
       );
 
-  late String adaAccount;
-  late String bobAccount;
-
   test('a Direct reply in a chat kept on this device runs to the end across '
       'a first sign-in, and the chat keeps it', () async {
-    final asked = provider.asked('hold:first');
-    final accepted = await turns.send(
+    final chatId = await sendUntil(
       SendTurn(model: directModel, text: 'hold:first Some words so far'),
+      'Some words so far',
     );
-    final chatId = accepted.chatId;
-    follow(chatId);
-    await asked;
 
-    await accounts.add(
-      AddAccount(server: ServerDraft(name: 'Lab', url: owui.url), force: true),
-    );
-    await auth.loginWithPassword(
-      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
-    );
-    adaAccount = await activeAccount();
-    await certified(adaAccount);
+    await signIn('ada@example.com', 'pw-ada');
     expect(told(chatId), isEmpty, reason: 'the turn must still be running');
     expect(turns.activeChatIds, contains(chatId));
 
@@ -168,61 +223,77 @@ void main() {
     expect(answer.streaming, isFalse);
   });
 
+  test('a switch asks nothing of a Direct reply in a chat kept on this '
+      'device, and the reply runs to the end', () async {
+    final ada = await signIn('ada@example.com', 'pw-ada');
+    final bob = await signIn('bob@example.com', 'pw-bob');
+    await accounts.switchTo(AccountRef(accountId: ada));
+    await certified(ada);
+    await direct.setHistory(localOnly: true);
+    final chatId = await sendUntil(
+      SendTurn(model: directModel, text: 'hold:kept Kept on this Mac'),
+      'Kept on this Mac',
+    );
+
+    final switched = await accounts.switchTo(AccountRef(accountId: bob));
+    expect(switched.outcome, AccountChangeOutcome.done);
+    await certified(bob);
+    expect(told(chatId), isEmpty, reason: 'the turn must still be running');
+
+    final done = finished(chatId);
+    provider.release('kept');
+    expect((await done).ok, isTrue);
+    expect((await storedAnswer(chatId)).content.trim(), 'Kept on this Mac');
+  });
+
   test('Switch Anyway with a Direct reply in a chat Ada\'s account keeps '
       'stops it first, keeping the words that came', () async {
-    await accounts.add(
-      AddAccount(server: ServerDraft(name: 'Lab', url: owui.url), force: true),
-    );
-    await auth.loginWithPassword(
-      const PasswordLogin(username: 'bob@example.com', password: 'pw-bob'),
-    );
-    bobAccount = await activeAccount();
-    await certified(bobAccount);
-    await accounts.switchTo(AccountRef(accountId: adaAccount));
-    await certified(adaAccount);
-
-    final asked = provider.asked('hold:third');
+    final ada = await signIn('ada@example.com', 'pw-ada');
+    final bob = await signIn('bob@example.com', 'pw-bob');
+    await accounts.switchTo(AccountRef(accountId: ada));
+    await certified(ada);
+    // The provider's hold, not the window's words: a chat not yet synced
+    // loses its scope's transcript as the socket of the account switched
+    // back to binds, so its words reach no window until the stop reads them
+    // from the stored copy.
+    final held = provider.held('third');
     final accepted = await turns.send(
       SendTurn(model: directModel, text: 'hold:third Part of it'),
     );
     final chatId = accepted.chatId;
     follow(chatId);
-    await asked;
-    while (!provider.steps.contains('third holding')) {
-      await pumpEventQueue();
-    }
-    final blocked = await accounts.switchTo(AccountRef(accountId: bobAccount));
+    await held;
+
+    final blocked = await accounts.switchTo(AccountRef(accountId: bob));
     expect(blocked.outcome, AccountChangeOutcome.blockedByActiveReply);
     final forced = await accounts.switchTo(
-      AccountRef(accountId: bobAccount, force: true, askedOver: adaAccount),
+      AccountRef(accountId: bob, force: true, askedOver: ada),
     );
     expect(forced.outcome, AccountChangeOutcome.done);
     expect(told(chatId), <String>['turn.completed Part of it', 'turn.finished']);
 
-    await accounts.switchTo(AccountRef(accountId: adaAccount));
-    await certified(adaAccount);
+    await accounts.switchTo(AccountRef(accountId: ada));
+    await certified(ada);
     final answer = await storedAnswer(chatId);
     expect(answer.content.trim(), 'Part of it');
     expect(answer.streaming, isFalse);
   });
 
   test('signing in again while a Direct reply streams in a chat the account '
-      'keeps closes it as session expired, keeping the words that came', () async {
-    final asked = provider.asked('hold:fourth');
-    final accepted = await turns.send(
+      'keeps closes it as session expired with the words that came, though '
+      'the chat shows its stopped answer first', () async {
+    // Serves chats and a socket: the chat syncs to the server's id, and its
+    // scope keeps its transcript, the stopped answer in it, as the change
+    // comes.
+    owui.models = const <String>['harbor-model'];
+    await signIn('ada@example.com', 'pw-ada');
+    final chatId = await sendUntil(
       SendTurn(model: directModel, text: 'hold:fourth Still going'),
+      'Still going',
     );
-    final chatId = accepted.chatId;
-    follow(chatId);
-    await asked;
-    while (!provider.steps.contains('fourth holding')) {
-      await pumpEventQueue();
-    }
 
     final done = finished(chatId);
-    await auth.loginWithPassword(
-      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
-    );
+    await signInAgain('ada@example.com', 'pw-ada');
     final ended = await done;
     expect(ended.ok, isFalse);
     expect(ended.code, ConduitErrorCodes.sessionExpired);
@@ -230,7 +301,6 @@ void main() {
       'turn.failed ${ConduitErrorCodes.sessionExpired} Still going',
       'turn.finished ${ConduitErrorCodes.sessionExpired}',
     ]);
-    await certified(adaAccount);
     final answer = await storedAnswer(chatId);
     expect(answer.content.trim(), 'Still going');
     expect(answer.streaming, isFalse);
@@ -238,32 +308,32 @@ void main() {
 
   test('a Hermes reply runs to the end when the account signs in again, and '
       'its chat keeps it', () async {
+    await signIn('ada@example.com', 'pw-ada');
+    final offered = Completer<Model>();
+    final watch = runtime.container.listen<AsyncValue<List<Model>>>(
+      modelsProvider,
+      (_, next) {
+        final agent = next.value
+            ?.where((m) => m.id.startsWith('hermes:agent:'))
+            .firstOrNull;
+        if (agent != null && !offered.isCompleted) offered.complete(agent);
+      },
+      fireImmediately: true,
+    );
+    addTearDown(watch.close);
     await hermes.saveSettings(
       HermesSettingsEdit(
         baseUrl: hermesServer.baseUrl,
         apiKey: hermesServer.key,
       ),
     );
-    final models = ModelsService(runtime.container);
-    ModelSummary? agent;
-    while (agent == null) {
-      agent = (await models.list()).models
-          .where((m) => m.id.startsWith('hermes:agent:'))
-          .firstOrNull;
-      if (agent == null) await pumpEventQueue();
-    }
-    final held = hermesServer.runHeld('herm');
-    final accepted = await turns.send(
+    final agent = await offered.future;
+    final chatId = await sendUntil(
       SendTurn(model: agent.id, text: 'hold:herm Echo of the tide'),
+      'Echo',
     );
-    final chatId = accepted.chatId;
-    follow(chatId);
-    await held;
 
-    await auth.loginWithPassword(
-      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
-    );
-    await certified(adaAccount);
+    await signInAgain('ada@example.com', 'pw-ada');
     expect(told(chatId), isEmpty, reason: 'the turn must still be running');
 
     final done = finished(chatId);
@@ -273,5 +343,34 @@ void main() {
     final answer = await storedAnswer(chatId);
     expect(answer.content.trim(), 'Echo of the tide');
     expect(answer.streaming, isFalse);
+  });
+
+  test('a temporary Direct chat stays readable across an account change, and '
+      'a temporary Open WebUI chat does not', () async {
+    owui.models = const <String>['harbor-model'];
+    await signIn('ada@example.com', 'pw-ada');
+    final kept = await turns.send(
+      SendTurn(model: directModel, text: 'A note to self', temporary: true),
+    );
+    final server = await turns.send(
+      SendTurn(model: 'harbor-model', text: 'Kettle?', temporary: true),
+    );
+    follow(kept.chatId);
+    follow(server.chatId);
+    await Future.wait(<Future<void>>[
+      finished(kept.chatId),
+      finished(server.chatId),
+    ]);
+
+    await signInAgain('ada@example.com', 'pw-ada');
+
+    final readable = await chats.get(kept.chatId);
+    expect(readable?.temporary, isTrue);
+    expect(
+      readable!.messages.lastWhere((m) => m.role == 'assistant').content,
+      contains('A note to self'),
+    );
+    final gone = await chats.get(server.chatId);
+    expect(gone?.messages ?? const <ChatMessageDto>[], isEmpty);
   });
 }

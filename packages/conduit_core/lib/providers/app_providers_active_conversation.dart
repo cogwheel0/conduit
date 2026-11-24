@@ -189,62 +189,43 @@ ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
   return ActiveConversationRemapNamespace.openWebUi;
 }
 
-/// A Direct answer stored as still being written while no run here writes
-/// it: the process that ran it quit or died mid-reply. It is finished as it
-/// stands, as read and in the stored copy, or the chat would open writing,
-/// with Stop offered for nothing and Send refused. A run that finishes after
-/// this check still stores its own answer over it.
-Future<Conversation> _settleOrphanedDirectAnswers(
+/// Settles each Direct answer stored as still being written while no run
+/// here writes it: the process that ran it quit or died mid-reply. Without
+/// it the chat would open writing, with Stop offered for nothing and Send
+/// refused. Returns whether there was one: the caller reads the chat again,
+/// as a run may also have finished or replaced it meanwhile.
+///
+/// Under the chat's lock, so a run's own writes, which take it too, land
+/// whole before or after; one that started after the check here writes its
+/// placeholder over the settled row. Only the message's payload changes: the
+/// chat keeps its time, so opening it does not move it in the list or mark
+/// it for a push to the server (and so for another device's Unread).
+Future<bool> _settleOrphanedDirectAnswers(
   Ref ref,
   Conversation conversation, {
   required String chatId,
   required ChatDatabaseLocation location,
 }) async {
   final registry = ref.read(directRunRegistryProvider);
-  final orphans = <String>{
+  final orphans = <String>[
     for (final message in conversation.messages)
       if (message.role == 'assistant' &&
           message.isStreaming &&
           message.metadata?['transport'] == kDirectTransport &&
           !registry.hasLiveIntentForMessage(message.id))
         message.id,
-  };
-  if (orphans.isEmpty) return conversation;
+  ];
+  if (orphans.isEmpty) return false;
   try {
-    final database = location.database;
-    final repository = ref.read(chatDatabaseRepositoryProvider);
-    final now = ref.read(syncClockProvider).nowEpochSeconds();
+    final messages = location.database.messagesDao;
     await ref.read(chatLocksProvider).runExclusive(chatId, () async {
       for (final id in orphans) {
         if (registry.hasLiveIntentForMessage(id)) continue;
-        final row = await database.messagesDao.getMessage(chatId, id);
+        final row = await messages.getMessage(chatId, id);
         if (row == null) continue;
-        final decoded = jsonDecode(row.payload);
-        if (decoded is! Map || decoded['isStreaming'] != true) continue;
-        final payload = <String, dynamic>{
-          for (final entry in decoded.entries) '${entry.key}': entry.value,
-          'isStreaming': false,
-          'done': true,
-        };
-        await repository.persistDirectMessages(
-          location,
-          chatId: chatId,
-          messages: <MessageRowData>[
-            MessageRowData(
-              id: row.id,
-              chatId: chatId,
-              parentId: row.parentId,
-              role: row.role,
-              content: row.content,
-              model: row.model,
-              createdAt: row.createdAt,
-              orderIndex: row.orderIndex,
-              payload: payload,
-            ),
-          ],
-          currentMessageId: null,
-          updatedAt: now,
-        );
+        final payload = jsonDecode(row.payload);
+        if (payload is! Map || payload['isStreaming'] != true) continue;
+        await messages.markAssistantStopped(chatId: chatId, messageId: id);
       }
     });
   } catch (error, stackTrace) {
@@ -256,14 +237,7 @@ Future<Conversation> _settleOrphanedDirectAnswers(
       data: {'id': chatId},
     );
   }
-  return conversation.copyWith(
-    messages: <ChatMessage>[
-      for (final message in conversation.messages)
-        orphans.contains(message.id)
-            ? message.copyWith(isStreaming: false)
-            : message,
-    ],
-  );
+  return true;
 }
 
 // Provider to load full conversation with messages
@@ -326,27 +300,40 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
         ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database,
         libreChatDatabase,
       );
+  Future<LocatedConversation?> readStored() => repository.loadConversation(
+    rawConversationId,
+    preferred: preferredStorage,
+    locationIsCurrent: (location) => switch (location.storage) {
+      ChatStorageKind.openWebUi =>
+        openWebUiOwnership != null &&
+            identical(location.database, openWebUiOwnership.database) &&
+            openWebUiConversationReadIsCurrent(ref, openWebUiOwnership),
+      ChatStorageKind.libreChat => libreChatReadIsCurrent(location.database),
+      ChatStorageKind.directLocal => true,
+    },
+    offload: (envelope) => ref
+        .read(workerManagerProvider)
+        .schedule(
+          parseFullConversationModelWorker,
+          envelope,
+          debugLabel: 'db.assembleConversation',
+        ),
+  );
   LocatedConversation? located;
   try {
-    located = await repository.loadConversation(
-      rawConversationId,
-      preferred: preferredStorage,
-      locationIsCurrent: (location) => switch (location.storage) {
-        ChatStorageKind.openWebUi =>
-          openWebUiOwnership != null &&
-              identical(location.database, openWebUiOwnership.database) &&
-              openWebUiConversationReadIsCurrent(ref, openWebUiOwnership),
-        ChatStorageKind.libreChat => libreChatReadIsCurrent(location.database),
-        ChatStorageKind.directLocal => true,
-      },
-      offload: (envelope) => ref
-          .read(workerManagerProvider)
-          .schedule(
-            parseFullConversationModelWorker,
-            envelope,
-            debugLabel: 'db.assembleConversation',
-          ),
-    );
+    located = await readStored();
+    // Read again once an orphaned Direct answer is settled: every message
+    // is then as stored, the settled one finished and one that a run
+    // finished, or took over, meanwhile as that run left it.
+    if (located != null &&
+        await _settleOrphanedDirectAnswers(
+          ref,
+          located.conversation,
+          chatId: rawConversationId,
+          location: located.location,
+        )) {
+      located = await readStored() ?? located;
+    }
   } catch (error, stackTrace) {
     DebugLogger.error(
       'load-failed',
@@ -381,14 +368,9 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
         !libreChatReadIsCurrent(located.location.database)) {
       throw const LibreChatAccountChangedException();
     }
-    final local = await _settleOrphanedDirectAnswers(
-      ref,
-      withChatStorageProvenance(
-        located.conversation,
-        located.location.storage,
-      ),
-      chatId: rawConversationId,
-      location: located.location,
+    final local = withChatStorageProvenance(
+      located.conversation,
+      located.location.storage,
     );
     DebugLogger.log(
       'load-local-ok',

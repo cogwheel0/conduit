@@ -394,7 +394,19 @@ final class FakeHermesServer {
         if (index == 0 && hold != null) {
           final reached = _heldReached.putIfAbsent(hold, Completer<void>.new);
           if (!reached.isCompleted) reached.complete();
-          await _holds.putIfAbsent(hold, Completer<void>.new).future;
+          // The client going away ends the hold too, as a cut-off reply.
+          final gone = response.done.then<bool>(
+            (_) => true,
+            onError: (Object _) => true,
+          );
+          final released = _holds
+              .putIfAbsent(hold, Completer<void>.new)
+              .future
+              .then((_) => false);
+          if (await Future.any(<Future<bool>>[released, gone])) {
+            _settleHeld(hold, false);
+            return;
+          }
         }
         await Future<void>.delayed(Duration(milliseconds: slow ? 200 : 20));
       }

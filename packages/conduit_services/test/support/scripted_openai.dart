@@ -27,6 +27,11 @@ final class ScriptedOpenAi {
   /// What each held answer got to, in order.
   final List<String> steps = <String>[];
 
+  /// Completes once the held answer [key] has sent all its words and waits.
+  Future<void> held(String key) =>
+      _held.putIfAbsent(key, Completer<void>.new).future;
+  final Map<String, Completer<void>> _held = <String, Completer<void>>{};
+
   /// Completes once the held answer [key] has an outcome.
   Future<bool> heldDone(String key) =>
       _heldDone.putIfAbsent(key, Completer<bool>.new).future;
@@ -157,6 +162,8 @@ final class ScriptedOpenAi {
       }
       if (hold != null) {
         steps.add('$hold holding');
+        final waiting = _held.putIfAbsent(hold, Completer<void>.new);
+        if (!waiting.isCompleted) waiting.complete();
         await _holds.putIfAbsent(hold, Completer<void>.new).future;
         steps.add('$hold released');
       }

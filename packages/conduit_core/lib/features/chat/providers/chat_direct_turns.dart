@@ -514,7 +514,7 @@ Future<void> _persistCompletedDirectAssistant(
 /// its committed remap), and changes it only while its durable payload still
 /// says it is streaming. It therefore cannot write into the newly active
 /// account or overwrite a completion that won the race. [partial]'s words,
-/// what the provider had written by then, replace an empty placeholder's.
+/// what the provider had written by then, replace shorter stored ones.
 Future<void> _settleDirectAssistantAfterAuthSessionChange(
   dynamic ref, {
   required _DirectConversationOwner owner,
@@ -561,7 +561,9 @@ Future<void> _settleDirectAssistantAfterAuthSessionChange(
         ..['isStreaming'] = false
         ..['done'] = true;
       final words = partial?.content ?? '';
-      final keepsWords = existing.content.isEmpty && words.isNotEmpty;
+      // Longer than what is stored: an approval or image checkpoint kept an
+      // earlier part of the same answer.
+      final keepsWords = words.length > existing.content.length;
       if (keepsWords) payload['content'] = words;
       await repository.persistDirectMessages(
         location,

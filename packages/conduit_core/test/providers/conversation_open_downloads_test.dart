@@ -366,6 +366,110 @@ void main() {
       },
     );
 
+    /// A chat whose Direct answer the server holds as still being written,
+    /// as a host that quit or died mid-reply left it.
+    Future<void> storeWriting(String id) async {
+      server.seedChat(
+        id: id,
+        blob: <String, dynamic>{
+          'title': 'Title $id',
+          'models': ['llama3'],
+          'history': {
+            'messages': {
+              '$id-q': {
+                'id': '$id-q',
+                'parentId': null,
+                'childrenIds': ['$id-a'],
+                'role': 'user',
+                'content': 'Which shelf?',
+                'timestamp': 100,
+              },
+              '$id-a': {
+                'id': '$id-a',
+                'parentId': '$id-q',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': 'The top',
+                'timestamp': 101,
+                'done': false,
+                'isStreaming': true,
+                'metadata': {'transport': 'direct'},
+              },
+            },
+            'currentId': '$id-a',
+          },
+        },
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      final stored = await PullSync(
+        client: FakeSyncApiClient(server),
+        db: db,
+        locks: ConversationLocks(),
+      ).pullChat(id);
+      check(stored).isNotNull();
+    }
+
+    test('a Direct answer no run here writes opens finished, without moving '
+        'the chat or queueing a push to the server', () async {
+      await storeWriting('writing');
+      final before = (await db.chatsDao.getChat('writing'))!;
+      final container = openRecording();
+
+      final loaded = await container.read(
+        loadConversationProvider('writing').future,
+      );
+
+      final answer = loaded.messages.last;
+      check(answer.content).equals('The top');
+      check(answer.isStreaming).isFalse();
+      final stored = await db.messagesDao.getMessage('writing', 'writing-a');
+      check(
+        (jsonDecode(stored!.payload) as Map)['isStreaming'],
+      ).equals(false);
+      final after = (await db.chatsDao.getChat('writing'))!;
+      check(after.updatedAt).equals(before.updatedAt);
+      check(after.dirty).equals(before.dirty);
+      check(await db.outboxDao.activeForChat('writing')).isEmpty();
+    });
+
+    test('a Direct answer a run finishes while the chat opens opens as that '
+        'run stored it', () async {
+      await storeWriting('racing');
+      final container = openRecording();
+      final release = Completer<void>();
+      final held = container
+          .read(chatLocksProvider)
+          .runExclusive('racing', () => release.future);
+
+      final loading = container.read(
+        loadConversationProvider('racing').future,
+      );
+      await pumpEventQueue(times: 50);
+      // The run's own last write, under the chat's lock as runs take it.
+      final row = (await db.messagesDao.getMessage('racing', 'racing-a'))!;
+      await (db.update(db.messages)..where((t) => t.id.equals('racing-a')))
+          .write(
+            MessagesCompanion(
+              content: const Value('The top one.'),
+              payload: Value(
+                jsonEncode(<String, dynamic>{
+                  ...jsonDecode(row.payload) as Map<String, dynamic>,
+                  'content': 'The top one.',
+                  'isStreaming': false,
+                  'done': true,
+                }),
+              ),
+            ),
+          );
+      release.complete();
+      await held;
+
+      final answer = (await loading).messages.last;
+      check(answer.content).equals('The top one.');
+      check(answer.isStreaming).isFalse();
+    });
+
     test('a large chat with unsent local edits is pulled directly', () async {
       await store(
         'edited',

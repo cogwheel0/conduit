@@ -120,10 +120,7 @@ import 'package:conduit_core/database/local_conversation_loader.dart';
 
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 
-import 'package:conduit_core/database/mappers/chat_blob_mapper.dart'
-    show MessageRowData;
 import 'package:conduit_core/sync/chat_locks.dart';
-import 'package:conduit_core/sync/clock.dart' show syncClockProvider;
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/primary_sync.dart';
 import 'package:conduit_core/sync/primary_sync_provider.dart';

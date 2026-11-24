@@ -335,8 +335,15 @@ pub(super) async fn reply_across_sign_in(
     let Some(chat_id) = chat_id.filter(|id| !id.is_empty()) else {
         return ok("the slow reply's chat has an id", false);
     };
-    let before = cx.update(last_answer_text).trim().len();
     shoot_main(dir, "direct-slow-before-sign-in", cx).await;
+    // The fake model's slow answer is `word0` to `word299`, one word every
+    // 200 ms: the account changes while it is still being written.
+    let mid_reply = cx.update(|cx| {
+        let text = last_answer_text(cx);
+        chat_store(cx).is_some_and(|s| s.read(cx).is_streaming())
+            && !text.trim_end().ends_with(SLOW_LAST_WORD)
+    });
+    pass &= ok("the account changes mid-reply", mid_reply);
     let rpc = cx.update(rpc);
     let added = rpc
         .call::<methods::AccountsAdd>(&AddAccount {
@@ -385,7 +392,8 @@ pub(super) async fn reply_across_sign_in(
         }
         settle(cx, 500).await;
     }
-    let whole = answer.is_some_and(|m| m.error_code.is_none() && m.content.trim().len() > before);
+    let whole = answer
+        .is_some_and(|m| m.error_code.is_none() && m.content.trim_end().ends_with(SLOW_LAST_WORD));
     pass &= ok(
         "the Direct reply ran to its end across the sign-in, stored whole",
         whole,
@@ -393,6 +401,9 @@ pub(super) async fn reply_across_sign_in(
     shoot_main(dir, "direct-slow-after-sign-in", cx).await;
     pass
 }
+
+/// The last word of the fake model's slow answer (`tool/local_owui/fake_model.py`).
+const SLOW_LAST_WORD: &str = "word299";
 
 fn rpc(cx: &mut App) -> crate::stores::rpc::Rpc {
     cx.global::<AppState>().stores.connection.read(cx).rpc()
