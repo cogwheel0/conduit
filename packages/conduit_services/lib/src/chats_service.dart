@@ -1008,12 +1008,20 @@ final class ChatsService {
   /// Carries on past a failure and reports it: a conversation already
   /// deleted elsewhere is no reason to leave the other nineteen alone.
   Future<BulkChatsResult> bulk(BulkChats request) async {
-    if (request.chatIds.any((id) => _moved(id) != null)) {
-      request = request.copyWith(
-        chatIds: <String>[
-          for (final id in request.chatIds) await _moved(id) ?? id,
-        ],
-      );
+    // Each id looked up once, as the request arrives, and waited for only
+    // when one may have moved: the batch acts for the account it came
+    // under, or not at all.
+    final lookups = <Future<String>?>[
+      for (final id in request.chatIds) _moved(id),
+    ];
+    if (lookups.any((lookup) => lookup != null)) {
+      final account = AccountScope.capture(_container);
+      final ids = await Future.wait(<Future<String>>[
+        for (var i = 0; i < lookups.length; i++)
+          lookups[i] ?? Future<String>.value(request.chatIds[i]),
+      ]);
+      account.require('the chats\' ids were read');
+      request = request.copyWith(chatIds: ids);
     }
     final failed = <String>[];
     for (final id in request.chatIds.toSet()) {

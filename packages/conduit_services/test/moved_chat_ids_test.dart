@@ -10,6 +10,9 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/sync/sync_engine.dart' show syncEngineProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
+import 'package:conduit_services/src/account_scope.dart'
+    show accountSwitchCountProvider;
+import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor;
 import 'package:test/test.dart';
 
 import 'support/core.dart';
@@ -33,12 +36,14 @@ void main() {
   late ChatsService chats;
   late String model;
   late List<EventEnvelope> heard;
+  late _MoveLookups moves;
 
   setUp(() async {
     heard = <EventEnvelope>[];
     temporary = Directory.systemTemp.createTempSync('moved-chat-ids');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    runtime = await startTestCore(temporary);
+    moves = _MoveLookups();
+    runtime = await startTestCore(temporary, interceptDatabase: (_) => moves);
     addTearDown(runtime.dispose);
     owui = await FakeOwuiAuthServer.start(
       users: const {
@@ -194,4 +199,76 @@ void main() {
     expect((await chats.get(now))!.summary.title, isNot('Not Bob\'s to name'));
     expect(bob, isNot(ada));
   });
+
+  test('a batch naming an old id is refused, and changes nothing, once '
+      'another account takes charge while the id is looked up', () async {
+    final ada = await signIn('ada@example.com', 'pw-ada');
+    final (old, now) = await movedChat();
+
+    final lookup = moves.held = Completer<void>();
+    // Whatever the batch leaves unhandled lands here, not in the test.
+    final escaped = <Object>[];
+    final refused = Completer<Object?>();
+    runZonedGuarded(() {
+      chats
+          .bulk(
+            BulkChats(
+              action: BulkChatAction.delete,
+              chatIds: <String>[now, old],
+            ),
+          )
+          .then<void>(
+            (_) => refused.complete(null),
+            onError: (Object error) => refused.complete(error),
+          );
+    }, (error, _) => escaped.add(error));
+    await moves.asked.future;
+    final switched = Completer<void>();
+    final watch = runtime.container.listen<int>(
+      accountSwitchCountProvider,
+      (_, _) {
+        if (!switched.isCompleted) switched.complete();
+      },
+    );
+    final bob = signIn('bob@example.com', 'pw-bob');
+    await switched.future;
+    watch.close();
+    moves.held = null;
+    lookup.complete();
+
+    expect(
+      await refused.future,
+      isA<RpcError>().having(
+        (e) => e.code,
+        'code',
+        ConduitErrorCodes.sessionExpired,
+      ),
+    );
+    await pumpEventQueue();
+    expect(escaped, isEmpty);
+    expect(await bob, isNot(ada));
+    expect(owui.chats.stored.keys, contains(now));
+  });
+}
+
+/// Holds the lookups of a chat's move (its `chat_remap:` row) while [held]
+/// is set; [asked] completes as the first one arrives.
+final class _MoveLookups extends QueryInterceptor {
+  Completer<void>? held;
+  final Completer<void> asked = Completer<void>();
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final gate = held;
+    if (gate != null &&
+        args.any((a) => a is String && a.startsWith('chat_remap:'))) {
+      if (!asked.isCompleted) asked.complete();
+      await gate.future;
+    }
+    return executor.runSelect(statement, args);
+  }
 }
