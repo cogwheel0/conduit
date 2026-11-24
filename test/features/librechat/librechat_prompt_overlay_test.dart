@@ -99,13 +99,15 @@ void main() {
     expect(findPendingLibreChatComposerPrompt([other]), isNull);
   });
 
-  testWidgets('each tool call is decided, then all are sent together', (
-    tester,
-  ) async {
+  testWidgets('each tool call is decided, a second tap deciding nothing, '
+      'then all are sent together', (tester) async {
     final resolved = await _pump(tester, _approval);
 
     expect(find.textContaining('Allow echo to run?'), findsOneWidget);
     expect(find.textContaining('"text": "hi"'), findsOneWidget);
+    // Both taps land on the first card before the next one is shown: the
+    // second decides nothing it did not show.
+    await tester.tap(find.text('Approve'));
     await tester.tap(find.text('Approve'));
     await tester.pumpAndSettle();
     expect(resolved, isEmpty);
@@ -119,19 +121,6 @@ void main() {
     expect(decisions['call-a']!.decision, LibreChatToolDecision.approve);
     expect(decisions['call-b']!.decision, LibreChatToolDecision.reject);
     expect(resolved.single.answers, isNull);
-  });
-
-  testWidgets('a second tap on a card already answered decides nothing it '
-      'did not show', (tester) async {
-    final resolved = await _pump(tester, _approval);
-
-    // Both taps land on the first card before the next one is shown.
-    await tester.tap(find.text('Approve'));
-    await tester.tap(find.text('Approve'));
-    await tester.pumpAndSettle();
-
-    expect(resolved, isEmpty);
-    expect(find.textContaining('Allow delete_file to run?'), findsOneWidget);
   });
 
   testWidgets('a call that may only be answered offers just Respond, and '

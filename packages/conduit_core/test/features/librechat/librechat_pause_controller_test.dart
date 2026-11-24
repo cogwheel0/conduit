@@ -85,8 +85,13 @@ const _questions = LibreChatPendingAction({
 void main() {
   group('tool calls', () {
     test('are put one at a time, each with the decisions the server allows, '
-        'and sent together once all are decided', () async {
+        'and sent together once all are decided; an answer for a card not '
+        'up decides nothing', () async {
       final (:pause, :sent) = _pause(_tools);
+      const approve = LibreChatToolDecisionInput(LibreChatToolDecision.approve);
+      // A card not shown yet.
+      check(await pause.decide('call-b', approve))
+          .equals(LibreChatPauseStep.stale);
 
       final first = pause.current! as LibreChatToolCard;
       check(first.id).equals('call-a');
@@ -103,6 +108,9 @@ void main() {
           const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
         ),
       ).equals(LibreChatPauseStep.next);
+      // The first card answered again, as a second tap on it would.
+      check(await pause.decide('call-a', approve))
+          .equals(LibreChatPauseStep.stale);
       check(sent).isEmpty();
 
       final second = pause.current! as LibreChatToolCard;
@@ -180,7 +188,8 @@ void main() {
     });
 
     test('a failed send puts the last card back, its decision cleared, and '
-        'the next decision sends them all again', () async {
+        'the next decision sends them all again; only that card takes an '
+        'answer', () async {
       var failing = true;
       final (:pause, :sent) = _pause(
         _tools,
@@ -200,6 +209,14 @@ void main() {
       check(pause.current!.id).equals('call-b');
 
       failing = false;
+      // The first call keeps its decision: only the card put back is up.
+      check(
+        await pause.decide(
+          'call-a',
+          const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
+        ),
+      ).equals(LibreChatPauseStep.stale);
+      check(sent).length.equals(1);
       check(
         await pause.decide(
           'call-b',
@@ -209,58 +226,6 @@ void main() {
       check(pause.failed).isFalse();
       check(sent).length.equals(2);
       check(sent.last.decisions!.keys).deepEquals(['call-a', 'call-b']);
-    });
-
-    test('an answer naming a card that is not up is refused, so a repeat '
-        'never decides a call the user did not see', () async {
-      final (:pause, :sent) = _pause(_tools);
-      const approve = LibreChatToolDecisionInput(
-        LibreChatToolDecision.approve,
-      );
-
-      // Not shown yet.
-      check(await pause.decide('call-b', approve))
-          .equals(LibreChatPauseStep.stale);
-      check(await pause.decide('call-a', approve))
-          .equals(LibreChatPauseStep.next);
-      // The first card answered again, as a second tap on it would.
-      check(await pause.decide('call-a', approve))
-          .equals(LibreChatPauseStep.stale);
-      check(pause.current!.id).equals('call-b');
-      check(sent).isEmpty();
-    });
-
-    test('a repeat while the answer goes out is busy, and after a failed '
-        'send only the card put back takes an answer', () async {
-      var failing = true;
-      final hold = Completer<void>();
-      final (:pause, :sent) = _pause(
-        _tools,
-        hold: hold,
-        failWith: () => failing ? StateError('offline') : null,
-      );
-      const reject = LibreChatToolDecisionInput(LibreChatToolDecision.reject);
-      await pause.decide(
-        'call-a',
-        const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
-      );
-      final sending = pause.decide('call-b', reject);
-      check(await pause.decide('call-b', reject))
-          .equals(LibreChatPauseStep.busy);
-      hold.complete();
-      check(await sending).equals(LibreChatPauseStep.failed);
-
-      failing = false;
-      // The first call keeps its decision: only the card put back is up.
-      check(
-        await pause.decide(
-          'call-a',
-          const LibreChatToolDecisionInput(LibreChatToolDecision.approve),
-        ),
-      ).equals(LibreChatPauseStep.stale);
-      check(await pause.decide('call-b', reject))
-          .equals(LibreChatPauseStep.sent);
-      check(sent).length.equals(2);
     });
 
     test('nothing more is taken while the answer goes out, or once it has',
@@ -298,8 +263,11 @@ void main() {
 
   group('questions', () {
     test('are put one at a time and answered with their choices\' values, '
-        'several joined, typed text as it is', () async {
+        'several joined, typed text as it is; an answer for a question not '
+        'up is refused', () async {
       final (:pause, :sent) = _pause(_questions);
+      // A question not shown yet.
+      check(await pause.answer('q2', 'mon')).equals(LibreChatPauseStep.stale);
 
       final first = pause.current! as LibreChatQuestionCard;
       check(first.id).equals('q1');
@@ -312,6 +280,8 @@ void main() {
       check(
         await pause.answer('q1', first.answerFor('Paris')),
       ).equals(LibreChatPauseStep.next);
+      // The first answered again.
+      check(await pause.answer('q1', 'rome')).equals(LibreChatPauseStep.stale);
 
       final second = pause.current! as LibreChatQuestionCard;
       check(second.multiSelect).isTrue();
@@ -326,15 +296,6 @@ void main() {
         'q2': 'monday, Tue',
       });
       check(sent.single.decisions).isNull();
-    });
-
-    test('an answer naming a question that is not up is refused', () async {
-      final (:pause, :sent) = _pause(_questions);
-      check(await pause.answer('q2', 'mon')).equals(LibreChatPauseStep.stale);
-      check(await pause.answer('q1', 'paris')).equals(LibreChatPauseStep.next);
-      check(await pause.answer('q1', 'rome')).equals(LibreChatPauseStep.stale);
-      check(pause.current!.id).equals('q2');
-      check(sent).isEmpty();
     });
 
     test('an empty answer is not taken', () async {
