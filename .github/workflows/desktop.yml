@@ -900,8 +900,11 @@ jobs:
           name: conduit-desktop-update-feeds-${{ github.sha }}
           path: feeds
       # WinSparkle's first check reads the rehearsal's feed, served here.
+      # The step's own limit, well under the job's: a step that hangs then
+      # fails with its log kept, and the next step keeps the smoke's logs.
       - name: Install, smoke-test and uninstall
         shell: pwsh
+        timeout-minutes: 15
         run: >-
           ./desktop/packaging/windows/smoke.ps1
           -Installer dist/Conduit-0.0.0-windows-x64-setup.exe
