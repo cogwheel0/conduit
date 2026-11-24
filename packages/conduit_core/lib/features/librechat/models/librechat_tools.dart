@@ -83,11 +83,14 @@ final class LibreChatPendingAction {
               name: request['name'] is String ? request['name'] as String : '',
               arguments: request['arguments'],
               description: _text(request['description']),
+              // Without a list, what the server allows by default:
+              // respond only when a list names it.
               allowed:
                   allowed[request['tool_call_id']] ??
                   const [
                     LibreChatToolDecision.approve,
                     LibreChatToolDecision.reject,
+                    LibreChatToolDecision.edit,
                   ],
             ),
     ];

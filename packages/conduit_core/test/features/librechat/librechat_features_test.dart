@@ -154,6 +154,24 @@ void main() {
       ]);
     });
 
+    test('a call with no decisions listed offers the server\'s own default: '
+        'approve, reject and edit', () {
+      final request = const LibreChatPendingAction({
+        'actionId': 'act_2',
+        'payload': {
+          'type': 'tool_approval',
+          'action_requests': [
+            {'name': 'echo', 'tool_call_id': 'call_1'},
+          ],
+        },
+      }).toolRequests.single;
+      check(request.allowed).deepEquals([
+        LibreChatToolDecision.approve,
+        LibreChatToolDecision.reject,
+        LibreChatToolDecision.edit,
+      ]);
+    });
+
     test('resumes with the paused turn\'s own settings', () {
       final body = approval.resumeWithDecisions(
         decisions: {
@@ -253,6 +271,7 @@ void main() {
       check(request.allowed).deepEquals([
         LibreChatToolDecision.approve,
         LibreChatToolDecision.reject,
+        LibreChatToolDecision.edit,
       ]);
       check(
         action.resumeWithDecisions(decisions: const {}, turn: turn),
