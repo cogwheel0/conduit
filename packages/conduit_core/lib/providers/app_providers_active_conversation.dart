@@ -199,7 +199,8 @@ ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
 /// whole before or after; one that started after the check here writes its
 /// placeholder over the settled row. Only the message's payload changes: the
 /// chat keeps its time, so opening it does not move it in the list or mark
-/// it for a push to the server (and so for another device's Unread).
+/// it for a push to the server (and so for another device's Unread); a row
+/// already owed to the server stays dirty, its push still to go.
 Future<bool> _settleOrphanedDirectAnswers(
   Ref ref,
   Conversation conversation, {
@@ -225,7 +226,11 @@ Future<bool> _settleOrphanedDirectAnswers(
         if (row == null) continue;
         final payload = jsonDecode(row.payload);
         if (payload is! Map || payload['isStreaming'] != true) continue;
-        await messages.markAssistantStopped(chatId: chatId, messageId: id);
+        await messages.markAssistantStopped(
+          chatId: chatId,
+          messageId: id,
+          keepDirty: true,
+        );
       }
     });
   } catch (error, stackTrace) {

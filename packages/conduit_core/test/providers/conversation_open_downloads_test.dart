@@ -8,6 +8,8 @@ import 'package:conduit_core/auth/api_auth_interceptor.dart'
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart'
+    show MessageRowData;
 import 'package:conduit_core/database/local_conversation_loader.dart'
     show kOpenRefreshDirectPullMaxPayloadLength, readStoredConversation;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -368,7 +370,7 @@ void main() {
 
     /// A chat whose Direct answer the server holds as still being written,
     /// as a host that quit or died mid-reply left it.
-    Future<void> storeWriting(String id) async {
+    Future<void> storeWriting(String id, {int updatedAt = 150}) async {
       server.seedChat(
         id: id,
         blob: <String, dynamic>{
@@ -400,7 +402,7 @@ void main() {
           },
         },
         createdAt: 100,
-        updatedAt: 150,
+        updatedAt: updatedAt,
       );
       final stored = await PullSync(
         client: FakeSyncApiClient(server),
@@ -431,6 +433,55 @@ void main() {
       check(after.updatedAt).equals(before.updatedAt);
       check(after.dirty).equals(before.dirty);
       check(await db.outboxDao.activeForChat('writing')).isEmpty();
+    });
+
+    test('a stuck Direct answer whose newer words are owed to the server '
+        'keeps them, and the push that owes them, through a pull of the '
+        'server\'s older copy', () async {
+      await storeWriting('owed');
+      final row = (await db.messagesDao.getMessage('owed', 'owed-a'))!;
+      // A checkpoint stored here and not yet pushed, as an approval stores
+      // one before the app quits: newer words, the row dirty, an update owed.
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'owed',
+        messages: <MessageRowData>[
+          MessageRowData(
+            id: row.id,
+            chatId: 'owed',
+            parentId: row.parentId,
+            role: row.role,
+            content: 'The top one, by the',
+            model: row.model,
+            createdAt: row.createdAt,
+            orderIndex: row.orderIndex,
+            payload: <String, dynamic>{
+              ...jsonDecode(row.payload) as Map<String, dynamic>,
+              'content': 'The top one, by the',
+              'isStreaming': true,
+            },
+          ),
+        ],
+        enqueueCompletion: false,
+      );
+      final container = openRecording();
+
+      final loaded = await container.read(
+        loadConversationProvider('owed').future,
+      );
+      check(loaded.messages.last.content).equals('The top one, by the');
+      check(loaded.messages.last.isStreaming).isFalse();
+      check(
+        (await db.messagesDao.getMessage('owed', 'owed-a'))!.dirty,
+      ).isTrue();
+
+      // The server's copy changes again, its answer the older checkpoint.
+      await storeWriting('owed', updatedAt: 160);
+      final stored = (await db.messagesDao.getMessage('owed', 'owed-a'))!;
+      check(stored.content).equals('The top one, by the');
+      check(
+        (jsonDecode(stored.payload) as Map)['isStreaming'],
+      ).equals(false);
+      check(await db.outboxDao.activeForChat('owed')).isNotEmpty();
     });
 
     test('a Direct answer a run finishes while the chat opens opens as that '

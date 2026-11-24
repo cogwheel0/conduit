@@ -181,13 +181,19 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
 
   /// Ends an assistant placeholder whose request a Stop kept from being sent:
   /// not streaming, done, its content as it is.
+  ///
+  /// [keepDirty] leaves the row's `dirty` as it is, for a row whose words may
+  /// still be owed to the server: clearing it would let a pull's older copy
+  /// win the merge over them.
   Future<bool> markAssistantStopped({
     required String chatId,
     required String messageId,
+    bool keepDirty = false,
   }) {
     return _updateAssistantPayload(
       chatId: chatId,
       messageId: messageId,
+      keepDirty: keepDirty,
       mutate: (payload) {
         payload
           ..['isStreaming'] = false
@@ -321,6 +327,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     required String chatId,
     required String messageId,
     required void Function(Map<String, dynamic> payload) mutate,
+    bool keepDirty = false,
   }) {
     return transaction(() async {
       final existing = await _messageById(chatId, messageId);
@@ -338,7 +345,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       )..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId))).write(
         MessagesCompanion(
           payload: Value(jsonEncode(payload)),
-          dirty: const Value(false),
+          dirty: keepDirty ? const Value.absent() : const Value(false),
         ),
       );
       return true;
