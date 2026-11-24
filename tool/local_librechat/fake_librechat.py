@@ -1499,6 +1499,12 @@ def resume(h, user):
 MAX_ANSWER_LENGTH = 16000
 
 
+def js_length(text):
+    """A string's length as LibreChat measures it: UTF-16 code units, so a
+    character outside the basic plane counts twice."""
+    return len(text.encode("utf-16-le")) // 2
+
+
 def resume_refusal(payload, body):
     """What LibreChat refuses in an answer to a paused run, as
     (status, body), in its order; None when it takes the answer.
@@ -1556,7 +1562,7 @@ def resume_refusal(payload, body):
             answer = body.get("answer")
             if not isinstance(answer, str) or not answer:
                 return 400, {"error": "An answer is required"}
-            if len(answer) > MAX_ANSWER_LENGTH:
+            if js_length(answer) > MAX_ANSWER_LENGTH:
                 return 400, {"error": "Answer exceeds the maximum length"}
             return None
         answers = body.get("answers")
@@ -1567,7 +1573,7 @@ def resume_refusal(payload, body):
             answer = answers.get(question_id)
             if not isinstance(answer, str) or not answer:
                 return 400, {"error": "Answers are required for every question"}
-            if len(answer) > MAX_ANSWER_LENGTH:
+            if js_length(answer) > MAX_ANSWER_LENGTH:
                 return 400, {"error": "An answer exceeds the maximum length"}
         if any(key not in ids for key in answers):
             return 400, {"error": "Answers contain an unknown question id"}
