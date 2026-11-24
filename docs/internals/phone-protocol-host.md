@@ -85,7 +85,9 @@ The calling contract, which a binding must follow, is on `receiveBytes` and
   host waits on it only inside one stream's serving task, and sends that
   stream's next chunk once the client has taken the last.
 - Every stream the host serves ends with exactly one `end` or `error` from the
-  host, and its number may be used again only after that.
+  host. That frame is decided before it is handed to the transport, and from
+  then the stream is finished: its number is free once the client has the
+  frame, even while the client's answer to it is pending.
 - A client's cancel takes effect at once: nothing more of the stream is sent,
   and its `error` comes when the serving task has let go. A route cannot be
   stopped once it is answering; it runs on and its answer is dropped, so a
@@ -96,6 +98,27 @@ The calling contract, which a binding must follow, is on `receiveBytes` and
   `error` and no answer: a body that lost data never reaches a route as
   whole. A chunk for a stream already answered or failed is dropped, since the
   host told the client so.
+
+**A stream's states.** A stream is *receiving* its body until the client's
+`end`, then *answering* while the route runs and its answer is sent, and
+*finished* once its last frame is decided. What reaches the host in each:
+
+| | Receiving | Answering | Finished |
+| --- | --- | --- | --- |
+| chunk | taken | dropped if the host already said "stop sending"; after the client's `end`, ends it with `error` | not its: dropped, or the new stream's on that number |
+| `end` | body complete | (already had it) | not its |
+| cancel | ends it with `error`; the route reading its body fails | nothing more is sent; `error` once the serving task lets go | not its |
+| unreadable frame naming it | ends it with `error` | ends it with `error` | not its |
+| `open` on its number | ends it with `error`; no new stream | ends it with `error`; no new stream | a new stream |
+| a send of it fails | — | ends it, with no last frame | touches nothing else |
+
+Covered in `in_process_host_test`: the upload tests and the download test
+(normal flow); "a chunk after the body ended", "an oversize chunk", "a second
+open" and "an upload … cancelled" (receiving); "a download the client
+abandons", "a cancel is taken at once" and "a byte frame the client cannot
+take" (answering); and the "once its last frame is decided" group (finished:
+a late cancel, an `open` on the number, a failed last frame, and the number
+freed once).
 
 **Chunk ownership.** A chunk a host hands a route is the route's: the host
 never writes to its bytes again, so a route may keep it without copying. This

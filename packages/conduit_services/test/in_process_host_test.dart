@@ -764,6 +764,80 @@ void main() {
       },
     );
 
+    group('once its last frame is decided', () {
+      late _BytePeer bytes;
+
+      setUp(() async {
+        await startApp();
+        (_, bytes) = await startHost(media: media);
+      });
+
+      Future<_Answer> download(int stream) =>
+          bytes.request(stream, 'GET', '/media/image', query: pictureQuery());
+
+      test('a stream ends once: a cancel while its end is unacknowledged '
+          'comes too late to change it', () async {
+        final ending = bytes.holdAfter(1, ByteFrameKind.end);
+        final first = await download(1);
+        await ending;
+        await bytes.cancel(1);
+        bytes.release();
+        // Served after it, on the same host.
+        await (await download(2)).done;
+        check(first.frames.last.kind).equals(ByteFrameKind.end);
+        check(first.error).isNull();
+      });
+
+      test('its number is free: an open on it while its end is '
+          'unacknowledged is a new request, and nothing of the old one '
+          'follows', () async {
+        final ending = bytes.holdAfter(1, ByteFrameKind.end);
+        final first = await download(1);
+        await ending;
+        final again = bytes.renew(1);
+        await download(1);
+        bytes.release();
+        await again.done;
+        check(again.body).deepEquals(picture);
+        check(again.error).isNull();
+        check(first.frames.last.kind).equals(ByteFrameKind.end);
+        check(first.error).isNull();
+      });
+
+      test('a stream that ends normally frees its number once: one used '
+          'again before its end is acknowledged stays the live one, which a '
+          'cancel reaches', () async {
+        final ending = bytes.holdAfter(1, ByteFrameKind.end);
+        final first = await download(1);
+        await ending;
+        final again = bytes.renew(1);
+        final chunk = bytes.holdAfter(1, ByteFrameKind.chunk);
+        await download(1);
+        // The old end is taken: the old stream is done with, once.
+        bytes.release();
+        await chunk;
+        await bytes.cancel(1);
+        bytes.release();
+        await again.settled;
+        check(again.error).equals('cancelled');
+        check(first.frames.where((f) => f.kind == ByteFrameKind.end)).length
+            .equals(1);
+        check(first.error).isNull();
+      });
+
+      test('its end failing to send after the number is used again touches '
+          'only itself', () async {
+        final ending = bytes.holdAfter(1, ByteFrameKind.end);
+        await download(1);
+        await ending;
+        final again = bytes.renew(1);
+        await download(1);
+        bytes.release(fail: true);
+        await again.done;
+        check(again.body).deepEquals(picture);
+      });
+    });
+
     test('a cancel is taken at once, though its route is still answering '
         'and never finishes, and another stream is served meanwhile', () async {
       await startApp();
@@ -1209,6 +1283,10 @@ final class _BytePeer {
 
   _Answer answerFor(int stream) => _answers.putIfAbsent(stream, _Answer.new);
 
+  /// A new answer for [stream]'s number, used again: frames from now on
+  /// are its.
+  _Answer renew(int stream) => _answers[stream] = _Answer();
+
   ({int stream, ByteFrameKind kind})? _fail;
 
   /// The first [kind] frame of [stream] fails to send.
@@ -1223,10 +1301,15 @@ final class _BytePeer {
     return seen.future;
   }
 
-  void release() {
+  /// Answers the held frame: taken, or with [fail], not.
+  void release({bool fail = false}) {
     final held = _held;
     _held = null;
-    held?.complete();
+    if (fail) {
+      held?.completeError(StateError('the transport dropped a frame'));
+    } else {
+      held?.complete();
+    }
   }
 
   Future<void> take(Uint8List bytes) async {

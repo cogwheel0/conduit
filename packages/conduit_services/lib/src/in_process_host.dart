@@ -171,8 +171,12 @@ final class InProcessProtocolHost {
   ///   that stream with an `error` and no answer, so a body never reaches a
   ///   route short.
   /// * Every stream the host serves ends with exactly one `end` (answered
-  ///   whole) or `error` (failed, refused or cancelled) from the host; its
-  ///   number may be used again only after that.
+  ///   whole) or `error` (failed, refused or cancelled) from the host. Its
+  ///   number is free once the client has that frame, even before its
+  ///   answer to it: an `open` on the number then is a new stream, and a
+  ///   cancel or a stray frame for it is not the old one's. Each state and
+  ///   what every frame does in it are tabled in
+  ///   `docs/internals/phone-protocol-host.md`.
   ///
   /// The host keeps no part of [frame]: a chunk is copied before a route
   /// sees it ([ByteRequest.read]).
@@ -288,9 +292,11 @@ final class InProcessProtocolHost {
       }
       // Answered: whatever of the body is still to come is not wanted.
       if (stream.finishBody() && !stream.stopped) {
-        await _send(ByteFrame(id, ByteFrameKind.cancel));
+        await _send(stream, ByteFrame(id, ByteFrameKind.cancel));
       }
-      if (stream.stopped || _stopping != null) return;
+      if (stream.stopped || _stopping != null) {
+        return await _endStopped(id, stream);
+      }
       if (response.failure case final failure?) {
         DebugLogger.error(
           failure.what,
@@ -305,11 +311,10 @@ final class InProcessProtocolHost {
           'headers': response.headers,
         }),
       );
-      if (!await _send(
+      await _send(
+        stream,
         ByteFrame(id, ByteFrameKind.responseHead, payload: head),
-      )) {
-        return;
-      }
+      );
       final body = switch (response.body) {
         null => Uint8List(0),
         final String text => utf8.encode(text),
@@ -318,17 +323,19 @@ final class InProcessProtocolHost {
         final other => throw StateError('a byte body of ${other.runtimeType}'),
       };
       for (var at = 0; at < body.length; at += ByteFrame.maxChunk) {
-        if (stream.stopped || _stopping != null) return;
+        if (stream.stopped || _stopping != null) {
+          return await _endStopped(id, stream);
+        }
         final end = at + ByteFrame.maxChunk < body.length
             ? at + ByteFrame.maxChunk
             : body.length;
         final chunk = Uint8List.sublistView(body, at, end);
-        if (!await _send(ByteFrame(id, ByteFrameKind.chunk, payload: chunk))) {
-          return;
-        }
+        await _send(stream, ByteFrame(id, ByteFrameKind.chunk, payload: chunk));
       }
-      if (stream.stopped || _stopping != null) return;
-      await _send(ByteFrame(id, ByteFrameKind.end));
+      if (stream.stopped || _stopping != null) {
+        return await _endStopped(id, stream);
+      }
+      await _finish(id, stream, ByteFrame(id, ByteFrameKind.end));
     } on Object catch (error, stack) {
       DebugLogger.error(
         'byte-route-failed',
@@ -337,22 +344,50 @@ final class InProcessProtocolHost {
         stackTrace: stack,
       );
       stream.finishBody();
-      if (!stream.stopped) await _fail(id, 'the route failed');
-    } finally {
-      if (identical(_streams[id], stream)) _streams.remove(id);
-      // A stream stopped for a reason ends with it, once let go of.
-      if (stream.stopReason case final reason? when _stopping == null) {
-        await _fail(id, reason);
+      if (stream.stopped || _stopping != null) {
+        return await _endStopped(id, stream);
       }
+      await _finish(id, stream, _error(id, 'the route failed'));
+    } finally {
+      // Whatever way it ended, it is let go of.
+      _letGo(id, stream);
     }
   }
 
-  /// Sends [frame], answering whether the client took it. One it could not
-  /// take ends the stream there.
-  Future<bool> _send(ByteFrame frame) async {
+  /// Ends [stream] with [terminal], its one last frame: decided here, so
+  /// from now on the stream is out of [_streams]. A cancel or a bad frame
+  /// for its number is not for it, an `open` on its number is a new stream,
+  /// and the terminal frame's send, even failing, touches nothing else.
+  Future<void> _finish(int id, _ByteStream stream, ByteFrame terminal) async {
+    if (stream.finished) return;
+    _letGo(id, stream);
+    await _send(stream, terminal);
+  }
+
+  /// A stopped stream's end: the reason it was stopped for, if the client is
+  /// to hear it; nothing when the transport failed or the host is stopping.
+  Future<void> _endStopped(int id, _ByteStream stream) async {
+    final reason = _stopping == null ? stream.stopReason : null;
+    if (reason == null) return _letGo(id, stream);
+    await _finish(id, stream, _error(id, reason));
+  }
+
+  void _letGo(int id, _ByteStream stream) {
+    stream.finished = true;
+    if (identical(_streams[id], stream)) _streams.remove(id);
+  }
+
+  ByteFrame _error(int id, String reason) => ByteFrame(
+    id,
+    ByteFrameKind.error,
+    payload: Uint8List.fromList(utf8.encode(reason)),
+  );
+
+  /// Sends [frame] of [stream]. One the client could not take ends that
+  /// stream there, and only that one (not another on its number since).
+  Future<void> _send(_ByteStream stream, ByteFrame frame) async {
     try {
       await _sendBytes(frame.encode());
-      return true;
     } on Object catch (error, stack) {
       DebugLogger.error(
         'byte-frame-send-failed',
@@ -360,19 +395,22 @@ final class InProcessProtocolHost {
         error: error,
         stackTrace: stack,
       );
-      _streams[frame.stream]?.stop(null);
-      return false;
+      stream.stop(null);
     }
   }
 
+  /// Refuses [id] before it is a stream: its one frame.
   Future<void> _fail(int id, String reason) async {
-    await _send(
-      ByteFrame(
-        id,
-        ByteFrameKind.error,
-        payload: Uint8List.fromList(utf8.encode(reason)),
-      ),
-    );
+    try {
+      await _sendBytes(_error(id, reason).encode());
+    } on Object catch (error, stack) {
+      DebugLogger.error(
+        'byte-frame-send-failed',
+        scope: 'protocol/host',
+        error: error,
+        stackTrace: stack,
+      );
+    }
   }
 
   /// Stops the services, in the order `conduitd` stops them: no new
@@ -646,6 +684,10 @@ final class _ByteStream {
   bool stopped = false;
   String? stopReason;
 
+  /// Its last frame is decided (and it is out of the host's streams):
+  /// nothing changes it from here.
+  bool finished = false;
+
   void push(Uint8List chunk) {
     if (!_bodyDone) body.add(chunk);
   }
@@ -674,7 +716,7 @@ final class _ByteStream {
   /// itself failed. A route already answering runs on (a route cannot be
   /// stopped), and its answer is dropped.
   void stop(String? reason) {
-    if (stopped) return;
+    if (stopped || finished) return;
     stopped = true;
     stopReason = reason;
     if (!_bodyDone) {
