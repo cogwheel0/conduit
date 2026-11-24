@@ -498,6 +498,8 @@ final class ProtocolServices {
     _hermesCards?.dispose();
     _hermesRooms?.dispose();
     _hermesAdmin?.dispose();
+    // After the services built on it: its connection and watches.
+    _hermes?.dispose();
     _ports.window.uiRequests.hermesChatOf = null;
     if (_uiRequests != null) _ports.window.uiRequests.detach();
     _chats?.dispose();

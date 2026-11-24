@@ -234,6 +234,29 @@ void main() {
     expect(runtime.location.sent, asked);
   });
 
+  test('once disposed, Hermes says nothing more to the windows', () async {
+    await startDesktop();
+    final built = services()..attach(runtime.container);
+    final seen = <String>[];
+    built.events.tap((event, _, _) => seen.add(event));
+    await built.closeTransports();
+    await built.dispose();
+    seen.clear();
+
+    // Show Scheduled Runs changes what Hermes' lists hold: live, the
+    // service tells the windows to read them again.
+    final settings = CoreSettingsService(runtime.container);
+    await settings.set(
+      AppSettingsPatch(
+        hermesShowScheduledSessions: !settings
+            .get()
+            .hermesShowScheduledSessions,
+      ),
+    );
+    await pumpEventQueue();
+    expect(seen, isNot(contains(ConduitEvents.hermesChanged)));
+  });
+
   test('closing again after disposal shows sessions nothing', () async {
     await startDesktop();
     final built = services()..attach(runtime.container);
