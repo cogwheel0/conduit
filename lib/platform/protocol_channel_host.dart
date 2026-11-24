@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:conduit_core/ports/paths_port.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -54,6 +55,8 @@ void startProtocolChannelHost(ProviderContainer container) {
 /// messages from then: before that, one for it is answered `closed`. A
 /// `close` meanwhile cancels it (answered `closed`), as stopping the host does
 /// (`stopped`); a second `open` of the same session is refused (`open`).
+/// A start that fails is answered `unavailable`, on a byte stream as its
+/// `error` frame, and the next `open` or byte stream starts again.
 ///
 /// A send the client does not answer (no handler: the reply is null) counts
 /// as a failed send, which ends its session.
@@ -125,10 +128,41 @@ final class ProtocolChannelHost {
     _bytes.setMessageHandler(null);
     final host = _host;
     _host = null;
-    if (host != null) await (await host).dispose();
+    if (host == null) return;
+    final InProcessProtocolHost started;
+    try {
+      started = await host;
+    } on Object {
+      return;
+    }
+    await started.dispose();
   }
 
-  Future<InProcessProtocolHost> _started() => _host ??= _start();
+  /// The host, started once. A start that fails is forgotten, so the next
+  /// client starts it again.
+  Future<InProcessProtocolHost> _started() {
+    if (_host case final host?) return host;
+    final host = _host = _start();
+    unawaited(
+      host.then<void>(
+        (_) {},
+        onError: (Object error, StackTrace stack) {
+          if (identical(_host, host)) _host = null;
+          DebugLogger.error(
+            'protocol-host-start-failed',
+            scope: 'protocol/host',
+            error: error,
+            stackTrace: stack,
+          );
+        },
+      ),
+    );
+    return host;
+  }
+
+  static const Map<String, Object> _unavailable = <String, Object>{
+    'error': 'unavailable',
+  };
 
   Future<InProcessProtocolHost> _start() async {
     final support = await _paths.applicationSupport();
@@ -183,7 +217,14 @@ final class ProtocolChannelHost {
     final opening = Object();
     _opening[id] = opening;
     try {
-      final host = await _started();
+      final InProcessProtocolHost host;
+      try {
+        host = await _started();
+      } on Object {
+        return _disposed
+            ? const <String, Object>{'error': 'stopped'}
+            : _unavailable;
+      }
       if (_disposed) return const <String, Object>{'error': 'stopped'};
       if (!identical(_opening[id], opening)) {
         return const <String, Object>{'error': 'closed'};
@@ -225,10 +266,40 @@ final class ProtocolChannelHost {
 
   Future<ByteData?> _onBytes(ByteData? frame) async {
     if (frame == null || _disposed) return null;
-    final host = await _started();
-    await host.receiveBytes(
-      frame.buffer.asUint8List(frame.offsetInBytes, frame.lengthInBytes),
+    final bytes = frame.buffer.asUint8List(
+      frame.offsetInBytes,
+      frame.lengthInBytes,
     );
+    final InProcessProtocolHost host;
+    try {
+      host = await _started();
+    } on Object {
+      if (_disposed) return null;
+      // Taken, and answered as the host answers a stream it cannot serve:
+      // the one an `open` starts ends with an error; the rest are dropped.
+      final ByteFrame decoded;
+      try {
+        decoded = ByteFrame.decode(bytes);
+      } on FormatException {
+        return ByteData(0);
+      }
+      if (decoded.kind == ByteFrameKind.open) {
+        try {
+          await _sendFrame(
+            ByteFrame(
+              decoded.stream,
+              ByteFrameKind.error,
+              payload: Uint8List.fromList(utf8.encode('unavailable')),
+            ).encode(),
+          );
+        } on Object catch (error, stack) {
+          _logSend(error, stack);
+        }
+      }
+      return ByteData(0);
+    }
+    if (_disposed) return null;
+    await host.receiveBytes(bytes);
     return ByteData(0);
   }
 

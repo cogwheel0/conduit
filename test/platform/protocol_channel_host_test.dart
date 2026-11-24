@@ -190,6 +190,44 @@ void main() {
     });
   });
 
+  test('a start that fails is answered unavailable, and the next open starts '
+      'again', () async {
+    await startHost();
+    paths.failing = 1;
+    Future<Object?> open() =>
+        swift.control(<String, Object>{'op': 'open', 'session': 'phone'});
+    check(await open())
+        .isA<Map<Object?, Object?>>()
+        .has((it) => it['error'], 'error')
+        .equals('unavailable');
+    check(await open())
+        .isA<Map<Object?, Object?>>()
+        .has((it) => it['ok'], 'ok')
+        .equals(true);
+  });
+
+  test('a byte stream opened while the start fails is taken and ends with '
+      'an error, and the next one starts again', () async {
+    await startHost();
+    paths.failing = 1;
+    Uint8List download(int stream) => ByteFrame(
+      stream,
+      ByteFrameKind.open,
+      payload: _json(<String, Object>{
+        'method': 'GET',
+        'path': '/files/server/file',
+      }),
+    ).encode();
+    final failed = swift.answer(1);
+    check(await swift.bytes(download(1))).isNotNull();
+    check(utf8.decode((await failed).single.payload)).equals('unavailable');
+    final answered = swift.answer(2);
+    await swift.bytes(download(2));
+    await swift.bytes(ByteFrame(2, ByteFrameKind.end).encode());
+    check((await answered).map((f) => f.kind))
+        .contains(ByteFrameKind.responseHead);
+  });
+
   test(
     'a message for a session that is gone is answered, not dropped',
     () async {
@@ -353,9 +391,16 @@ final class _Paths implements PathsPort {
   /// When set, the host's start waits for it.
   Completer<void>? gate;
 
+  /// How many of the next starts fail.
+  int failing = 0;
+
   @override
   Future<Directory> applicationSupport() async {
     await gate?.future;
+    if (failing > 0) {
+      failing--;
+      throw const FileSystemException('not there yet');
+    }
     return _root;
   }
 

@@ -143,6 +143,9 @@ out.
   An `open` is answered once the host has started, which may take a while
   the first time. Until then the session takes no messages, a `close` cancels
   the open (it is answered `closed`), and a second `open` of it is refused.
+  A start that fails is answered `unavailable` (on a byte stream, as the
+  `error` frame of the stream its `open` starts) and is not kept: the next
+  `open` or byte stream tries again.
 - **RPC** (strings): `<session>\n<message>` both ways, on one channel rather
   than one per session, so a message for a session that is gone is still
   answered (`closed`) instead of finding no handler.
