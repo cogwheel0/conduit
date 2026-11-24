@@ -233,7 +233,7 @@ final class InProcessProtocolHost {
     final stream = _streams[id]!;
     try {
       final ByteResponse response;
-      if (_routes.tunnel(path.startsWith('/') ? path : '/$path') != null) {
+      if (ProtocolByteRoutes.isTunnel(path.startsWith('/') ? path : '/$path')) {
         // A tunnel needs a socket both ways; this host carries none.
         response = const ByteResponse(
           501,

@@ -624,12 +624,15 @@ void main() {
       );
     });
 
-    test('a tunnel is refused: this host carries no socket', () async {
+    test('every tunnel is refused: this host carries no socket', () async {
       await startApp();
       final (_, bytes) = await startHost();
-      final answer = await bytes.request(1, 'GET', '/terminal/anything');
-      await answer.done;
-      check(answer.status).equals(501);
+      var stream = 0;
+      for (final path in <String>['/terminal/anything', '/calls/anything']) {
+        final answer = await bytes.request(++stream, 'GET', path);
+        await answer.done;
+        check(answer.status, because: path).equals(501);
+      }
     });
   });
 

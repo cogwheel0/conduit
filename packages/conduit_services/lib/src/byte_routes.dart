@@ -105,6 +105,11 @@ final class ProtocolByteRoutes {
   final ProtocolServices? Function() _services;
   final MediaService _media;
 
+  /// Whether [path] names a tunnel, whatever its handle, without reading
+  /// any service: a host that carries none answers it by this alone.
+  static bool isTunnel(String path) =>
+      path.startsWith('/terminal/') || path.startsWith('/calls/');
+
   /// The tunnel at [path] (`/terminal/{handle}`, `/calls/{handle}`), or
   /// null when [path] is not one. An unknown handle is refused before the
   /// channel opens.
