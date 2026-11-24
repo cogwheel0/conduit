@@ -50,6 +50,11 @@ void startProtocolChannelHost(ProviderContainer container) {
 /// * `conduit/protocol/bytes` (binary): [ByteFrame]s either way, answered
 ///   when taken. The calling contract is [InProcessProtocolHost.receiveBytes]'s.
 ///
+/// An `open` is answered once the host has started, and the session takes
+/// messages from then: before that, one for it is answered `closed`. A
+/// `close` meanwhile cancels it (answered `closed`), as stopping the host does
+/// (`stopped`); a second `open` of the same session is refused (`open`).
+///
 /// A send the client does not answer (no handler: the reply is null) counts
 /// as a failed send, which ends its session.
 final class ProtocolChannelHost {
@@ -89,6 +94,10 @@ final class ProtocolChannelHost {
   final BasicMessageChannel<ByteData?> _bytes;
 
   final Map<String, InProcessSession> _sessions = <String, InProcessSession>{};
+
+  /// Opens waiting for the host to start, each by a token of its own: a
+  /// `close` removes it, so the open ends there.
+  final Map<String, Object> _opening = <String, Object>{};
   Future<InProcessProtocolHost>? _host;
   bool _disposed = false;
 
@@ -110,6 +119,7 @@ final class ProtocolChannelHost {
   /// was.
   Future<void> dispose() async {
     _disposed = true;
+    _opening.clear();
     _control.setMessageHandler(null);
     _rpc.setMessageHandler(null);
     _bytes.setMessageHandler(null);
@@ -158,6 +168,7 @@ final class ProtocolChannelHost {
       case 'open' when session is String && session.isNotEmpty:
         return _open(session);
       case 'close' when session is String:
+        _opening.remove(session);
         await _sessions[session]?.close();
         return const <String, Object>{'ok': true};
     }
@@ -166,8 +177,17 @@ final class ProtocolChannelHost {
 
   Future<Object?> _open(String id) async {
     if (_disposed) return const <String, Object>{'error': 'stopped'};
+    if (_opening.containsKey(id)) {
+      return const <String, Object>{'error': 'open'};
+    }
+    final opening = Object();
+    _opening[id] = opening;
     try {
       final host = await _started();
+      if (_disposed) return const <String, Object>{'error': 'stopped'};
+      if (!identical(_opening[id], opening)) {
+        return const <String, Object>{'error': 'closed'};
+      }
       final session = host.open(id, send: (message) => _sendRpc(id, message));
       _sessions[id] = session;
       unawaited(
@@ -184,6 +204,8 @@ final class ProtocolChannelHost {
       return const <String, Object>{'ok': true};
     } on StateError catch (error) {
       return <String, Object>{'error': error.message};
+    } finally {
+      if (identical(_opening[id], opening)) _opening.remove(id);
     }
   }
 

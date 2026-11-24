@@ -140,6 +140,9 @@ out.
   when it starts, again after a restart of the Dart side (a hot restart keeps
   Swift's handlers), and a client registers its handlers before it sends
   anything.
+  An `open` is answered once the host has started, which may take a while
+  the first time. Until then the session takes no messages, a `close` cancels
+  the open (it is answered `closed`), and a second `open` of it is refused.
 - **RPC** (strings): `<session>\n<message>` both ways, on one channel rather
   than one per session, so a message for a session that is gone is still
   answered (`closed`) instead of finding no handler.

@@ -45,13 +45,16 @@ void main() {
 
   /// The binding over a core of its own, as the app's root container would
   /// be, listening, with the client told it is ready.
+  late _Paths paths;
+
   Future<void> startHost({int limit = 64}) async {
     final core = await _startCore(temporary);
     addTearDown(core.dispose);
     addTearDown(core.beginShutdown);
+    paths = _Paths(temporary);
     host = ProtocolChannelHost(
       container: core.container,
-      paths: _Paths(temporary),
+      paths: paths,
       maxUnacknowledged: limit,
     );
     addTearDown(host.dispose);
@@ -118,6 +121,73 @@ void main() {
     check(await heard)
       ..has((it) => it['event'], 'event').isA<String>()
       ..has((it) => it['seq'], 'seq').isA<int>();
+  });
+
+  group('while the host is starting', () {
+    late Completer<void> started;
+
+    Future<Object?> open() =>
+        swift.control(<String, Object>{'op': 'open', 'session': 'phone'});
+
+    setUp(() async {
+      await startHost();
+      started = Completer<void>();
+      addTearDown(() {
+        if (!started.isCompleted) started.complete();
+      });
+      paths.gate = started;
+    });
+
+    test('a close cancels the open, which never becomes a session', () async {
+      final opening = open();
+      check(
+        await swift.control(<String, Object>{
+          'op': 'close',
+          'session': 'phone',
+        }),
+      ).isA<Map<Object?, Object?>>().has((it) => it['ok'], 'ok').equals(true);
+      started.complete();
+      check(await opening)
+          .isA<Map<Object?, Object?>>()
+          .has((it) => it['error'], 'error')
+          .equals('closed');
+      check(await swift.rpc('phone', '{}')).equals('closed');
+      // Nothing holds the name: it opens again.
+      check(await open())
+          .isA<Map<Object?, Object?>>()
+          .has((it) => it['ok'], 'ok')
+          .equals(true);
+    });
+
+    test('a second open of the same session is refused, a message for it is '
+        'answered closed, and hello changes nothing', () async {
+      final opening = open();
+      check(await open())
+          .isA<Map<Object?, Object?>>()
+          .has((it) => it['error'], 'error')
+          .equals('open');
+      check(await swift.rpc('phone', '{}')).equals('closed');
+      check(await swift.control(<String, Object>{'op': 'hello'}))
+          .isA<Map<Object?, Object?>>()
+          .has((it) => it['op'], 'op')
+          .equals('ready');
+      started.complete();
+      check(await opening)
+          .isA<Map<Object?, Object?>>()
+          .has((it) => it['ok'], 'ok')
+          .equals(true);
+    });
+
+    test('stopping the host answers the open stopped', () async {
+      final opening = open();
+      final stopped = host.dispose();
+      started.complete();
+      await stopped;
+      check(await opening)
+          .isA<Map<Object?, Object?>>()
+          .has((it) => it['error'], 'error')
+          .equals('stopped');
+    });
   });
 
   test(
@@ -276,12 +346,18 @@ Uint8List _json(Object value) =>
 
 /// The app's directories, in a temporary directory.
 final class _Paths implements PathsPort {
-  const _Paths(this._root);
+  _Paths(this._root);
 
   final Directory _root;
 
+  /// When set, the host's start waits for it.
+  Completer<void>? gate;
+
   @override
-  Future<Directory> applicationSupport() async => _root;
+  Future<Directory> applicationSupport() async {
+    await gate?.future;
+    return _root;
+  }
 
   @override
   Future<Directory> cache() async => _root;
