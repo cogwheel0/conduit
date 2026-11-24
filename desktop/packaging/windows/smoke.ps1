@@ -19,18 +19,23 @@ smoke; also a test VM):
    appcast-windows.xml for no newer version (CI's rehearsal).
 3. Installs again over the app while it runs, as WinSparkle runs an
    update (winlinux_feed.py installer-arguments: /SILENT ... /RELAUNCH=1):
-   the installer closes the app and its conduitd (Restart Manager),
-   replaces the files and starts the app again. It waits for the app's
+   the installer closes the app and its conduitd (Restart Manager, over
+   the processes running from the install folder only), replaces the files
+   and starts the app again. It waits for the app's
    conduitd, and for the new app and its conduitd, through process start
    traces, which need an administrator (CI's runner user is one).
 4. Uninstalls silently while that app and its conduitd run: the uninstall
-   closes both (Restart Manager, as the installer does), then the install
+   closes both (as the installer does), then the install
    folder, the Start menu entry and every registration are gone, and the
    user's data folder is still there.
 
 It installs into this user's %LOCALAPPDATA%\Programs\Conduit and
 uninstalls it at the end: run it only where that is wanted. Every app run
 uses a profile in -Work (default: a new folder in %TEMP%).
+
+Every wait has a limit. Past one, it prints (and saves in -Work\stuck.txt)
+the log's tail, the processes running from the install folder and what
+Restart Manager says has its files open, then fails.
 #>
 #Requires -Version 7.4
 param(
@@ -79,16 +84,87 @@ function Expect([bool]$Ok, [string]$What) {
   if (-not $Ok) { throw "smoke: $What" }
 }
 
-# Runs the installer or uninstaller silently and waits for it, its second
-# phase included (Start-Process -Wait waits for descendants).
-function Invoke-Setup([string]$Path, [string]$Log) {
-  $run = Start-Process -FilePath $Path -Wait -PassThru -ArgumentList @(
-    '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$Log`""
-  )
-  if ($run.ExitCode -ne 0) {
-    Get-Content -LiteralPath $Log -Tail 60 -ErrorAction SilentlyContinue
-    throw "smoke: $(Split-Path -Leaf $Path) exited with $($run.ExitCode)"
+# The processes Restart Manager says have the .exe and .dll files under
+# $Dir open, one line each (pid, kind, image).
+function Get-FileHolders([string]$Dir) {
+  if (-not ('SmokeRm' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Text;
+public static class SmokeRm {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  struct Info { public int Pid; public uint StartLow; public uint StartHigh;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string App;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string Service;
+    public int Type; public uint Status; public uint Session; public int Restartable; }
+  [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)] static extern int RmStartSession(out uint h, int f, StringBuilder key);
+  [DllImport("rstrtmgr.dll")] static extern int RmEndSession(uint h);
+  [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)] static extern int RmRegisterResources(uint h, uint n, string[] files, uint na, IntPtr a, uint ns, IntPtr s);
+  [DllImport("rstrtmgr.dll")] static extern int RmGetList(uint h, out uint needed, ref uint n, [In, Out] Info[] info, ref uint reasons);
+  public static List<string> List(string[] files) {
+    var lines = new List<string>(); uint h, needed = 0, n = 0, reasons = 0;
+    if (RmStartSession(out h, 0, new StringBuilder(64)) != 0) { lines.Add("(no Restart Manager session)"); return lines; }
+    try {
+      int r = RmRegisterResources(h, (uint)files.Length, files, 0, IntPtr.Zero, 0, IntPtr.Zero);
+      Info[] infos = null;
+      if (r == 0) r = RmGetList(h, out needed, ref n, null, ref reasons);
+      if (r == 234) { infos = new Info[needed]; n = needed; r = RmGetList(h, out needed, ref n, infos, ref reasons); }
+      if (r != 0) { lines.Add("(RmGetList " + r + ")"); return lines; }
+      for (int i = 0; i < n; i++) lines.Add(string.Format("pid {0}: {1}{2} (Restart Manager type {3})", infos[i].Pid, infos[i].App,
+        infos[i].Service.Length > 0 ? ", service " + infos[i].Service : "", infos[i].Type));
+    } finally { RmEndSession(h); }
+    return lines;
   }
+}
+'@
+  }
+  $files = @(Get-ChildItem -LiteralPath $Dir -Recurse -File -Include '*.exe', '*.dll' -ErrorAction SilentlyContinue | ForEach-Object FullName)
+  if ($files.Count -eq 0) { return '(no .exe or .dll files)' }
+  [SmokeRm]::List([string[]]$files)
+}
+
+# What may hold a setup or the app up: the log's tail, the processes running
+# from the install folder and what has its files open. Also in stuck.txt,
+# which the failed job uploads with the rest of -Work.
+function Show-Stuck([string]$Log) {
+  & {
+    if ($Log) { "--- the end of $Log"; Get-Content -LiteralPath $Log -Tail 60 -ErrorAction SilentlyContinue }
+    "--- processes running from $app"
+    Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$app\*" } |
+      ForEach-Object { "pid $($_.ProcessId) (parent $($_.ParentProcessId)): $($_.ExecutablePath)" }
+    "--- what has the .exe and .dll files under $app open (Restart Manager)"
+    try { Get-FileHolders $app } catch { "(couldn't ask: $($_.Exception.Message))" }
+  } | Tee-Object -FilePath (Join-Path $Work 'stuck.txt') | ForEach-Object { Write-Host $_ }
+}
+
+# Starts $Path and waits for it and its descendants (Start-Process -Wait), at
+# most $Minutes (a thread job holds the unbounded wait); returns its exit
+# code. Past the limit it shows what may hold it up ($Log among it) and fails.
+function Invoke-Bounded([string]$Path, [string[]]$Arguments, [int]$Minutes, [string]$Log) {
+  $job = Start-ThreadJob -ArgumentList $Path, $Arguments -ScriptBlock {
+    param($Path, $Arguments)
+    (Start-Process -FilePath $Path -ArgumentList $Arguments -Wait -PassThru).ExitCode
+  }
+  if (-not (Wait-Job -Job $job -Timeout ($Minutes * 60))) {
+    Show-Stuck $Log
+    throw "smoke: $(Split-Path -Leaf $Path) $($Arguments -join ' ') didn't end within $Minutes minutes"
+  }
+  Receive-Job -Job $job -Wait -AutoRemoveJob -ErrorAction Stop
+}
+
+# Runs the installer or uninstaller silently and waits for it, its second
+# phase included, at most 5 minutes.
+function Invoke-Setup([string]$Path, [string]$Log) {
+  $code = Invoke-Bounded $Path @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$Log`"") 5 $Log
+  if ($code -ne 0) {
+    Get-Content -LiteralPath $Log -Tail 60 -ErrorAction SilentlyContinue
+    throw "smoke: $(Split-Path -Leaf $Path) exited with $code"
+  }
+}
+
+# The setup log's Restart Manager lines: whom it closed, whom it left alone.
+function Show-RestartManager([string]$Log) {
+  Select-String -LiteralPath $Log -Pattern 'Restart Manager' -ErrorAction SilentlyContinue |
+    ForEach-Object { Write-Host "    $($_.Line -replace '^\S+ \S+\s+', '')" }
 }
 
 # Processes running the executable at exactly $Path.
@@ -130,8 +206,8 @@ $env:CONDUIT_FLAVOR = 'dev'
 $env:CONDUIT_USER_DATA = Join-Path $Work 'harness-check\user-data'
 $env:CONDUIT_LOGS = Join-Path $Work 'harness-check\logs'
 foreach ($flag in '--e2e', '--capture', '--probe', '--fixture', '--chat-fixture') {
-  $run = Start-Process -FilePath $exe -ArgumentList $flag, 'x' -Wait -PassThru
-  Expect ($run.ExitCode -eq 64) "$flag x: exit $($run.ExitCode), not 64 (a build without the test harness refuses it)"
+  $code = Invoke-Bounded $exe @($flag, 'x') 2
+  Expect ($code -eq 64) "$flag x: exit $code, not 64 (a build without the test harness refuses it)"
 }
 $env:CONDUIT_FLAVOR = $null
 Log 'refuses --e2e, --capture, --probe, --fixture, --chat-fixture (exit 64)'
@@ -160,16 +236,16 @@ try {
     Log "serving $UpdateFeed at $feedUrl for WinSparkle's check"
   }
   Log "the app's --smoke pass (profile in $Work\smoke)"
-  $run = Start-Process -FilePath $exe -ArgumentList '--smoke', "`"$report`"" -Wait -PassThru
+  $code = Invoke-Bounded $exe @('--smoke', "`"$report`"") 5 (Join-Path $env:CONDUIT_LOGS 'conduit-desktop.log')
 } finally {
   if ($server) { Stop-Process -Id $server.Id -ErrorAction SilentlyContinue }
 }
 $lines = @(Get-Content -LiteralPath $report -ErrorAction SilentlyContinue)
 $lines | ForEach-Object { Write-Host $_ }
-if ($run.ExitCode -ne 0 -or $lines[-1] -ne 'SMOKE passed' -or ($lines -match '^SMOKE FAILED')) {
+if ($code -ne 0 -or $lines[-1] -ne 'SMOKE passed' -or ($lines -match '^SMOKE FAILED')) {
   Get-ChildItem -LiteralPath $env:CONDUIT_LOGS -Filter '*.log' -ErrorAction SilentlyContinue |
     ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content -LiteralPath $_.FullName -Tail 60 }
-  throw "smoke: the app's smoke pass failed (exit $($run.ExitCode))"
+  throw "smoke: the app's smoke pass failed (exit $code)"
 }
 # Only a packaged release build, with conduitd beside it, runs in the
 # production flavour.
@@ -219,7 +295,10 @@ try {
   # starts again is one of them.
   $setup = Start-Process -FilePath $Installer -PassThru -ArgumentList ($updateArgs + "/LOG=`"$log`"")
   $null = $setup.Handle
-  $setup.WaitForExit()
+  if (-not $setup.WaitForExit(5 * 60 * 1000)) {
+    Show-Stuck $log
+    throw "smoke: the update install (pid $($setup.Id)) didn't end within 5 minutes"
+  }
   if ($setup.ExitCode -ne 0) {
     Get-Content -LiteralPath $log -Tail 60 -ErrorAction SilentlyContinue
     throw "smoke: the update install exited with $($setup.ExitCode)"
@@ -267,6 +346,9 @@ Expect ([bool]$againDaemon) "the started app's conduitd (pid $relaunchedDaemon) 
 $null = $againDaemon.Handle
 Expect ($againDaemon.Path -eq $daemon) "the started app ran $($againDaemon.Path) (pid $relaunchedDaemon), not $daemon"
 Assert-Installed
+Show-RestartManager $log
+Expect ([bool](Select-String -LiteralPath $log -Pattern 'Restart Manager closed [1-9]\d* Conduit processes: status 0$' -Quiet)) `
+  "the update's Restart Manager didn't close the app and its conduitd (see $log)"
 Log "the installer closed the app and its conduitd, replaced the files and started the app again (pid $relaunched, its conduitd pid $relaunchedDaemon, from setup pid $($setup.Id))"
 
 # 4. Uninstall while that app and its conduitd run.
@@ -277,8 +359,9 @@ $uninstaller = (Get-RegValue $uninstallKey 'UninstallString').Trim('"')
 $uninstallLog = Join-Path $Work 'uninstall.log'
 Log "uninstalling ($uninstaller) while the app (pid $relaunched) and its conduitd (pid $relaunchedDaemon) run"
 Invoke-Setup $uninstaller $uninstallLog
-Expect ([bool](Select-String -LiteralPath $uninstallLog -Pattern 'Restart Manager over the app''s \d+ files: status 0$' -Quiet)) `
-  "the uninstall's Restart Manager didn't close what had the app's files open (see $uninstallLog)"
+Show-RestartManager $uninstallLog
+Expect ([bool](Select-String -LiteralPath $uninstallLog -Pattern 'Restart Manager closed [1-9]\d* Conduit processes: status 0$' -Quiet)) `
+  "the uninstall's Restart Manager didn't close the app and its conduitd (see $uninstallLog)"
 foreach ($p in $again, $againDaemon) { $p.WaitForExit(30000) | Out-Null }
 Expect ($again.HasExited) "the uninstall left the app (pid $relaunched) running"
 Expect ($againDaemon.HasExited) "the uninstall left its conduitd (pid $relaunchedDaemon) running"
