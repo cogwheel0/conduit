@@ -66,6 +66,14 @@ final class FakeLibreChatChat {
         }
         return FakeLibreChatResponse.json({'success': true});
       })
+      ..on('POST', '/api/agents/chat/resume', (request, match) {
+        resumes.add(request.data);
+        return FakeLibreChatResponse.json({
+          'streamId': 'conv-ridge',
+          'conversationId': 'conv-ridge',
+          'status': 'resuming',
+        });
+      })
       ..on('GET', '/api/agents/chat/stream/(.+)', (request, match) {
         final stream = StreamController<Uint8List>();
         _streams.add(stream);
@@ -87,6 +95,10 @@ final class FakeLibreChatChat {
   /// The bodies of the aborts asked for (LibreChat's Stop). Each ends the
   /// reply stream with the server's aborted final frame.
   final List<Object?> aborts = <Object?>[];
+
+  /// The bodies `POST /api/agents/chat/resume` took: the answers to a
+  /// paused run ([paused]).
+  final List<Object?> resumes = <Object?>[];
   String? _responseId;
 
   /// The model the picker lists for the Ollama model.
@@ -124,6 +136,11 @@ final class FakeLibreChatChat {
       'isCreatedByUser': true,
     },
   });
+
+  /// The run pauses on [action] (`on_pending_action`): a tool call or a
+  /// question waiting for the user.
+  void paused(Map<String, dynamic> action) =>
+      _emit({'event': 'on_pending_action', 'data': action});
 
   /// The reply [responseId] writes [chunk].
   void text(String responseId, String chunk) {

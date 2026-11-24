@@ -3476,33 +3476,49 @@ final class TurnsService implements ChatTurns, AddressReplies {
     final scope = session.scope;
     final turn = session.turn;
     if (turn == null) return;
+    // The pause is the account's that was in charge when it arrived: its
+    // card goes as soon as another account takes charge, and no answer to
+    // it is sent under that one.
+    final account = AccountScope.capture(_container);
+    final gone = Completer<void>();
+    void leave() {
+      if (!gone.isCompleted) gone.complete();
+    }
+
+    final switches = _container.listen<int>(
+      accountSwitchCountProvider,
+      (_, _) => leave(),
+    );
+    unawaited(turn.ended.future.then((_) => leave(), onError: (_) => leave()));
     // The turn that asked still runs, and still waits on this pause: a card
-    // answered or dismissed later touches no newer reply in the chat.
+    // answered later touches no newer reply in the chat.
     bool asking() =>
+        account.isCurrent &&
         !turn.finished &&
         identical(session.turn, turn) &&
         !scope.isDisposed &&
         libreChatPendingActionFor(scope.container, messageId)?.actionId ==
             action.actionId;
-    final outcome = await answerLibreChatPause(
-      action,
-      windows: _uiRequests,
-      chatId: session.chatId ?? turn.chatId,
-      asking: asking,
-      until: turn.ended.future,
-      resume: ({decisions, answers}) => resolveLibreChatPendingAction(
-        scope.container,
-        messageId,
-        decisions: decisions,
-        answers: answers,
-      ),
-      stop: () => stop(session.chatId ?? turn.chatId),
-    );
-    // Not sent, and nobody to ask (the pause waited for a window while its
-    // turn ran): not left marked as asked, so the answer's next projection
-    // offers it again.
-    if (outcome == LibreChatPauseOutcome.failed) {
-      session.asked.remove('librechat:${action.actionId}');
+    try {
+      await answerLibreChatPause(
+        action,
+        windows: _uiRequests,
+        chatId: session.chatId ?? turn.chatId,
+        asking: asking,
+        until: gone.future,
+        resume: ({decisions, answers}) {
+          account.require('the LibreChat pause is answered');
+          return resolveLibreChatPendingAction(
+            scope.container,
+            messageId,
+            decisions: decisions,
+            answers: answers,
+          );
+        },
+      );
+    } finally {
+      switches.close();
+      leave();
     }
   }
 

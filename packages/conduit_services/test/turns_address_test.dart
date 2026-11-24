@@ -19,6 +19,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
+import 'package:conduit_services/src/account_scope.dart'
+    show accountSwitchCountProvider;
 import 'package:test/test.dart';
 
 import 'support/fake_librechat_chat.dart';
@@ -459,6 +461,122 @@ void main() {
       await clock.during(turns.stopAddressAnswers());
       expect(turns.isRunning(ridge.chatId), isTrue);
       expect(libreChat.aborts, isEmpty);
+    });
+
+    test('a LibreChat pause belongs to the account it came under: a change '
+        'of the account in charge takes its card back, and an answer given '
+        'as it changes sends nothing', () async {
+      final windows = UiRequestsService(events);
+      final pausing = TurnsService(
+        runtime.container,
+        events,
+        uiRequests: windows,
+        now: clock.now,
+        pause: clock.pause,
+      );
+      addTearDown(pausing.dispose);
+      final asked = Completer<UiRequest>();
+      final withdrawn = Completer<String>();
+      events.attach('window-1', (envelope) {
+        if (envelope.event == ConduitEvents.uiRequest && !asked.isCompleted) {
+          asked.complete(UiRequest.fromJson(envelope.payload));
+        }
+        if (envelope.event == ConduitEvents.uiSettled &&
+            !withdrawn.isCompleted) {
+          withdrawn.complete('${envelope.payload['requestId']}');
+        }
+      });
+      addTearDown(() => events.detach('window-1'));
+      events.subscribe(
+        'window-1',
+        const EventSubscription(
+          events: [ConduitEvents.uiRequest, ConduitEvents.uiSettled],
+        ),
+      );
+
+      final libreChat = await FakeLibreChatChat.start();
+      addTearDown(libreChat.close);
+      libreChat.fake.addUser(email: 'avery@example.com', password: 'pw-avery');
+      final signedIn = await clock.during(
+        LibreChatService(
+          runtime.container,
+          events: events,
+          accounts: accounts,
+        ).signIn(
+          LibreChatSignIn(
+            url: libreChat.url,
+            email: 'avery@example.com',
+            password: 'pw-avery',
+          ),
+        ),
+      );
+      expect(signedIn.outcome, LibreChatSignInOutcome.signedIn);
+      await clock.during(
+        readSettled(runtime.container, libreChatModelCatalogProvider.future),
+      );
+
+      final sending = pausing.send(
+        const SendTurn(model: FakeLibreChatChat.model, text: 'Check the tide'),
+      );
+      await clock.during(Future.any([libreChat.streamOpened, sending]));
+      libreChat
+        ..created('question-tide', 'Check the tide')
+        ..text('answer-tide', 'Looking');
+      final turn = await clock.during(sending);
+      libreChat.paused({
+        'actionId': 'act-tide',
+        'conversationId': 'conv-ridge',
+        'payload': {
+          'type': 'tool_approval',
+          'action_requests': [
+            {
+              'tool_call_id': 'call-tide',
+              'name': 'lookup_tide',
+              'arguments': {'harbour': 'Port Wren'},
+            },
+          ],
+          'review_configs': [
+            {
+              'tool_call_id': 'call-tide',
+              'allowed_decisions': ['approve', 'reject'],
+            },
+          ],
+        },
+      });
+      final card = await clock.during(asked.future);
+      expect(card.messageArgs['chatId'], turn.chatId);
+      // A window answers in the instant the account changes, before the
+      // reply it paused has heard of the change.
+      final answerAtTheChange = runtime.container.listen<int>(
+        accountSwitchCountProvider,
+        (_, _) => windows.respond(
+          UiResponse(requestId: card.requestId, choice: 'approve'),
+        ),
+      );
+      addTearDown(answerAtTheChange.close);
+
+      // Open WebUI takes charge of the chats again.
+      await clock.during(
+        accounts.switchTo(
+          AccountRef(
+            accountId: openWebUiAccount,
+            force: true,
+            askedOver: signedIn.accountId,
+          ),
+        ),
+      );
+      expect(await clock.during(withdrawn.future), card.requestId);
+      // Not put to a window of the next account that connects now.
+      expect(windows.pending, isEmpty);
+      // An answer that comes later is taken by nothing.
+      expect(
+        windows.respond(
+          UiResponse(requestId: card.requestId, choice: 'reject'),
+        ),
+        isFalse,
+      );
+      await clock.during(pumpEventQueue());
+      expect(libreChat.resumes, isEmpty);
     });
   });
 
