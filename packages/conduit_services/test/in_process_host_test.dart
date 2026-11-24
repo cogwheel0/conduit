@@ -605,7 +605,7 @@ void main() {
 
     test('a download the client abandons sends nothing more', () async {
       await startApp();
-      final (host, bytes) = await startHost(media: media);
+      final (_, bytes) = await startHost(media: media);
       // The client takes the first chunk and does not answer it yet.
       final firstChunk = bytes.holdAfter(1, ByteFrameKind.chunk);
       final answer = await bytes.request(
@@ -615,12 +615,11 @@ void main() {
         query: pictureQuery(),
       );
       await firstChunk;
-      await bytes.cancel(1);
+      final cancelled = bytes.cancel(1);
       final sent = answer.frames.length;
       bytes.release();
-      // Stopping waits for nothing of the stream: its last word was the
-      // chunk it was sending.
-      await host.dispose();
+      // Taken once the host has let go of the stream, the host still running.
+      await cancelled;
       check(answer.frames.length).equals(sent);
       check(answer.chunks).length.equals(1);
       check(answer.ended).isFalse();

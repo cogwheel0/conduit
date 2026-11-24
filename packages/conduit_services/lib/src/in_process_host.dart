@@ -182,6 +182,9 @@ final class InProcessProtocolHost {
         stream?.endBody();
       case ByteFrameKind.cancel:
         stream?.cancel();
+        // Taken once the host has let go of the stream: nothing more of it
+        // comes, and its number may be used again.
+        await stream?.finished;
       case ByteFrameKind.responseHead || ByteFrameKind.error:
         DebugLogger.warning(
           'byte-frame-from-client',
@@ -300,6 +303,7 @@ final class InProcessProtocolHost {
       if (!stream.cancelled) await _fail(id, 'the route failed');
     } finally {
       if (identical(_streams[id], stream)) _streams.remove(id);
+      stream._finished.complete();
     }
   }
 
@@ -601,7 +605,11 @@ final class _ByteStream {
   }
 
   late final StreamController<List<int>> body;
+  final Completer<void> _finished = Completer<void>();
   bool _bodyDone = false;
+
+  /// Completes once the host is done with the stream, answered or not.
+  Future<void> get finished => _finished.future;
   bool cancelled = false;
   Completer<void>? _ready;
 
