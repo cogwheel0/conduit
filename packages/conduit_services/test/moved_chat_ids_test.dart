@@ -4,6 +4,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageIdentity, ChatStorageKind;
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
@@ -422,6 +424,21 @@ void main() {
     expect(told.last, now);
     expect(checks, greaterThan(1));
     expect(history()['currentId'], answer.id);
+  });
+
+  test('an archive and a rename by a scoped old id reach the server under '
+      'the raw current id', () async {
+    await signIn('ada@example.com', 'pw-ada');
+    final (old, now) = await movedChat();
+    final scoped = ChatStorageIdentity(
+      rawId: old,
+      storage: ChatStorageKind.openWebUi,
+    ).scopedId;
+
+    await chats.rename(scoped, 'The shelf question');
+    await chats.setArchived(scoped, value: true);
+    expect(owui.chats.stored[now]!['title'], 'The shelf question');
+    expect(owui.chats.stored[now]!['archived'], isTrue);
   });
 }
 

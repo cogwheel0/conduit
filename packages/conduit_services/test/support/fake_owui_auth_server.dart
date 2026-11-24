@@ -1064,6 +1064,17 @@ final class FakeOwuiChats {
       await request.drain<void>();
       return json(stored.values.where((row) => row['archived'] == true).length);
     }
+    // A chat's archive toggled, as Open WebUI's `/{id}/archive` does: the
+    // chat as it is now.
+    final archive = RegExp(r'^/api/v1/chats/([^/]+)/archive$').firstMatch(path);
+    if (request.method == 'POST' &&
+        archive != null &&
+        stored.containsKey(archive[1])) {
+      await request.drain<void>();
+      final row = stored[archive[1]]!;
+      row['archived'] = row['archived'] != true;
+      return json(row);
+    }
     // A chat's delete, as Open WebUI answers it: `true`.
     final chatDeleted = RegExp(r'^/api/v1/chats/([^/]+)$').firstMatch(path);
     if (request.method == 'DELETE' &&
