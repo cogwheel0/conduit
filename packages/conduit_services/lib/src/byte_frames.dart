@@ -46,8 +46,14 @@ final class ByteFrame {
   final int flags;
   final Uint8List payload;
 
-  /// A new buffer, which the receiver may keep.
+  /// A new buffer, which the receiver may keep. Throws a [StateError] for a
+  /// chunk over [maxChunk].
   Uint8List encode() {
+    if (kind == ByteFrameKind.chunk && payload.length > maxChunk) {
+      throw StateError(
+        'a body chunk of ${payload.length} bytes is over $maxChunk',
+      );
+    }
     final bytes = Uint8List(headerLength + payload.length);
     ByteData.sublistView(bytes)
       ..setUint32(0, stream)
@@ -60,7 +66,8 @@ final class ByteFrame {
 
   /// [bytes] as a frame whose payload is a view of [bytes], not a copy.
   /// Throws a [FormatException] for a frame that is short, of an unknown
-  /// kind, or whose length is not what follows the header.
+  /// kind, whose length is not what follows the header, or a chunk over
+  /// [maxChunk].
   static ByteFrame decode(Uint8List bytes) {
     if (bytes.length < headerLength) {
       throw const FormatException('a byte frame is shorter than its header');
@@ -73,6 +80,9 @@ final class ByteFrame {
     final length = header.getUint32(8);
     if (length != bytes.length - headerLength) {
       throw const FormatException('a byte frame says another length');
+    }
+    if (kind == ByteFrameKind.chunk.index && length > maxChunk) {
+      throw FormatException('a body chunk of $length bytes is over $maxChunk');
     }
     return ByteFrame(
       header.getUint32(0),

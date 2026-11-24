@@ -719,7 +719,8 @@ void main() {
     check(list.chats.map((c) => c.id)).contains(accepted.chatId);
   });
 
-  test('a byte frame survives its own encoding, and a bad one is refused', () {
+  test('a byte frame survives its own encoding, and a bad one, or a chunk '
+      'over 64 KiB, is refused', () {
     final frame = ByteFrame(
       0xFEEDBEEF,
       ByteFrameKind.responseHead,
@@ -736,6 +737,27 @@ void main() {
     check(() => ByteFrame.decode(wrongLength)).throws<FormatException>();
     final unknownKind = frame.encode()..[4] = 200;
     check(() => ByteFrame.decode(unknownKind)).throws<FormatException>();
+
+    // A body chunk carries 64 KiB at most, either way.
+    Uint8List chunkOf(int length) {
+      final bytes = Uint8List(ByteFrame.headerLength + length);
+      ByteData.sublistView(bytes)
+        ..setUint8(4, ByteFrameKind.chunk.index)
+        ..setUint32(8, length);
+      return bytes;
+    }
+
+    check(ByteFrame.decode(chunkOf(ByteFrame.maxChunk)).payload).length
+        .equals(ByteFrame.maxChunk);
+    check(() => ByteFrame.decode(chunkOf(ByteFrame.maxChunk + 1)))
+        .throws<FormatException>();
+    check(
+      () => ByteFrame(
+        1,
+        ByteFrameKind.chunk,
+        payload: Uint8List(ByteFrame.maxChunk + 1),
+      ).encode(),
+    ).throws<StateError>();
   });
 }
 
