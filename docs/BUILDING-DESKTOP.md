@@ -434,7 +434,10 @@ administrator, into `%LOCALAPPDATA%\Programs\Conduit`:
 - Windows' Restart Manager closes a running Conduit and its conduitd
   before files are replaced; run with `/RELAUNCH=1` (as WinSparkle runs an
   update), it starts the app again when it's done;
-- uninstalling removes all of that and always keeps the user's data,
+- uninstalling closes a running Conduit and its conduitd first (Restart
+  Manager over the app's `.exe` and `.dll` files, in `conduit.iss`'s
+  `[Code]`: Inno Setup's `CloseApplications` is Setup's only), then
+  removes all of that and always keeps the user's data,
   without asking: chats and files saved on the computer, settings and logs
   in `%LOCALAPPDATA%\Conduit`, and the key that encrypts them in Credential
   Manager (Windows Credentials: the generic credentials named
@@ -451,12 +454,20 @@ above): nfpm is `NFPM`, or the version `packaging/linux/tools.env` pins,
 downloaded into `desktop/target/nfpm/<version>/` and checked. The packages
 install `/usr/lib/conduit/` (the app with `conduitd/` beside it),
 `/usr/bin/conduit-desktop` (a link), the desktop entry
-`/usr/share/applications/conduit-desktop.desktop` (`conduit://` and the
-Mac's document types as MIME types, `Exec=… %U`), hicolor icons and
+`/usr/share/applications/conduit-desktop.desktop` (`conduit://`, Open
+With for the Mac's document types, `Exec=… %U`, and `StartupWMClass`, the
+`WM_CLASS` and Wayland app id the windows carry), hicolor icons and
 `/usr/share/doc/conduit-desktop/` (the licence and the third-party notices).
 The notices are also in `/usr/lib/conduit/`, beside the app, where Settings
 › About opens them: a minimized system (dpkg's `path-exclude`, rpm's
 `nodocs`) drops the doc folder's copy.
+The desktop entry never makes Conduit a file type's default app: GIO (and
+so GNOME's file manager and `xdg-open`) takes an app that lists a type
+itself before the default of the type's parent. So it lists `text/plain`
+for Markdown, CSV and JSON, which reach GNOME's text editor through it,
+and leaves out the Office formats, which reach the Archive Manager through
+`application/zip` wherever no office suite is installed (`winlinux.py
+types desktop-entry`).
 `package.sh --notices FILE` takes the notices; without it, it runs
 `notices.sh` (cargo-about needed). Removing a package keeps the user's
 data: `~/.local/share/conduit`, the logs in `~/.local/state/conduit/logs`,
@@ -480,9 +491,12 @@ app's `--smoke` pass (on Linux under Xvfb, on a session bus of its own
 with GNOME Keyring on an unencrypted default keyring of the smoke's own,
 never the user's, so nothing prompts), check no conduitd is left, and
 uninstall,
-checking nothing is left but the user's data; `smoke.ps1` also installs
-over the running app, as WinSparkle runs an update, and checks the app
-starts again. With `-UpdateFeed DIR` / `--update-feed DIR` they serve
+checking nothing is left but the user's data. `smoke.sh` also checks no
+file type the app opens gets another default app (GIO, asked before and
+after in a GNOME-like desktop of the smoke's own) and the windows'
+`WM_CLASS` is the entry's `StartupWMClass`; `smoke.ps1` installs over the
+running app, as WinSparkle runs an update, checks the app starts again,
+and uninstalls while that app and its conduitd run. With `-UpdateFeed DIR` / `--update-feed DIR` they serve
 `DIR` on 127.0.0.1 while the smoke pass runs, and its update check (the
 `--smoke` pass asks the updater for one) must find nothing newer: CI's
 rehearsal builds the packages with a throwaway key and that feed's URL. `smoke.sh --container PACKAGE` checks a package in a
@@ -878,7 +892,9 @@ before compiling.
 
 `THIRD_PARTY_NOTICES.md` is generated, not committed: `bundle.sh build`
 writes it into each bundle's `Resources`, the Windows and Linux packages
-install their own (Settings › About opens the installed copy, else the
+install their own (Settings › About opens the installed copy in the
+system's plain-text app, never Conduit: the Mac's default app, Notepad on
+Windows, the desktop's app for `text/plain` on Linux; else the
 repository's page on the notices), and
 CI's `desktop.yml` runs the generator's check with the release bundle
 (see [Checks](#checks) for when that runs).
