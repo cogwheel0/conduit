@@ -2645,6 +2645,24 @@ fn default_call_report_ok() -> bool {
 /// A flat struct is safe here because `kConduitProtocolVersion` demands strict
 /// equality — the daemon and the UI are always the same build, so there is no
 /// "older peer sees an unknown flag" case to design around.
+/// A namespace of methods (`ConduitMethods`) that a host may not serve at
+/// all (`Capabilities.notOffered`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HostNamespace {
+    #[serde(rename = "speech")]
+    Speech,
+    #[serde(rename = "calls")]
+    Calls,
+    #[serde(rename = "apple")]
+    Apple,
+    #[serde(rename = "location")]
+    Location,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
@@ -2723,10 +2741,10 @@ pub struct Capabilities {
     #[serde(default)]
     pub bulk_selection: bool,
     /// Namespaces this host does not serve at all, whatever the account:
-    /// each answers `rpc.unsupported`. A host sharing an app's own core (the
-    /// phone) leaves `speech`, `calls`, `apple` and `location` to the app.
+    /// every method in them answers `rpc.unsupported`. A host sharing an
+    /// app's own core (the phone) leaves all of these to the app.
     #[serde(default)]
-    pub not_offered: Vec<String>,
+    pub not_offered: Vec<HostNamespace>,
     /// A LibreChat account owns the chats, and what its role may use there.
     /// Null otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]

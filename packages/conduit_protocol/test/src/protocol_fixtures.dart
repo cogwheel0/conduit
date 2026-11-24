@@ -59,7 +59,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'capabilitiesHermesOnly': const Capabilities(hermes: true, hermesOnly: true),
   'capabilitiesSharedContainer': const Capabilities(
     notes: true,
-    notOffered: <String>['speech', 'calls', 'apple', 'location'],
+    notOffered: HostNamespace.values,
   ),
   'rpcErrorMinimal': const RpcError(code: ConduitErrorCodes.offline),
   'rpcErrorFull': const RpcError(

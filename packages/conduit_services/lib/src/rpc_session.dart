@@ -104,7 +104,6 @@ final class CoreServices {
     this.speech,
     this.speechReports,
     this.callsReports,
-    this.notOffered = const <String>{},
     this.calls,
     this.apple,
     this.location,
@@ -171,9 +170,6 @@ final class CoreServices {
   /// Where `calls.report` goes. It outlives [calls] while transports close:
   /// a call still starting waits for the window's answer before it stops.
   final CallsService? callsReports;
-
-  /// Namespaces this host does not serve: each answers `rpc.unsupported`.
-  final Set<String> notOffered;
 
   /// `calls.*`: voice calls.
   final CallsService? calls;
@@ -359,8 +355,20 @@ class RpcSession {
       throw StateError('${spec.name} is registered twice');
     }
     _registered[spec.name] = spec;
+    final namespace = HostNamespace.values
+        .where((n) => spec.name.startsWith('${n.name}.'))
+        .firstOrNull;
     registerSpecMethod<P, R>(_peer, spec, (params) {
       if (!beforeHandshake) _requireHandshake();
+      // Refused exactly when the capabilities say so: one list, read here.
+      if (namespace != null &&
+          _system.capabilities.notOffered.contains(namespace)) {
+        throw RpcError(
+          code: ConduitErrorCodes.unsupported,
+          args: <String, String>{'namespace': namespace.name},
+          debugMessage: '${namespace.name}.* is not offered by this host',
+        );
+      }
       return handler(params);
     });
   }
@@ -744,19 +752,6 @@ class RpcSession {
     );
     _on(ConduitMethodSpecs.dataConnection, (_) => _need(_data).connection());
     _on(ConduitMethodSpecs.dataReconnect, (_) => _need(_data).reconnect());
-  }
-
-  /// [service], or `rpc.unsupported` when this host does not serve
-  /// [namespace] at all.
-  T _offered<T extends Object>(String namespace, T? service) {
-    if (_services().notOffered.contains(namespace)) {
-      throw RpcError(
-        code: ConduitErrorCodes.unsupported,
-        args: <String, String>{'namespace': namespace},
-        debugMessage: '$namespace.* is not offered by this host',
-      );
-    }
-    return _need(service);
   }
 
   /// [service], or `rpc.daemonUnavailable` while the core is coming up.
@@ -1512,45 +1507,45 @@ class RpcSession {
     );
 
     // speech.*: read aloud, run here; the window speaks and plays.
-    _on(ConduitMethodSpecs.speechGet, (_) async => _offered('speech', _speech).get());
-    _on(ConduitMethodSpecs.speechToggle, (p) => _offered('speech', _speech).toggle(p));
-    _on(ConduitMethodSpecs.speechPause, (_) => _offered('speech', _speech).pause());
-    _on(ConduitMethodSpecs.speechResume, (_) => _offered('speech', _speech).resume());
-    _on(ConduitMethodSpecs.speechStop, (_) => _offered('speech', _speech).stop());
-    _on(ConduitMethodSpecs.speechRetry, (_) => _offered('speech', _speech).retry());
-    _on(ConduitMethodSpecs.speechSeek, (p) => _offered('speech', _speech).seek(p));
-    _on(ConduitMethodSpecs.speechPreview, (p) => _offered('speech', _speech).preview(p));
+    _on(ConduitMethodSpecs.speechGet, (_) async => _need(_speech).get());
+    _on(ConduitMethodSpecs.speechToggle, (p) => _need(_speech).toggle(p));
+    _on(ConduitMethodSpecs.speechPause, (_) => _need(_speech).pause());
+    _on(ConduitMethodSpecs.speechResume, (_) => _need(_speech).resume());
+    _on(ConduitMethodSpecs.speechStop, (_) => _need(_speech).stop());
+    _on(ConduitMethodSpecs.speechRetry, (_) => _need(_speech).retry());
+    _on(ConduitMethodSpecs.speechSeek, (p) => _need(_speech).seek(p));
+    _on(ConduitMethodSpecs.speechPreview, (p) => _need(_speech).preview(p));
     _on(ConduitMethodSpecs.speechReport, (p) async {
-      _offered('speech', _services().speechReports).report(p);
+      _need(_services().speechReports).report(p);
       return const OkResult(ok: true);
     });
 
     // calls.*: voice calls, run here; the window listens and plays.
-    _on(ConduitMethodSpecs.callsGet, (_) async => _offered('calls', _calls).get());
-    _on(ConduitMethodSpecs.callsStart, (p) => _offered('calls', _calls).start(p));
-    _on(ConduitMethodSpecs.callsEnd, (_) => _offered('calls', _calls).end());
-    _on(ConduitMethodSpecs.callsPause, (_) => _offered('calls', _calls).pause());
-    _on(ConduitMethodSpecs.callsResume, (_) => _offered('calls', _calls).resume());
-    _on(ConduitMethodSpecs.callsMute, (_) => _offered('calls', _calls).mute());
-    _on(ConduitMethodSpecs.callsSkip, (_) => _offered('calls', _calls).skip());
+    _on(ConduitMethodSpecs.callsGet, (_) async => _need(_calls).get());
+    _on(ConduitMethodSpecs.callsStart, (p) => _need(_calls).start(p));
+    _on(ConduitMethodSpecs.callsEnd, (_) => _need(_calls).end());
+    _on(ConduitMethodSpecs.callsPause, (_) => _need(_calls).pause());
+    _on(ConduitMethodSpecs.callsResume, (_) => _need(_calls).resume());
+    _on(ConduitMethodSpecs.callsMute, (_) => _need(_calls).mute());
+    _on(ConduitMethodSpecs.callsSkip, (_) => _need(_calls).skip());
     _on(ConduitMethodSpecs.callsReport, (p) async {
-      _offered('calls', _services().callsReports).report(p);
+      _need(_services().callsReports).report(p);
       return const OkResult(ok: true);
     });
 
     // apple.*: Apple's on-device model; the chat runs here, the model in
     // the window.
-    _on(ConduitMethodSpecs.appleStatus, (_) => _offered('apple', _apple).status());
-    _on(ConduitMethodSpecs.appleRefresh, (_) => _offered('apple', _apple).refresh());
-    _on(ConduitMethodSpecs.appleChoose, (_) => _offered('apple', _apple).choose());
+    _on(ConduitMethodSpecs.appleStatus, (_) => _need(_apple).status());
+    _on(ConduitMethodSpecs.appleRefresh, (_) => _need(_apple).refresh());
+    _on(ConduitMethodSpecs.appleChoose, (_) => _need(_apple).choose());
     _on(ConduitMethodSpecs.appleReport, (p) async {
-      _offered('apple', _apple).report(p, from: sessionId);
+      _need(_apple).report(p, from: sessionId);
       return const OkResult(ok: true);
     });
 
     // location.*: the window answers the daemon's location questions.
     _on(ConduitMethodSpecs.locationReport, (p) async {
-      _offered('location', _location).report(p);
+      _need(_location).report(p);
       return const OkResult(ok: true);
     });
 

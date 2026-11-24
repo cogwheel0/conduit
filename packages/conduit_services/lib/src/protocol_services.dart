@@ -1,4 +1,5 @@
 import 'package:conduit_core/ports/paths_port.dart';
+import 'package:conduit_protocol/conduit_protocol.dart' show HostNamespace;
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:stream_channel/stream_channel.dart';
@@ -103,12 +104,7 @@ final class ProtocolHostPorts {
 
 /// What a host that shares an app's container does not serve: the app does
 /// these itself ([ProtocolHostPorts.sharesAppContainer]).
-const List<String> sharedContainerNotOffered = <String>[
-  'speech',
-  'calls',
-  'apple',
-  'location',
-];
+const List<HostNamespace> sharedContainerNotOffered = HostNamespace.values;
 
 /// The protocol's services over one container: built, wired to each other
 /// and to the host's ports, and stopped in the order they depend on.
@@ -290,7 +286,9 @@ final class ProtocolServices {
     _capabilities = CapabilitiesService(
       container,
       events: events,
-      notOffered: shared ? sharedContainerNotOffered : const <String>[],
+      notOffered: shared
+          ? sharedContainerNotOffered
+          : const <HostNamespace>[],
       // Not from inside the constructor: a host that refuses the first
       // answer must find the watcher already held, so [dispose] stops it.
       onChange: (capabilities) {
@@ -466,9 +464,6 @@ final class ProtocolServices {
     calls: transports ? _calls : null,
     apple: _apple,
     location: _ports.sharesAppContainer ? null : _ports.window.location,
-    notOffered: _ports.sharesAppContainer
-        ? sharedContainerNotOffered.toSet()
-        : const <String>{},
     handoff: _handoff,
     calendar: _calendar,
     automations: _automations,

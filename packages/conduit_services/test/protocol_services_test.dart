@@ -523,14 +523,21 @@ void main() {
         ).toJson(),
       ) as Map<String, dynamic>,
     );
-    // Known before anything is asked of them.
-    expect(handshake.capabilities.notOffered, sharedContainerNotOffered);
-    for (final (method, params) in <(String, Map<String, dynamic>)>[
-      (ConduitMethods.speechGet, const <String, dynamic>{}),
-      (ConduitMethods.callsGet, const <String, dynamic>{}),
-      (ConduitMethods.appleStatus, const <String, dynamic>{}),
-      (ConduitMethods.locationReport, const LocationReport(id: 1).toJson()),
-    ]) {
+    // Known before anything is asked of them, and refused exactly as
+    // listed: a method of each namespace, every namespace there is.
+    expect(handshake.capabilities.notOffered, HostNamespace.values);
+    final methodOf = <HostNamespace, (String, Map<String, dynamic>)>{
+      HostNamespace.speech: (ConduitMethods.speechGet, const {}),
+      HostNamespace.calls: (ConduitMethods.callsGet, const {}),
+      HostNamespace.apple: (ConduitMethods.appleStatus, const {}),
+      HostNamespace.location: (
+        ConduitMethods.locationReport,
+        const LocationReport(id: 1).toJson(),
+      ),
+    };
+    expect(methodOf.keys, unorderedEquals(HostNamespace.values));
+    for (final MapEntry(key: namespace, value: (method, params))
+        in methodOf.entries) {
       await expectLater(
         window.sendRequest(method, params),
         throwsA(
@@ -542,7 +549,7 @@ void main() {
                 .having(
                   (e) => e.debugMessage,
                   'message',
-                  contains('not offered by this host'),
+                  '${namespace.name}.* is not offered by this host',
                 ),
           ),
         ),

@@ -14,6 +14,10 @@ part 'capabilities.g.dart';
 /// A flat struct is safe here because [kConduitProtocolVersion] demands strict
 /// equality — the daemon and the UI are always the same build, so there is no
 /// "older peer sees an unknown flag" case to design around.
+/// A namespace of methods ([ConduitMethods]) that a host may not serve at
+/// all ([Capabilities.notOffered]).
+enum HostNamespace { speech, calls, apple, location }
+
 @freezed
 abstract class Capabilities with _$Capabilities {
   const factory Capabilities({
@@ -84,9 +88,9 @@ abstract class Capabilities with _$Capabilities {
     @Default(false) bool bulkSelection,
 
     /// Namespaces this host does not serve at all, whatever the account:
-    /// each answers `rpc.unsupported`. A host sharing an app's own core (the
-    /// phone) leaves `speech`, `calls`, `apple` and `location` to the app.
-    @Default(<String>[]) List<String> notOffered,
+    /// every method in them answers `rpc.unsupported`. A host sharing an
+    /// app's own core (the phone) leaves all of these to the app.
+    @Default(<HostNamespace>[]) List<HostNamespace> notOffered,
 
     /// A LibreChat account owns the chats, and what its role may use there.
     /// Null otherwise.

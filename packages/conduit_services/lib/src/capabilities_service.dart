@@ -31,7 +31,7 @@ final class CapabilitiesService {
     this._container, {
     EventBus? events,
     void Function(Capabilities capabilities)? onChange,
-    List<String> notOffered = const <String>[],
+    List<HostNamespace> notOffered = const <HostNamespace>[],
   }) : _events = events,
        _onChange = onChange,
        _notOffered = notOffered {
@@ -77,7 +77,7 @@ final class CapabilitiesService {
   final ProviderContainer _container;
   final EventBus? _events;
   final void Function(Capabilities capabilities)? _onChange;
-  final List<String> _notOffered;
+  final List<HostNamespace> _notOffered;
   late final ProviderSubscription<AccountFeatures> _features;
   late final ProviderSubscription<AsyncValue<BackendConfig?>> _config;
   late final ProviderSubscription<AsyncValue<ServerConfig?>> _server;
