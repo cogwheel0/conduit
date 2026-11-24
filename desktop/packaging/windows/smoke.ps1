@@ -21,10 +21,12 @@ smoke; also a test VM):
    update (winlinux_feed.py installer-arguments: /SILENT ... /RELAUNCH=1):
    the installer closes the app and its conduitd (Restart Manager),
    replaces the files and starts the app again. It waits for the app's
-   conduitd and for the new app through process start traces, which need
-   an administrator (CI's runner user is one), then stops the new app.
-4. Uninstalls silently: the install folder, the Start menu entry and every
-   registration are gone, and the user's data folder is still there.
+   conduitd, and for the new app and its conduitd, through process start
+   traces, which need an administrator (CI's runner user is one).
+4. Uninstalls silently while that app and its conduitd run: the uninstall
+   closes both (Restart Manager, as the installer does), then the install
+   folder, the Start menu entry and every registration are gone, and the
+   user's data folder is still there.
 
 It installs into this user's %LOCALAPPDATA%\Programs\Conduit and
 uninstalls it at the end: run it only where that is wanted. Every app run
@@ -203,12 +205,14 @@ $oldDaemons = @(Get-ProcessAt $daemon)
 # A process object reads its exit only through a handle opened while it ran.
 foreach ($p in @($running) + $oldDaemons) { $null = $p.Handle }
 # The app the update starts again is the setup's: setup.exe starts its .tmp,
-# which starts the app. Every start of either kind is traced, and the one
-# whose parent is the setup or its .tmp is the app to check and to stop
-# (only a process this smoke started, never one found by its path).
+# which starts the app, which starts its conduitd. Every start of those
+# kinds is traced, and the ones descending from the setup are the app and
+# the conduitd to check and to uninstall under (only processes this smoke
+# started, never ones found by their path).
 Register-CimIndicationEvent -SourceIdentifier UpdateStarts `
-  -Query "SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName = 'conduit-desktop.exe' OR ProcessName LIKE '%.tmp'"
+  -Query "SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName = 'conduit-desktop.exe' OR ProcessName = 'conduitd.exe' OR ProcessName LIKE '%.tmp'"
 $relaunched = $null
+$relaunchedDaemon = $null
 try {
   $log = Join-Path $Work 'reinstall.log'
   # Not -Wait: that waits for the setup's descendants, and the app it
@@ -227,7 +231,7 @@ try {
   # known yet waits here and is matched once that parent joins.
   $unmatched = [System.Collections.Generic.List[object]]::new()
   $deadline = [DateTime]::UtcNow.AddMinutes(2)
-  while (-not $relaunched -and [DateTime]::UtcNow -lt $deadline) {
+  while (-not $relaunchedDaemon -and [DateTime]::UtcNow -lt $deadline) {
     $null = Wait-Event -SourceIdentifier UpdateStarts -Timeout 5
     foreach ($queued in @(Get-Event -SourceIdentifier UpdateStarts -ErrorAction SilentlyContinue)) {
       $unmatched.Add($queued.SourceEventArgs.NewEvent)
@@ -240,36 +244,45 @@ try {
         if ($family.ContainsKey([int]$started.ParentProcessID)) {
           $family[[int]$started.ProcessID] = $true
           if ($started.ProcessName -eq 'conduit-desktop.exe') { $relaunched = [int]$started.ProcessID }
+          if ($started.ProcessName -eq 'conduitd.exe' -and $relaunched -and [int]$started.ParentProcessID -eq $relaunched) {
+            $relaunchedDaemon = [int]$started.ProcessID
+          }
           $null = $unmatched.Remove($started)
           $joined = $true
         }
       }
-    } while ($joined -and -not $relaunched)
+    } while ($joined -and -not $relaunchedDaemon)
   }
 } finally {
   Unregister-Event -SourceIdentifier UpdateStarts
 }
 Expect ([bool]$relaunched) "the update (pid $($setup.Id)) started no app in 2 minutes"
+Expect ([bool]$relaunchedDaemon) "the app the update started (pid $relaunched) started no conduitd in 2 minutes"
 $again = Get-Process -Id $relaunched -ErrorAction SilentlyContinue
 Expect ([bool]$again) "the app the update started (pid $relaunched) has already ended"
 $null = $again.Handle
 Expect ($again.Path -eq $exe) "the update started $($again.Path) (pid $relaunched), not $exe"
+$againDaemon = Get-Process -Id $relaunchedDaemon -ErrorAction SilentlyContinue
+Expect ([bool]$againDaemon) "the started app's conduitd (pid $relaunchedDaemon) has already ended"
+$null = $againDaemon.Handle
+Expect ($againDaemon.Path -eq $daemon) "the started app ran $($againDaemon.Path) (pid $relaunchedDaemon), not $daemon"
 Assert-Installed
-Log "the installer closed the app and its conduitd, replaced the files and started the app again (pid $relaunched, from setup pid $($setup.Id))"
-Stop-Process -Id $relaunched
-$again.WaitForExit()
-# Its job object ends its conduitd with it.
-$left = @(Get-ProcessAt $daemon)
-$left | ForEach-Object { $null = $_.Handle; $_.WaitForExit(30000) | Out-Null }
-Expect (@($left | Where-Object { -not $_.HasExited }).Count -eq 0) 'the started app left a conduitd running'
+Log "the installer closed the app and its conduitd, replaced the files and started the app again (pid $relaunched, its conduitd pid $relaunchedDaemon, from setup pid $($setup.Id))"
 
-# 4. Uninstall.
+# 4. Uninstall while that app and its conduitd run.
 $keep = Join-Path $env:LOCALAPPDATA 'Conduit\User Data\smoke-keep.txt'
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $keep) | Out-Null
 Set-Content -LiteralPath $keep -Value 'the uninstaller keeps the user data'
 $uninstaller = (Get-RegValue $uninstallKey 'UninstallString').Trim('"')
-Log "uninstalling ($uninstaller)"
-Invoke-Setup $uninstaller (Join-Path $Work 'uninstall.log')
+$uninstallLog = Join-Path $Work 'uninstall.log'
+Log "uninstalling ($uninstaller) while the app (pid $relaunched) and its conduitd (pid $relaunchedDaemon) run"
+Invoke-Setup $uninstaller $uninstallLog
+Expect ([bool](Select-String -LiteralPath $uninstallLog -Pattern 'Restart Manager over the app''s \d+ files: status 0$' -Quiet)) `
+  "the uninstall's Restart Manager didn't close what had the app's files open (see $uninstallLog)"
+foreach ($p in $again, $againDaemon) { $p.WaitForExit(30000) | Out-Null }
+Expect ($again.HasExited) "the uninstall left the app (pid $relaunched) running"
+Expect ($againDaemon.HasExited) "the uninstall left its conduitd (pid $relaunchedDaemon) running"
+Log 'the uninstall closed the app and its conduitd'
 & python $winlinux gone $app $shortcut
 foreach ($key in $ownedKeys) {
   Expect (-not (Test-Path -LiteralPath $key)) "$key is still there"

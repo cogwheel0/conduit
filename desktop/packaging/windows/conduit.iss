@@ -8,7 +8,8 @@
 ; Every text the installer shows is Inno Setup's own, in its translations
 ; of the app's languages (Chinese has none, so it gets English).
 ;
-; Uninstalling removes what this installed: the app's folder, its Start menu
+; Uninstalling closes a running Conduit and its conduitd first, as Setup
+; does, then removes what this installed: the app's folder, its Start menu
 ; entry and its registrations. The user's data
 ; (%LOCALAPPDATA%\Conduit\User Data, its logs, the key in Credential
 ; Manager, the updater's settings in HKCU\Software\Conduit\Updates) is
@@ -16,6 +17,11 @@
 
 #if Ver < EncodeVer(6, 3, 0)
   #error Inno Setup 6.3 or later is needed (x64compatible)
+#endif
+; [Code]'s Restart Manager calls pass pointers as Cardinal: Setup and
+; Uninstall are 32-bit through Inno Setup 6.
+#if Ver >= EncodeVer(7, 0, 0)
+  #error Check the Restart Manager declarations in [Code] for a 64-bit Uninstall
 #endif
 #ifndef AppVersion
   #error Pass /DAppVersion=X.Y.Z (build.ps1 does)
@@ -150,4 +156,84 @@ Filename: "{app}\conduit-desktop.exe"; Flags: nowait; Check: RelaunchAfterUpdate
 function RelaunchAfterUpdate: Boolean;
 begin
   Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
+end;
+
+// Uninstall has no CloseApplications: a running app and its conduitd would
+// keep their files. Restart Manager closes whatever has the app's .exe and
+// .dll files open, as Setup's CloseApplications=force does, before any file
+// is removed.
+const
+  CCH_RM_SESSION_KEY = 32;
+  RmForceShutdown = 1;
+
+function RmStartSession(var SessionHandle: DWORD; SessionFlags: DWORD; SessionKey: String): DWORD;
+  external 'RmStartSession@rstrtmgr.dll stdcall delayload';
+function RmRegisterResources(SessionHandle: DWORD; FileCount: Cardinal; FileNames: TArrayOfString;
+  ApplicationCount: Cardinal; Applications: Cardinal; ServiceCount: Cardinal; ServiceNames: Cardinal): DWORD;
+  external 'RmRegisterResources@rstrtmgr.dll stdcall delayload';
+function RmShutdown(SessionHandle: DWORD; ActionFlags: DWORD; StatusCallback: Cardinal): DWORD;
+  external 'RmShutdown@rstrtmgr.dll stdcall delayload';
+function RmEndSession(SessionHandle: DWORD): DWORD;
+  external 'RmEndSession@rstrtmgr.dll stdcall delayload';
+
+// The .exe and .dll files under Dir, the uninstaller's own left out.
+procedure AddRunnableFiles(const Dir: String; var Files: TArrayOfString);
+var
+  Found: TFindRec;
+  Name: String;
+begin
+  if not FindFirst(Dir + '\*', Found) then
+    Exit;
+  try
+    repeat
+      Name := Found.Name;
+      if Found.Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0 then
+      begin
+        if (Name <> '.') and (Name <> '..') then
+          AddRunnableFiles(Dir + '\' + Name, Files);
+      end
+      else if ((CompareText(ExtractFileExt(Name), '.exe') = 0) or
+               (CompareText(ExtractFileExt(Name), '.dll') = 0)) and
+              (CompareText(Copy(Name, 1, 5), 'unins') <> 0) then
+      begin
+        SetArrayLength(Files, GetArrayLength(Files) + 1);
+        Files[GetArrayLength(Files) - 1] := Dir + '\' + Name;
+      end;
+    until not FindNext(Found);
+  finally
+    FindClose(Found);
+  end;
+end;
+
+procedure CloseRunningApp;
+var
+  Session, Status: DWORD;
+  SessionKey: String;
+  Files: TArrayOfString;
+begin
+  AddRunnableFiles(ExpandConstant('{app}'), Files);
+  if GetArrayLength(Files) = 0 then
+    Exit;
+  SessionKey := StringOfChar(' ', CCH_RM_SESSION_KEY + 1);
+  Status := RmStartSession(Session, 0, SessionKey);
+  if Status <> 0 then
+  begin
+    Log(Format('Restart Manager: no session (%d); a running app keeps its files', [Status]));
+    Exit;
+  end;
+  try
+    Status := RmRegisterResources(Session, GetArrayLength(Files), Files, 0, 0, 0, 0);
+    if Status = 0 then
+      Status := RmShutdown(Session, RmForceShutdown, 0);
+    // Status 0: nothing has them open any more (smoke.ps1 reads this line).
+    Log(Format('Restart Manager over the app''s %d files: status %d', [GetArrayLength(Files), Status]));
+  finally
+    RmEndSession(Session);
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    CloseRunningApp;
 end;
