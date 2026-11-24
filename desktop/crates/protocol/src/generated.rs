@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.79.0";
+pub const PROTOCOL_VERSION: &str = "1.80.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -2722,6 +2722,11 @@ pub struct Capabilities {
     pub tags: bool,
     #[serde(default)]
     pub bulk_selection: bool,
+    /// Namespaces this host does not serve at all, whatever the account:
+    /// each answers `rpc.unsupported`. A host sharing an app's own core (the
+    /// phone) leaves `speech`, `calls`, `apple` and `location` to the app.
+    #[serde(default)]
+    pub not_offered: Vec<String>,
     /// A LibreChat account owns the chats, and what its role may use there.
     /// Null otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -30,5 +30,6 @@
   "branchNavigation": false,
   "messageRating": false,
   "tags": false,
-  "bulkSelection": true
+  "bulkSelection": true,
+  "notOffered": []
 }

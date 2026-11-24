@@ -83,6 +83,11 @@ abstract class Capabilities with _$Capabilities {
     @Default(false) bool tags,
     @Default(false) bool bulkSelection,
 
+    /// Namespaces this host does not serve at all, whatever the account:
+    /// each answers `rpc.unsupported`. A host sharing an app's own core (the
+    /// phone) leaves `speech`, `calls`, `apple` and `location` to the app.
+    @Default(<String>[]) List<String> notOffered,
+
     /// A LibreChat account owns the chats, and what its role may use there.
     /// Null otherwise.
     LibreChatFeatures? libreChat,
