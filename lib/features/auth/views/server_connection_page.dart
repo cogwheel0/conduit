@@ -283,7 +283,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         ..clear()
         ..addAll(draft.headers);
       _showAdvancedSettings =
-          draft.useTailscale ||
           draft.allowSelfSigned ||
           draft.headers.isNotEmpty ||
           (!kIsWeb && draft.hasMutualTlsInput);
@@ -349,7 +348,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         ..clear()
         ..addAll(endpoint.customHeaders);
       _showAdvancedSettings =
-          endpoint.useTailscale ||
           endpoint.allowSelfSignedCertificates ||
           endpoint.customHeaders.isNotEmpty ||
           (!kIsWeb && endpoint.mtlsPrivateKeyPem != null);
@@ -514,7 +512,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         ..clear()
         ..addAll(config.customHeaders);
       _showAdvancedSettings =
-          config.useTailscale ||
           config.allowSelfSignedCertificates ||
           config.customHeaders.isNotEmpty ||
           (!kIsWeb && config.hasMutualTlsCredentials);
@@ -1504,6 +1501,39 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           ),
         ),
 
+        if (supportsMobileTailnet) ...[
+          const SizedBox(height: Spacing.md),
+          InsetGroupedSection(
+            flat: true,
+            footer: _useTailscale ? l10n.tailscaleAccountHelp : null,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: ExcludeSemantics(child: Text(l10n.useTailscale)),
+                    ),
+                    AdaptiveSwitch(
+                      value: _useTailscale,
+                      semanticLabel: l10n.useTailscale,
+                      onChanged: _isConnecting ? null : _setUseTailscale,
+                    ),
+                  ],
+                ),
+                if (_useTailscale)
+                  ConduitButton(
+                    text: l10n.signIn,
+                    isSecondary: true,
+                    onPressed: _isConnecting
+                        ? null
+                        : MobileTailnet.instance.signIn,
+                  ),
+              ],
+            ),
+          ),
+        ],
+
         if (_attemptState.isVisible) ...[
           const SizedBox(height: Spacing.md),
           ConnectionAttemptBanner(state: _attemptState),
@@ -1568,6 +1598,19 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               },
               onSubmitted: (_) => _connectToServer(),
             ),
+            if (supportsMobileTailnet) ...[
+              AuthGroupedSwitchRow(
+                title: l10n.useTailscale,
+                value: _useTailscale,
+                onChanged: _isConnecting ? null : _setUseTailscale,
+              ),
+              if (_useTailscale)
+                AuthGroupedRow(
+                  title: l10n.signIn,
+                  subtitle: l10n.tailscaleAccountHelp,
+                  onTap: _isConnecting ? null : MobileTailnet.instance.signIn,
+                ),
+            ],
             AuthGroupedRow(
               key: const ValueKey<String>('advanced-settings-toggle'),
               title: l10n.advancedSettings,
@@ -1610,24 +1653,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         gap,
-        if (supportsMobileTailnet) ...[
-          AuthGroupedSection(
-            footer: l10n.tailscaleAccountHelp,
-            children: [
-              AuthGroupedSwitchRow(
-                title: l10n.useTailscale,
-                value: _useTailscale,
-                onChanged: _setUseTailscale,
-              ),
-              if (_useTailscale)
-                AuthGroupedRow(
-                  title: l10n.signIn,
-                  onTap: MobileTailnet.instance.signIn,
-                ),
-            ],
-          ),
-          gap,
-        ],
         AuthGroupedSection(
           footer: l10n.allowSelfSignedCertificatesDescription,
           children: [
@@ -1832,31 +1857,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (supportsMobileTailnet)
-          Padding(
-            padding: const EdgeInsets.all(Spacing.md),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(child: Text(l10n.useTailscale)),
-                    AdaptiveSwitch(
-                      value: _useTailscale,
-                      semanticLabel: l10n.useTailscale,
-                      onChanged: _setUseTailscale,
-                    ),
-                  ],
-                ),
-                Text(l10n.tailscaleAccountHelp),
-                if (_useTailscale)
-                  ConduitButton(
-                    text: l10n.signIn,
-                    isSecondary: true,
-                    onPressed: MobileTailnet.instance.signIn,
-                  ),
-              ],
-            ),
-          ),
         // Self-signed certificates toggle
         Padding(
           padding: const EdgeInsets.all(Spacing.md),
