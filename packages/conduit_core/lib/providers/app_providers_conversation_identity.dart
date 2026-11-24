@@ -167,28 +167,38 @@ Conversation withChatStorageProvenance(
 /// count: they are recorded in its own database, so an old id of another
 /// account's names nothing here. Any other id, and one that never moved,
 /// comes back as it is.
-Future<String> currentChatId(dynamic ref, String chatId) async {
+///
+/// Synchronous for an id that cannot have moved, so a caller that reads its
+/// account as the request arrives loses nothing to a wait.
+FutureOr<String> currentChatId(dynamic ref, String chatId) {
   final identity = ChatStorageIdentity.parse(chatId);
   if (identity.storage != null &&
       identity.storage != ChatStorageKind.openWebUi) {
     return chatId;
   }
   if (!identity.rawId.startsWith('local:')) return chatId;
-  final repository =
-      ref.read(chatDatabaseRepositoryProvider) as ChatDatabaseRepository;
-  final location = repository.openWebUiLocation;
+  final ChatDatabaseLocation? location;
+  final ChatDatabaseRepository repository;
+  try {
+    repository =
+        ref.read(chatDatabaseRepositoryProvider) as ChatDatabaseRepository;
+    location = repository.openWebUiLocation;
+  } on Object {
+    // No account database to have recorded a move in.
+    return chatId;
+  }
   if (location == null) return chatId;
-  final moved = await repository.resolveCommittedChatRemapTarget(
-    location,
-    recordedChatId: identity.rawId,
-  );
-  if (moved == null) return chatId;
-  return identity.storage == null
-      ? moved
-      : ChatStorageIdentity(
-          rawId: moved,
-          storage: ChatStorageKind.openWebUi,
-        ).scopedId;
+  return repository
+      .resolveCommittedChatRemapTarget(location, recordedChatId: identity.rawId)
+      .then((moved) {
+        if (moved == null) return chatId;
+        return identity.storage == null
+            ? moved
+            : ChatStorageIdentity(
+                rawId: moved,
+                storage: ChatStorageKind.openWebUi,
+              ).scopedId;
+      });
 }
 
 ChatStorageKind? chatStorageKindOf(Conversation? conversation) {

@@ -1584,8 +1584,11 @@ final class TurnsService implements ChatTurns, AddressReplies {
     // The account the Stop was asked under: a stranded answer is read before
     // it is stopped, and nothing is stopped once another account is in charge.
     final account = AccountScope.capture(_container);
-    chatId = await currentChatId(_container, chatId);
-    if (!account.isCurrent) return;
+    final current = currentChatId(_container, chatId);
+    if (current is! String) {
+      chatId = await current;
+      if (!account.isCurrent) return;
+    }
     final session = _sessionOf(chatId);
     final turn = session?.turn;
     if (session == null || turn == null || turn.finished) {
@@ -3747,9 +3750,12 @@ final class TurnsService implements ChatTurns, AddressReplies {
     account.require('the chat was asked for');
     // A chat asked for by the `local:` id it had before the server stored
     // it is the chat it became.
-    if (chatId != null) {
-      chatId = await currentChatId(_container, chatId);
-      account.require('the chat\'s id was read');
+    if (chatId != null && !temporary.contains(chatId)) {
+      final current = currentChatId(_container, chatId);
+      if (current is! String) {
+        chatId = await current;
+        account.require('the chat\'s id was read');
+      }
     }
     _refuseDeleted(chatId);
     if (chatId != null) {
