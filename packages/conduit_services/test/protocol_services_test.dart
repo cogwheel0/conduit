@@ -585,8 +585,9 @@ void main() {
     expectAppKeepsItsOwn();
   });
 
-  test('over a container an app shares, a channel post is counted and a '
-      'mute applied once, by the app, and still announced', () async {
+  test('over a container an app shares, a channel post is counted, a mute '
+      'applied and an answer from elsewhere alerted once, by the app: the '
+      'services announce none of them', () async {
     await startDesktop();
     // The app's container as its signed-in channels screen leaves it: the
     // socket, the user and the list. The app's own listener counts what
@@ -623,13 +624,13 @@ void main() {
     addTearDown(built.closeTransports);
     built.attach(app);
     final posted = <String>[];
-    final announced = Completer<void>();
     built.events.tap((event, _, _) {
-      if (event != ConduitEvents.channelsPosted) return;
-      posted.add(event);
-      if (!announced.isCompleted) announced.complete();
+      if (event == ConduitEvents.channelsPosted) posted.add(event);
     });
     await app.read(channelsListProvider.future);
+    // The channels service hears the app's socket, and handles each frame
+    // before `channel` returns: nothing below waits.
+    expect(socket.channelHandlers, 1);
 
     socket.channel(<String, dynamic>{
       'channel_id': 'c1',
@@ -649,12 +650,12 @@ void main() {
         'data': <String, dynamic>{'is_channel_muted': true},
       },
     });
-    await announced.future;
 
     final garden = app.read(channelsListProvider).value!.single;
     expect(garden.unreadCount, 0);
     expect(garden.isChannelMuted, isFalse);
-    expect(posted, hasLength(1));
+    expect(posted, isEmpty);
+    expect(socket.chatHandlers, 0);
   });
 
   test('closing again after disposal shows sessions nothing', () async {
@@ -825,6 +826,8 @@ class _ChannelSocket implements SocketService {
   final List<SocketChannelEventHandler> _channel =
       <SocketChannelEventHandler>[];
 
+  int get channelHandlers => _channel.length;
+
   void channel(Map<String, dynamic> event) {
     for (final handler in List.of(_channel)) {
       handler(event, null);
@@ -842,6 +845,10 @@ class _ChannelSocket implements SocketService {
     return SocketEventSubscription(() => _channel.remove(handler));
   }
 
+  /// The chat handlers bound now: the services listen for answers to
+  /// announce only when nobody else does.
+  int chatHandlers = 0;
+
   @override
   SocketEventSubscription addChatEventHandler({
     String? conversationId,
@@ -851,7 +858,10 @@ class _ChannelSocket implements SocketService {
     bool keepsAliveInBackground = false,
     SocketReplayGapCallback? onReplayGap,
     required SocketChatEventHandler handler,
-  }) => SocketEventSubscription(() {});
+  }) {
+    chatHandlers++;
+    return SocketEventSubscription(() => chatHandlers--);
+  }
 
   @override
   SocketEventSubscription addAppEventHandler(SocketAppEventHandler handler) =>

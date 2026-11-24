@@ -9,6 +9,22 @@ typedef EventTap = void Function(
   Map<String, dynamic> payload,
 );
 
+/// What a session's transport has to say about the events it is sent
+/// ([EventBus.attach]): its backpressure.
+abstract interface class EventGate {
+  /// A published event the session's filter wants, asked before it is
+  /// numbered: one refused is never sent, and leaves no gap.
+  bool admit(String event, String? scope, Map<String, dynamic> payload);
+
+  /// An event about to be sent to the session past its filter
+  /// ([EventBus.sendTo]): it goes whatever the gate says, after anything
+  /// the gate sends first.
+  void direct(String event, String? scope, Map<String, dynamic> payload);
+
+  /// The session's filter changed ([EventBus.subscribe]).
+  void filterChanged();
+}
+
 /// Fan-out of daemon events to every connected window, with per-client
 /// filters.
 ///
@@ -30,8 +46,16 @@ class EventBus {
 
   /// Starts delivering to [sessionId]. Its numbering starts at 1, so a
   /// reconnecting window, which is a new session, starts again too.
-  void attach(String sessionId, void Function(EventEnvelope envelope) deliver) {
-    _subscribers[sessionId] = _Subscriber(deliver);
+  ///
+  /// [gate] may refuse a published event the filter wants, as the filter
+  /// does: before it is numbered. It is told of what [sendTo] sends, and of
+  /// every change to the filter.
+  void attach(
+    String sessionId,
+    void Function(EventEnvelope envelope) deliver, {
+    EventGate? gate,
+  }) {
+    _subscribers[sessionId] = _Subscriber(deliver, gate);
     final waiting = List<Completer<bool>>.of(_attachWaiters);
     _attachWaiters.clear();
     for (final waiter in waiting) {
@@ -68,6 +92,10 @@ class EventBus {
     return () => _taps.remove(listener);
   }
 
+  /// Whether [sessionId]'s filter takes [event] under [scope] now.
+  bool wantedBy(String sessionId, String event, String? scope) =>
+      _subscribers[sessionId]?.wants(event, scope) ?? false;
+
   /// Whether a window is listening to [scope] (shows that chat, say).
   bool watches(String scope) =>
       _subscribers.values.any((subscriber) => subscriber.scopes.contains(scope));
@@ -86,6 +114,7 @@ class EventBus {
     final previous = subscriber.scopes;
     subscriber.events = subscription.events.toSet();
     subscriber.scopes = subscription.scopes.toSet();
+    subscriber.gate?.filterChanged();
     return previous;
   }
 
@@ -106,6 +135,7 @@ class EventBus {
     // A copy: delivering can close a session, which detaches it.
     for (final subscriber in _subscribers.values.toList()) {
       if (!subscriber.wants(event, scope)) continue;
+      if (!(subscriber.gate?.admit(event, scope, payload) ?? true)) continue;
       subscriber.send(event, scope, payload);
       reached++;
     }
@@ -125,7 +155,10 @@ class EventBus {
     Map<String, dynamic> payload = const <String, dynamic>{},
   }) {
     if (_closed) return;
-    _subscribers[sessionId]?.send(event, scope, payload);
+    final subscriber = _subscribers[sessionId];
+    if (subscriber == null) return;
+    subscriber.gate?.direct(event, scope, payload);
+    subscriber.send(event, scope, payload);
   }
 
   bool _closed = false;
@@ -176,9 +209,10 @@ class EventBus {
 }
 
 class _Subscriber {
-  _Subscriber(this.deliver);
+  _Subscriber(this.deliver, this.gate);
 
   final void Function(EventEnvelope envelope) deliver;
+  final EventGate? gate;
 
   /// The last sequence number this session was sent.
   int seq = 0;

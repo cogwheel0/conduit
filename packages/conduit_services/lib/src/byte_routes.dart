@@ -9,6 +9,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:stream_channel/stream_channel.dart';
 
 import 'files_service.dart';
+import 'in_process_host.dart' show InProcessProtocolHost;
 import 'media_service.dart';
 import 'protocol_services.dart';
 
@@ -30,6 +31,11 @@ final class ByteRequest {
   final Map<String, String> headers;
 
   /// The body, read once.
+  ///
+  /// A chunk handed over is the route's: the host never writes to its bytes
+  /// again, so a route may keep chunks without copying them (`_collect`
+  /// does). `conduitd`'s are `dart:io`'s views of each socket read, which
+  /// it never reuses; [InProcessProtocolHost] copies each frame's payload.
   final Stream<List<int>> Function() read;
 }
 
@@ -98,6 +104,11 @@ final class ProtocolByteRoutes {
   /// The services once built; none while the core starts.
   final ProtocolServices? Function() _services;
   final MediaService _media;
+
+  /// Whether [path] names a tunnel, whatever its handle, without reading
+  /// any service: a host that carries none answers it by this alone.
+  static bool isTunnel(String path) =>
+      path.startsWith('/terminal/') || path.startsWith('/calls/');
 
   /// The tunnel at [path] (`/terminal/{handle}`, `/calls/{handle}`), or
   /// null when [path] is not one. An unknown handle is refused before the

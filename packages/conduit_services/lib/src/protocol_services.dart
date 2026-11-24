@@ -226,6 +226,7 @@ final class ProtocolServices {
       container,
       events: events,
       keepsChannelList: !shared,
+      announcesPosts: !shared,
     );
     _workspace = WorkspaceService(container, events: events);
     _terminals = TerminalsService(
@@ -248,6 +249,7 @@ final class ProtocolServices {
       container,
       events: events,
       announced: turns.announced,
+      announcesAnswers: !shared,
     );
     _webhooks = WebhooksService(container);
     _integrations = IntegrationsService(container);
@@ -482,11 +484,13 @@ final class ProtocolServices {
 
   /// A window's session over [channel]. The caller runs
   /// [RpcSession.listen], which closes the session when the channel ends.
-  /// None opens once [dispose] has begun.
+  /// None opens once [dispose] has begun. [eventGate] is the transport's
+  /// say over the events it is sent ([EventBus.attach]).
   RpcSession openSession(
     StreamChannel<String> channel, {
     required String sessionId,
     void Function(bool online)? reportNetwork,
+    EventGate? eventGate,
   }) {
     if (_disposed) throw StateError('the protocol services are disposed');
     return RpcSession(
@@ -496,6 +500,7 @@ final class ProtocolServices {
       events: events,
       services: () => core,
       reportNetwork: reportNetwork,
+      eventGate: eventGate,
     );
   }
 

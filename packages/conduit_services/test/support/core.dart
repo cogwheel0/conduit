@@ -26,13 +26,17 @@ import 'fake_owui_auth_server.dart';
 ///
 /// [interceptDatabase], given a database's file name, returns what that
 /// database's queries and close go through (null for none). [databases]
-/// replaces the account databases in [dataDir], and [preferences] the
-/// preferences kept in memory.
+/// replaces the account databases in [dataDir], [preferences] the
+/// preferences kept in memory, and the schedulers and [lifecycle] the
+/// root's own.
 Future<CoreRuntime> startTestCore(
   Directory dataDir, {
   QueryInterceptor? Function(String fileName)? interceptDatabase,
   DatabaseOpenerPort? databases,
   KeyValueStore? preferences,
+  FlushScheduler? flushScheduler,
+  PostFrameScheduler? postFrameScheduler,
+  AppLifecyclePort? lifecycle,
 }) async {
   // `PreferencesStore` is process-wide and keeps the first store it loads,
   // so each runtime gets its own rather than one an earlier test left.
@@ -77,6 +81,9 @@ Future<CoreRuntime> startTestCore(
         connectivity: connectivity,
         reportNetwork: connectivity.report,
         close: close,
+        flushScheduler: flushScheduler,
+        postFrameScheduler: postFrameScheduler,
+        lifecycle: lifecycle,
       ),
       policy: const CoreHostPolicy(
         settingsDefaults: AppSettingsHostDefaults(

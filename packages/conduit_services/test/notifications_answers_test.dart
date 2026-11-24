@@ -4,6 +4,7 @@ library;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
@@ -28,6 +29,7 @@ void main() {
       overrides: [
         socketServiceProvider.overrideWith((ref) => ref.watch(_socketInUse)),
         apiServiceProvider.overrideWithValue(null),
+        appSettingsProvider.overrideWith(_Settings.new),
         settledActiveAccountIdProvider.overrideWith(_SettledAccount.new),
         currentUserProvider2.overrideWithValue(
           const User(
@@ -145,6 +147,29 @@ void main() {
     });
   });
 
+  test('once disposed, a change of settings says nothing', () {
+    notifications.dispose();
+    (container.read(appSettingsProvider.notifier) as _Settings).soundOff();
+    expect(heard, isEmpty);
+  });
+
+  test("over a container an app shares, answers are the app's to tell", () {
+    fakeAsync((async) {
+      notifications.dispose();
+      final shared = NotificationsService(
+        container,
+        events: events,
+        announced: announced.contains,
+        answerGrace: const Duration(milliseconds: 20),
+        announcesAnswers: false,
+      );
+      addTearDown(shared.dispose);
+      socket.chat(frame('tides', 'reply-1'));
+      grace(async);
+      expect(answered(), isEmpty);
+    });
+  });
+
   test('an answer heard on a socket since replaced is not told', () {
     fakeAsync((async) {
       socket.chat(frame('tides', 'reply-1'));
@@ -201,6 +226,14 @@ class _SocketInUse extends Notifier<SocketService?> {
 
   // ignore: use_setters_to_change_properties
   void use(SocketService socket) => state = socket;
+}
+
+/// The settings, which a test may change.
+class _Settings extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings();
+
+  void soundOff() => state = state.copyWith(notificationSound: false);
 }
 
 /// The account the socket belongs to, settled: notifications carry its

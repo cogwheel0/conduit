@@ -51,6 +51,7 @@ final class ChannelsService {
     this._container, {
     EventBus? events,
     this.keepsChannelList = true,
+    this.announcesPosts = true,
   }) : _events = events {
     if (events == null) return;
     _watches.addAll(<ProviderSubscription<Object?>>[
@@ -122,6 +123,12 @@ final class ChannelsService {
   /// container an app shares, whose own listener already does, and would
   /// count each message twice with this one.
   final bool keepsChannelList;
+
+  /// Whether a post from someone else is announced (`channels.posted`) for
+  /// the windows to alert with. False over a container an app shares: the
+  /// app alerts, by its own settings and with its push ledger, and a window
+  /// alerting too would be a second alert for the same message.
+  final bool announcesPosts;
 
   static const _classifier = NotificationEventClassifier();
 
@@ -928,6 +935,7 @@ final class ChannelsService {
       } else if (keepsChannelList) {
         _container.read(channelsListProvider.notifier).bumpUnread(channelId);
       }
+      if (!announcesPosts) return;
       final data = envelope is Map ? envelope['data'] : null;
       final author = data is Map ? data['user'] : null;
       unawaited(
