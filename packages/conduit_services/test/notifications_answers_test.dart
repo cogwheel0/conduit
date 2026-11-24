@@ -153,6 +153,23 @@ void main() {
     expect(heard, isEmpty);
   });
 
+  test("over a container an app shares, answers are the app's to tell", () {
+    fakeAsync((async) {
+      notifications.dispose();
+      final shared = NotificationsService(
+        container,
+        events: events,
+        announced: announced.contains,
+        answerGrace: const Duration(milliseconds: 20),
+        announcesAnswers: false,
+      );
+      addTearDown(shared.dispose);
+      socket.chat(frame('tides', 'reply-1'));
+      grace(async);
+      expect(answered(), isEmpty);
+    });
+  });
+
   test('an answer heard on a socket since replaced is not told', () {
     fakeAsync((async) {
       socket.chat(frame('tides', 'reply-1'));

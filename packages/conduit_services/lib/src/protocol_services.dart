@@ -226,6 +226,7 @@ final class ProtocolServices {
       container,
       events: events,
       keepsChannelList: !shared,
+      announcesPosts: !shared,
     );
     _workspace = WorkspaceService(container, events: events);
     _terminals = TerminalsService(
@@ -248,6 +249,7 @@ final class ProtocolServices {
       container,
       events: events,
       announced: turns.announced,
+      announcesAnswers: !shared,
     );
     _webhooks = WebhooksService(container);
     _integrations = IntegrationsService(container);

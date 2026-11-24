@@ -33,13 +33,15 @@ import 'event_bus.dart';
 /// it followed in a chat it holds) is left to `turn.finished`; any other,
 /// from another device or a scheduled task's run, goes to the windows as
 /// `notifications.answered`, a moment later (the daemon may still be about
-/// to announce it).
+/// to announce it). Not over a container an app shares
+/// ([announcesAnswers] false): the app alerts for those answers itself.
 final class NotificationsService {
   NotificationsService(
     this._container, {
     EventBus? events,
     bool Function(String messageId)? announced,
     Duration answerGrace = const Duration(milliseconds: 1500),
+    bool announcesAnswers = true,
   }) : _events = events,
        _announced = announced,
        _answerGrace = answerGrace {
@@ -51,11 +53,13 @@ final class NotificationsService {
         if (previous != null && _dto(previous) == _dto(next)) return;
         events.emit(ConduitEventSpecs.notificationsChanged, null);
       });
-      _bindSocket(_container.read(socketServiceProvider));
-      _socket = _container.listen<SocketService?>(
-        socketServiceProvider,
-        (_, next) => _bindSocket(next),
-      );
+      if (announcesAnswers) {
+        _bindSocket(_container.read(socketServiceProvider));
+        _socket = _container.listen<SocketService?>(
+          socketServiceProvider,
+          (_, next) => _bindSocket(next),
+        );
+      }
     }
   }
 
