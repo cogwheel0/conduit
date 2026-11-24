@@ -307,9 +307,11 @@ env -u CONDUITD_PATH XDG_RUNTIME_DIR="$work/runtime" \
       printf probe | timeout 20 secret-tool store --label="Conduit smoke probe" conduit-smoke probe &&
         [ "$(timeout 20 secret-tool lookup conduit-smoke probe)" = probe ] || exit 71
     fi
+    # The WM_CLASS its windows carry (instance and class), once one has it;
+    # emptied first, so a reused WORK never offers what an earlier run saw.
+    : >"$3"
     /usr/bin/conduit-desktop --smoke "$1" &
     app=$!
-    # The WM_CLASS its windows carry (instance and class), once one has it.
     while kill -0 "$app" 2>/dev/null && [ ! -s "$3" ]; do
       xwininfo -root -tree 2>/dev/null |
         sed -n "s/.*: (\"\([^\"]*\)\" \"\([^\"]*\)\").*/\1 \2/p" | sort -u >"$3"
