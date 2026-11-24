@@ -209,7 +209,12 @@ final class ProtocolServices {
     ports.window.handoff.attach(handoff);
     _drafts = DraftsService(container, temporary: temporary);
     _mcpApps = McpAppsService(container, events, uiRequests: uiRequests);
-    _accounts = AccountsService(container, events: events, turns: turns);
+    _accounts = AccountsService(
+      container,
+      events: events,
+      turns: turns,
+      sharesAppContainer: shared,
+    );
     _models = ModelsService(container, events: events);
     _composer = ComposerService(container);
     _prompts = PromptsService(container);
