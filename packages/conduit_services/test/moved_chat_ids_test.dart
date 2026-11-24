@@ -24,6 +24,7 @@ import 'package:test/test.dart';
 import 'support/core.dart';
 import 'support/fake_owui_auth_server.dart';
 import 'support/scripted_openai.dart';
+import 'support/step_clock.dart';
 import 'support/window.dart';
 
 /// A chat made here goes by a `local:` id until the server stores it, then
@@ -43,6 +44,7 @@ void main() {
   late String model;
   late List<EventEnvelope> heard;
   late _MoveLookups moves;
+  late StepClock clock;
   Future<void> Function()? beforeBranchCheck;
 
   setUp(() async {
@@ -67,7 +69,15 @@ void main() {
     addTearDown(provider.close);
     events = EventBus();
     events.attach('window', heard.add);
-    turns = TurnsService(runtime.container, events);
+    // The turns' own waits (a chat settling before its next turn) on a
+    // clock that moves only while a test runs ([steps]): none of real time.
+    clock = StepClock();
+    turns = TurnsService(
+      runtime.container,
+      events,
+      now: clock.now,
+      pause: clock.pause,
+    );
     addTearDown(turns.dispose);
     accounts = AccountsService(runtime.container, events: events, turns: turns);
     addTearDown(accounts.dispose);
@@ -93,6 +103,10 @@ void main() {
       'scripted-model',
     );
   });
+
+  /// A test whose waits on the turns' clock pass as it runs.
+  void step(String name, Future<void> Function() body) =>
+      test(name, () => clock.during(body()));
 
   Future<void> certified(String accountId) async {
     final done = Completer<void>();
@@ -170,13 +184,13 @@ void main() {
     return now;
   }
 
-  /// The chats the windows are told changed, from now on.
-  List<String?> toldChanged() {
-    final told = <String?>[];
+  /// The chats the windows are told changed, from now on. Not the list's
+  /// own notice, which names none and comes when its debounce ends.
+  List<String> toldChanged() {
+    final told = <String>[];
     final untap = events.tap((event, _, payload) {
-      if (event == ConduitEvents.chatsChanged) {
-        told.add(payload['chatId'] as String?);
-      }
+      if (event != ConduitEvents.chatsChanged) return;
+      if (payload['chatId'] case final String chatId) told.add(chatId);
     });
     addTearDown(untap);
     return told;
@@ -204,7 +218,7 @@ void main() {
     return hold;
   }
 
-  test('a chat asked for by its old id answers with its transcript, under '
+  step('a chat asked for by its old id answers with its transcript, under '
       'its current id', () async {
     await signIn('ada@example.com', 'pw-ada');
     final (old, now) = await movedChat();
@@ -217,7 +231,7 @@ void main() {
     );
   });
 
-  test('a rename and a delete by the old id land on the moved chat', () async {
+  step('a rename and a delete by the old id land on the moved chat', () async {
     await signIn('ada@example.com', 'pw-ada');
     final (old, now) = await movedChat();
 
@@ -228,7 +242,7 @@ void main() {
     expect((await chats.list()).chats.map((c) => c.id), isNot(contains(now)));
   });
 
-  test('a send by the old id continues the moved chat, and makes no other',
+  step('a send by the old id continues the moved chat, and makes no other',
       () async {
     await signIn('ada@example.com', 'pw-ada');
     final (old, now) = await movedChat();
@@ -242,7 +256,7 @@ void main() {
     expect((await chats.get(now))!.messages, hasLength(4));
   });
 
-  test('another account never takes a chat by an old id of the last one\'s',
+  step('another account never takes a chat by an old id of the last one\'s',
       () async {
     final ada = await signIn('ada@example.com', 'pw-ada');
     final (old, now) = await movedChat();
@@ -263,7 +277,7 @@ void main() {
     expect(bob, isNot(ada));
   });
 
-  test('a regenerate and an edit by the old id answer in the moved chat',
+  step('a regenerate and an edit by the old id answer in the moved chat',
       () async {
     await signIn('ada@example.com', 'pw-ada');
     final (old, now) = await movedChat();
@@ -287,7 +301,7 @@ void main() {
     expect(transcript.last.id, edited.assistantMessageId);
   });
 
-  test('a batch naming an old id is refused, and changes nothing, once '
+  step('a batch naming an old id is refused, and changes nothing, once '
       'another account takes charge while the id is looked up', () async {
     final ada = await signIn('ada@example.com', 'pw-ada');
     final (old, now) = await movedChat();
@@ -337,7 +351,7 @@ void main() {
     expect(owui.chats.stored.keys, contains(now));
   });
 
-  test('a send that waits for the models while its chat moves continues '
+  step('a send that waits for the models while its chat moves continues '
       'the moved chat', () async {
     await signIn('ada@example.com', 'pw-ada');
     final old = await localChat();
@@ -357,7 +371,7 @@ void main() {
     expect((await chats.get(now))!.messages, hasLength(4));
   });
 
-  test('a call that waits for its model while its chat moves holds the '
+  step('a call that waits for its model while its chat moves holds the '
       'moved chat', () async {
     await signIn('ada@example.com', 'pw-ada');
     final old = await localChat();
@@ -377,7 +391,7 @@ void main() {
     ]);
   });
 
-  test('a delete that stores a chat made here, and so moves it, tells the '
+  step('a delete that stores a chat made here, and so moves it, tells the '
       'windows under its current id', () async {
     await signIn('ada@example.com', 'pw-ada');
     final old = await localChat();
@@ -396,7 +410,7 @@ void main() {
     );
   });
 
-  test('a branch chosen in a chat made here, whose drain moves it, is told '
+  step('a branch chosen in a chat made here, whose drain moves it, is told '
       'under its current id, and made again there', () async {
     await signIn('ada@example.com', 'pw-ada');
     final old = await localChat();
@@ -426,7 +440,7 @@ void main() {
     expect(history()['currentId'], answer.id);
   });
 
-  test('an archive and a rename by a scoped old id reach the server under '
+  step('an archive and a rename by a scoped old id reach the server under '
       'the raw current id', () async {
     await signIn('ada@example.com', 'pw-ada');
     final (old, now) = await movedChat();
