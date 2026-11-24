@@ -27,6 +27,7 @@
 #     key (winlinux_feed.py check, verify_enclosure);
 #   - appcast-linux.xml is signed with LINUX_PUBLIC_ED_KEY, and its newest
 #     item is V (winlinux_feed.py check);
+#   - both those items name V's release page (the Linux notice offers it);
 #   - each OS's notices were made for it (winlinux.py notices).
 # U, the download URL prefix, defaults to the version's GitHub release.
 # Whether each feed keeps every item of the live one is the feed job's
@@ -128,6 +129,7 @@ prefix="${prefix:-https://github.com/$RELEASE_REPO/releases/download/desktop-v$v
 case "$prefix" in */) ;; *) prefix="$prefix/" ;; esac
 build="$(build_number "$version")"
 tag="desktop-v$version"
+page="https://github.com/$RELEASE_REPO/releases/tag/$tag"
 
 problems=0
 refuse() {
@@ -153,15 +155,18 @@ for target in mac windows linux; do
 done
 
 # Each checksum file lists exactly its OS's other files, and each matches.
+# A file the reader cannot read refuses the release too: its checksum was
+# never checked.
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/conduit-gate.XXXXXX")" && [ -d "$scratch" ] ||
+  cannot "could not make a scratch folder"
 for target in mac windows linux; do
   names=()
   while IFS= read -r f; do names+=("$f"); done < <(assets_of "$target" "$version")
   sums="${names[${#names[@]} - 1]}"
   unset 'names[${#names[@]}-1]'
   present "$sums" || continue
-  while IFS= read -r line; do
-    [ -n "$line" ] && refuse "$line"
-  done < <(python3 -I - "$dir" "$sums" "${names[@]}" <<'EOF'
+  rc=0
+  python3 -I - "$dir" "$sums" "${names[@]}" >"$scratch/sums.out" 2>"$scratch/sums.err" <<'EOF' || rc=$?
 import hashlib, os, re, sys
 folder, sums, *names = sys.argv[1:]
 listed = {}
@@ -192,7 +197,10 @@ for name in names:
         if digest.hexdigest() != listed[name]:
             print(f"{name} is not the file {sums} records (its SHA-256 differs)")
 EOF
-  )
+  while IFS= read -r line; do
+    [ -n "$line" ] && refuse "$line"
+  done <"$scratch/sums.out"
+  [ "$rc" = 0 ] || refuse "$sums could not be checked ($(said "$(cat "$scratch/sums.err")"))"
 done
 
 # The feeds: each signed with its OS's key, and describing this version.
@@ -214,7 +222,7 @@ if present appcast-windows.xml; then
   if present "$exe"; then
     check "appcast-windows.xml does not describe $exe at $prefix$exe" \
       python3 -I "$here/winlinux_feed.py" check --os windows --feed "$dir/appcast-windows.xml" \
-      --version "$version" --installer "$dir/$exe" --url "$prefix$exe"
+      --version "$version" --installer "$dir/$exe" --url "$prefix$exe" --link "$page"
     check "appcast-windows.xml's item for $version is not signed for $exe with WINDOWS_PUBLIC_ED_KEY" \
       verify_enclosure "$dir/appcast-windows.xml" "$build" "$dir/$exe" "$WINDOWS_PUBLIC_ED_KEY"
   fi
@@ -222,8 +230,9 @@ fi
 if present appcast-linux.xml; then
   check "appcast-linux.xml is not signed with LINUX_PUBLIC_ED_KEY" \
     verify_feed "$dir/appcast-linux.xml" "$LINUX_PUBLIC_ED_KEY"
-  check "appcast-linux.xml does not describe $version" \
-    python3 -I "$here/winlinux_feed.py" check --os linux --feed "$dir/appcast-linux.xml" --version "$version"
+  check "appcast-linux.xml does not describe $version at $page" \
+    python3 -I "$here/winlinux_feed.py" check --os linux --feed "$dir/appcast-linux.xml" \
+    --version "$version" --link "$page"
 fi
 for target in windows linux; do
   if present "THIRD_PARTY_NOTICES-$target.md"; then

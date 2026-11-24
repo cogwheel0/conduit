@@ -11,10 +11,11 @@
 #   copies have, the version on top at its download URL.
 # * Refused, saying what is wrong: any one file missing (each in turn), two
 #   missing (both named); a file changed after its checksum; a checksum
-#   file that leaves a file out or lists another; a feed signed with another
-#   key, or unsigned; a feed for another version; items at another download
-#   URL; an installer that isn't the one its signed item describes; notices
-#   made for another OS.
+#   file that leaves a file out or lists another; a checksum file or a
+#   package that can't be read; a feed signed with another key, or unsigned;
+#   a feed for another version; items at another download URL, or naming
+#   another release's page; an installer that isn't the one its signed item
+#   describes; notices made for another OS.
 # * It cannot run (exit 2, which is never a refusal) without a public key
 #   to check a feed with, or without the folder.
 # * `assets` names each OS's files; `sums` writes a checksum file the gate
@@ -191,6 +192,22 @@ d="$(fresh)"
 printf 'not a checksum line\n' >>"$d/SHA256SUMS.txt"
 expect 1 "a checksum file with a line that isn't one is refused" gate --dir "$d"
 says "and the refusal names the line" "SHA256SUMS.txt line 4"
+# A file the checksum check cannot read is never taken as checked.
+if [ "$(id -u)" = 0 ]; then
+  echo "skip  unreadable files (root reads every file)"
+else
+  d="$(fresh)"
+  chmod 000 "$d/SHA256SUMS-linux.txt"
+  expect 1 "a checksum file that can't be read is refused" gate --dir "$d"
+  says "and the refusal names it" "SHA256SUMS-linux.txt could not be checked"
+  chmod 644 "$d/SHA256SUMS-linux.txt"
+  d="$(fresh)"
+  chmod 000 "$d/conduit-desktop_1.3.0-1_amd64.deb"
+  expect 1 "a package that can't be read for its checksum is refused" gate --dir "$d"
+  says "and the refusal names its checksum file" "SHA256SUMS-linux.txt could not be checked"
+  says "and the package" "conduit-desktop_1.3.0-1_amd64.deb"
+  chmod 644 "$d/conduit-desktop_1.3.0-1_amd64.deb"
+fi
 
 # ── the feeds and what they describe ─────────────────────────────────────────
 d="$(fresh)"
@@ -240,6 +257,21 @@ mac_sums "$d"
 windows_sums "$d"
 expect 0 "a release made for another download URL passes with that URL (the dry run's)" \
   gate --dir "$d" --download-url-prefix https://example.invalid/dry-run/
+# Each item names this tag's release page (the Linux notice offers it).
+other_page="https://github.com/$repo/releases/tag/desktop-v1.2.0"
+d="$(fresh)"
+LINUX_ED_PRIVATE_KEY="$(private_of "$tmp/key-linux.der")" python3 -I "$here/winlinux_feed.py" add \
+  --os linux --version 1.3.0 --release-url "$other_page" --out "$d/appcast-linux.xml" >/dev/null
+linux_sums "$d"
+expect 1 "a Linux feed whose item names another release's page is refused" gate --dir "$d"
+says "and the refusal names the page it wants" "https://github.com/$repo/releases/tag/desktop-v1.3.0"
+d="$(fresh)"
+WINDOWS_ED_PRIVATE_KEY="$(private_of "$tmp/key-windows.der")" python3 -I "$here/winlinux_feed.py" add \
+  --os windows --version 1.3.0 --installer "$d/Conduit-1.3.0-windows-x64-setup.exe" \
+  --download-url-prefix "$prefix" --release-url "$other_page" --out "$d/appcast-windows.xml" >/dev/null
+windows_sums "$d"
+expect 1 "a Windows feed whose item names another release's page is refused" gate --dir "$d"
+says "and the refusal names the page it wants" "https://github.com/$repo/releases/tag/desktop-v1.3.0"
 d="$(fresh)"
 cp "$d/THIRD_PARTY_NOTICES-linux.md" "$d/THIRD_PARTY_NOTICES-windows.md"
 windows_sums "$d"
