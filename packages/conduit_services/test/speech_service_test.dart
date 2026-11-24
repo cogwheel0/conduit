@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:conduit_core/features/chat/read_aloud/text_to_speech_controller.dart';
 import 'package:conduit_core/features/chat/read_aloud/text_to_speech_service.dart';
+import 'package:conduit_core/features/chat/read_aloud/tts_manager.dart';
 import 'package:conduit_core/features/chat/server_speech/server_speech.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -129,6 +130,48 @@ void main() {
     },
   );
 
+  test('a reading still looking up its answer when the service is disposed '
+      'never starts', () async {
+    final found = Completer<({String content, String? model})>();
+    start(
+      engine: TtsEngine.device,
+      answerFor: (chatId, messageId) => found.future,
+    );
+    final toggled = speech.toggle(
+      const SpeechToggle(chatId: 'chat-harbour', messageId: 'answer-1'),
+    );
+    final disposed = speech.dispose();
+    found.complete((content: answer, model: 'fake-model'));
+    await toggled;
+    await disposed;
+    await pumpEventQueue();
+    expect(window.spoken, isEmpty);
+    expect(TtsManager.instance.isPlaying, isFalse);
+  });
+
+  test('a reading still waiting inside the controller when the service is '
+      'disposed never speaks', () async {
+    start(engine: TtsEngine.device);
+    await speech.toggle(
+      const SpeechToggle(chatId: 'chat-harbour', messageId: 'answer-1'),
+    );
+    await window.firstSpoken.future;
+    // The next answer waits for the first to stop, which the window holds.
+    final stopped = window.holdStop = Completer<void>();
+    unawaited(
+      speech.toggle(
+        const SpeechToggle(chatId: 'chat-harbour', messageId: 'answer-2'),
+      ),
+    );
+    await window.stopAsked.future;
+    final disposed = speech.dispose();
+    stopped.complete();
+    await disposed;
+    await pumpEventQueue();
+    expect(window.spoken, hasLength(1), reason: 'answer-2 started');
+    expect(TtsManager.instance.isPlaying, isFalse);
+  });
+
   test('server speech reaches the window as /tts jobs', () async {
     start(engine: TtsEngine.server);
     await speech.toggle(
@@ -194,6 +237,12 @@ final class _Window {
   final EventBus bus;
   final SpeechService speech;
   final spoken = <String>[];
+
+  final firstSpoken = Completer<void>();
+
+  /// Holds the answer to a stop until it completes.
+  Completer<void>? holdStop;
+  final stopAsked = Completer<void>();
   SpeechProgress? last;
   int utterance = 0;
   final clips = <String>[];
@@ -230,6 +279,7 @@ final class _Window {
         _report(SpeechReport(id: c.id));
       case SpeechCommandKind.deviceSpeak:
         spoken.add(c.text!);
+        if (!firstSpoken.isCompleted) firstSpoken.complete();
         utterance = c.utterance;
         _report(SpeechReport(id: c.id, value: true));
         _report(
@@ -246,10 +296,18 @@ final class _Window {
           SpeechReport(kind: SpeechReportKind.resume, utterance: utterance),
         );
       case SpeechCommandKind.deviceStop:
-        _report(SpeechReport(id: c.id, value: true));
-        _report(
-          SpeechReport(kind: SpeechReportKind.cancel, utterance: utterance),
-        );
+        final said = utterance;
+        void answer() {
+          _report(SpeechReport(id: c.id, value: true));
+          _report(SpeechReport(kind: SpeechReportKind.cancel, utterance: said));
+        }
+        final hold = holdStop;
+        if (hold == null) {
+          answer();
+        } else {
+          if (!stopAsked.isCompleted) stopAsked.complete();
+          unawaited(hold.future.then((_) => answer()));
+        }
       case SpeechCommandKind.playerDuration:
         _report(SpeechReport(id: c.id, durationMs: 1000));
       case SpeechCommandKind.playerSet:
