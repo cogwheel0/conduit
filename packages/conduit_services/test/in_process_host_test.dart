@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/read_aloud/device_speech_engine.dart'
     show DeviceSpeechEngine, NoDeviceSpeech;
 import 'package:conduit_core/features/chat/read_aloud/tts_manager.dart';
@@ -90,28 +91,21 @@ void main() {
       'listed', () async {
     await startApp();
     final (host, _) = await startHost();
-    expect(host.services.isAttached, isFalse);
+    check(host.services.isAttached).isFalse();
 
     final phone = connect(host, 'phone');
-    expect(host.services.isAttached, isTrue);
+    check(host.services.isAttached).isTrue();
     final handshake = await phone.handshake();
-    expect(handshake.capabilities.notOffered, HostNamespace.values);
-    await expectLater(
-      phone.ask(ConduitMethods.callsGet),
-      throwsA(
-        isA<json_rpc.RpcException>().having(
-          RpcError.fromException,
-          'error',
-          isA<RpcError>().having(
-            (e) => e.code,
-            'code',
-            ConduitErrorCodes.unsupported,
-          ),
-        ),
-      ),
-    );
+    check(handshake.capabilities.notOffered).deepEquals(HostNamespace.values);
+    await check(phone.ask(ConduitMethods.callsGet))
+        .throws<json_rpc.RpcException>(
+          (it) => it
+              .has(RpcError.fromException, 'error')
+              .has((e) => e.code, 'code')
+              .equals(ConduitErrorCodes.unsupported),
+        );
     final list = ChatList.fromJson(await phone.ask(ConduitMethods.chatsList));
-    expect(list.chats, isEmpty);
+    check(list.chats).isEmpty();
   });
 
   test('a turn streams to completion with no frame to come, and its chat is '
@@ -157,19 +151,19 @@ void main() {
     await parsed;
     provider.release('tide');
     final done = TurnCompleted.fromJson((await completed).payload);
-    expect(done.text, 'tables for Sunday');
-    expect(done.messageId, accepted.assistantMessageId);
+    check(done.text).equals('tables for Sunday');
+    check(done.messageId).equals(accepted.assistantMessageId);
     final deltas = [
       for (final e in phone.events)
         if (e.event == ConduitEvents.turnDelta) TurnDelta.fromJson(e.payload),
     ];
-    expect(deltas, isNotEmpty);
-    expect(deltas.last.text, isNot(isEmpty));
+    check(deltas).isNotEmpty();
+    check(deltas.last.text).isNotEmpty();
     phone.expectNumberedWithoutGaps();
 
     runtime.reportNetwork(online: false);
     final list = ChatList.fromJson(await phone.ask(ConduitMethods.chatsList));
-    expect(list.chats.map((c) => c.id), contains(accepted.chatId));
+    check(list.chats.map((c) => c.id)).contains(accepted.chatId);
   });
 
   test('two sessions at once each hear what is said, numbered from 1 '
@@ -206,7 +200,7 @@ void main() {
 
     await first.session.close();
     final list = ChatList.fromJson(await second.ask(ConduitMethods.chatsList));
-    expect(list.chats, isEmpty);
+    check(list.chats).isEmpty();
   });
 
   test("a client that falls behind gets each chat's latest streaming state "
@@ -256,34 +250,27 @@ void main() {
     phone.expectNumberedWithoutGaps();
     // Only intermediate frames went missing, each for a later one.
     final missing = published.where((e) => !heard.contains(e)).toList();
-    expect(missing, isNotEmpty);
-    expect(
-      missing.every(
-        (e) =>
-            e.startsWith('${ConduitEvents.turnDelta} ') ||
-            e.startsWith('${ConduitEvents.turnBlocks} '),
-      ),
-      isTrue,
-      reason: '$missing',
+    check(missing).isNotEmpty();
+    check(missing).every(
+      (e) => e.anyOf([
+        (e) => e.startsWith('${ConduitEvents.turnDelta} '),
+        (e) => e.startsWith('${ConduitEvents.turnBlocks} '),
+      ]),
     );
     // In the order they were published.
-    expect(
-      heard.where(published.contains).toList(),
-      published.where(heard.contains).toList(),
-    );
+    check(heard.where(published.contains).toList())
+        .deepEquals(published.where(heard.contains));
     // Chat a's final state came before its completion.
     final completedAt = heard.indexOf(
       '${ConduitEvents.turnCompleted} chat-a 40',
     );
-    expect(
-      heard.indexOf('${ConduitEvents.turnDelta} chat-a 40'),
-      inInclusiveRange(0, completedAt - 1),
-    );
-    expect(
-      heard.indexOf('${ConduitEvents.turnBlocks} chat-a 40'),
-      inInclusiveRange(0, completedAt - 1),
-    );
-    expect(heard, contains('${ConduitEvents.syncStatus} null 20'));
+    check(heard.indexOf('${ConduitEvents.turnDelta} chat-a 40'))
+      ..isGreaterOrEqual(0)
+      ..isLessThan(completedAt);
+    check(heard.indexOf('${ConduitEvents.turnBlocks} chat-a 40'))
+      ..isGreaterOrEqual(0)
+      ..isLessThan(completedAt);
+    check(heard).contains('${ConduitEvents.syncStatus} null 20');
   });
 
   group('frames held for a client that falls behind', () {
@@ -351,11 +338,11 @@ void main() {
         await publish(ConduitEvents.turnBlocks, 'chat-a', 'main', n);
       }
       await catchUp();
-      expect(lastOf('companion'), <String, Object?>{
+      check(lastOf('companion')).deepEquals(<String, Object?>{
         ConduitEvents.turnDelta: 10,
         ConduitEvents.turnBlocks: 10,
       });
-      expect(lastOf('main'), <String, Object?>{
+      check(lastOf('main')).deepEquals(<String, Object?>{
         ConduitEvents.turnDelta: 20,
         ConduitEvents.turnBlocks: 20,
       });
@@ -380,8 +367,8 @@ void main() {
         for (final e in phone.events)
           if (e.payload['messageId'] == 'main') e.payload['n'],
       ];
-      expect(answer.last, 'done');
-      expect(answer.where((n) => n == 10), hasLength(1));
+      check(answer.last).equals('done');
+      check(answer.where((n) => n == 10)).length.equals(1);
       phone.expectNumberedWithoutGaps();
     });
 
@@ -406,8 +393,8 @@ void main() {
         for (final e in phone.events)
           if (e.payload['messageId'] == 'main') e.payload['n'],
       ];
-      expect(answer.last, 'caught up later');
-      expect(answer, isNot(contains(10)));
+      check(answer.last).equals('caught up later');
+      check(answer).not((it) => it.contains(10));
       phone.expectNumberedWithoutGaps();
     });
 
@@ -428,11 +415,11 @@ void main() {
         (e) => e.event == ConduitEvents.routeRemap,
       );
       final after = phone.events.skip(remappedAt + 1);
-      expect(after.where((e) => e.scope == 'local:tide'), isEmpty);
+      check(after.where((e) => e.scope == 'local:tide')).isEmpty();
       final last = after.lastWhere((e) => e.event == ConduitEvents.turnDelta);
-      expect(last.scope, 'tide');
-      expect(last.payload['chatId'], 'tide');
-      expect(last.payload['n'], 10);
+      check(last.scope).equals('tide');
+      check(last.payload['chatId']).equals('tide');
+      check(last.payload['n']).equals(10);
     });
 
     test('a session closed with frames held sends nothing more', () async {
@@ -444,7 +431,7 @@ void main() {
       await phone.session.close();
       phone.releaseAcknowledgements();
       await Future<void>(() {});
-      expect(phone.events, hasLength(heard));
+      check(phone.events).length.equals(heard);
     });
   });
 
@@ -489,15 +476,11 @@ void main() {
         query: pictureQuery(),
       );
       await answer.done;
-      expect(answer.status, 200);
-      expect(answer.headers['content-type'], 'image/png');
-      expect(answer.chunks.map((c) => c.length), <int>[
-        65536,
-        65536,
-        65536,
-        200 * 1024 - 3 * 65536,
-      ]);
-      expect(answer.body, picture);
+      check(answer.status).equals(200);
+      check(answer.headers['content-type']).equals('image/png');
+      check(answer.chunks.map((c) => c.length))
+          .deepEquals(<int>[65536, 65536, 65536, 200 * 1024 - 3 * 65536]);
+      check(answer.body).deepEquals(picture);
     });
 
     test('a download the client abandons sends nothing more', () async {
@@ -518,9 +501,9 @@ void main() {
       // Stopping waits for nothing of the stream: its last word was the
       // chunk it was sending.
       await host.dispose();
-      expect(answer.frames.length, sent);
-      expect(answer.chunks, hasLength(1));
-      expect(answer.ended, isFalse);
+      check(answer.frames.length).equals(sent);
+      check(answer.chunks).length.equals(1);
+      check(answer.ended).isFalse();
     });
 
     test('an upload goes in 64 KiB frames, each chunk the route keeps is '
@@ -585,8 +568,8 @@ void main() {
 
       final first = await upload(1, recording);
       await first.done;
-      expect(first.status, 200);
-      expect(transcriber.heard.single, recording);
+      check(first.status).equals(200);
+      check(transcriber.heard.single).deepEquals(recording);
 
       // One frame each: the route keeps the chunk it was handed as it is,
       // and the host never writes to it again.
@@ -594,12 +577,10 @@ void main() {
       final other = Uint8List.fromList(List<int>.filled(1000, 2));
       await (await upload(2, short)).done;
       await (await upload(3, other)).done;
-      expect(transcriber.heard[1], short);
-      expect(transcriber.heard[2], other);
-      expect(
-        identical(transcriber.heard[1].buffer, transcriber.heard[2].buffer),
-        isFalse,
-      );
+      check(transcriber.heard[1]).deepEquals(short);
+      check(transcriber.heard[2]).deepEquals(other);
+      check(identical(transcriber.heard[1].buffer, transcriber.heard[2].buffer))
+          .isFalse();
 
       // Abandoned after its first chunk: no route hears of it, and no answer
       // comes.
@@ -611,8 +592,8 @@ void main() {
       await bytes.cancel(4);
       // The next request is answered after it, on the same host.
       await (await upload(5, short)).done;
-      expect(transcriber.heard, hasLength(4));
-      expect(abandoned.frames, isEmpty);
+      check(transcriber.heard).length.equals(4);
+      check(abandoned.frames).isEmpty();
     });
 
     test('an answer given before the body ends tells the client to stop '
@@ -626,8 +607,8 @@ void main() {
         end: false,
       );
       await answer.done;
-      expect(answer.frames.first.kind, ByteFrameKind.cancel);
-      expect(answer.status, 405);
+      check(answer.frames.first.kind).equals(ByteFrameKind.cancel);
+      check(answer.status).equals(405);
       // A chunk sent anyway is taken, and goes nowhere.
       await host.receiveBytes(
         ByteFrame(1, ByteFrameKind.chunk, payload: Uint8List(8)).encode(),
@@ -639,7 +620,7 @@ void main() {
       final (_, bytes) = await startHost();
       final answer = await bytes.request(1, 'GET', '/terminal/anything');
       await answer.done;
-      expect(answer.status, 501);
+      check(answer.status).equals(501);
     });
   });
 
@@ -685,11 +666,11 @@ void main() {
     ];
     final bound = <Object?>[for (final port in ports) container.read(port)];
     void expectAppKeepsItsOwn() {
-      expect(AudioPlaybackPort.hostFactory, same(appPlayback));
-      expect(DeviceSpeechEngine.hostFactory, same(appDevice));
-      expect(TtsManager.clipStore, same(appClips));
+      check(AudioPlaybackPort.hostFactory).identicalTo(appPlayback);
+      check(DeviceSpeechEngine.hostFactory).identicalTo(appDevice);
+      check(TtsManager.clipStore).identicalTo(appClips);
       for (var i = 0; i < ports.length; i++) {
-        expect(container.read(ports[i]), same(bound[i]));
+        check(container.read(ports[i])).identicalTo(bound[i]);
       }
     }
 
@@ -718,7 +699,7 @@ void main() {
     await settings.set(
       AppSettingsPatch(sendOnEnter: !settings.get().sendOnEnter),
     );
-    expect(phone.events, isEmpty);
+    check(phone.events).isEmpty();
     expectAppKeepsItsOwn();
 
     // The container is the app's still: another host over it serves.
@@ -726,7 +707,7 @@ void main() {
     final next = connect(again, 'next');
     await next.handshake();
     final list = ChatList.fromJson(await next.ask(ConduitMethods.chatsList));
-    expect(list.chats.map((c) => c.id), contains(accepted.chatId));
+    check(list.chats.map((c) => c.id)).contains(accepted.chatId);
   });
 
   test('a byte frame survives its own encoding, and a bad one is refused', () {
@@ -737,15 +718,15 @@ void main() {
       payload: Uint8List.fromList(<int>[1, 2, 3]),
     );
     final decoded = ByteFrame.decode(frame.encode());
-    expect(decoded.stream, 0xFEEDBEEF);
-    expect(decoded.kind, ByteFrameKind.responseHead);
-    expect(decoded.flags, 3);
-    expect(decoded.payload, <int>[1, 2, 3]);
-    expect(() => ByteFrame.decode(Uint8List(11)), throwsFormatException);
+    check(decoded.stream).equals(0xFEEDBEEF);
+    check(decoded.kind).equals(ByteFrameKind.responseHead);
+    check(decoded.flags).equals(3);
+    check(decoded.payload).deepEquals(<int>[1, 2, 3]);
+    check(() => ByteFrame.decode(Uint8List(11))).throws<FormatException>();
     final wrongLength = frame.encode()..[11] = 9;
-    expect(() => ByteFrame.decode(wrongLength), throwsFormatException);
+    check(() => ByteFrame.decode(wrongLength)).throws<FormatException>();
     final unknownKind = frame.encode()..[4] = 200;
-    expect(() => ByteFrame.decode(unknownKind), throwsFormatException);
+    check(() => ByteFrame.decode(unknownKind)).throws<FormatException>();
   });
 }
 
@@ -825,10 +806,8 @@ final class _Client {
   );
 
   void expectNumberedWithoutGaps() {
-    expect(
-      events.map((e) => e.seq),
-      List<int>.generate(events.length, (i) => i + 1),
-    );
+    check(events.map((e) => e.seq))
+        .deepEquals(List<int>.generate(events.length, (i) => i + 1));
   }
 
   Future<void> close() async {
