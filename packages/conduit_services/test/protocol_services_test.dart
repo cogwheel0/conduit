@@ -14,8 +14,10 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/ports.dart';
 import 'package:conduit_core/services/connectivity_service.dart'
     show ConnectivityService, connectivityServiceProvider;
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart'
+    show DirectModelId;
 import 'package:conduit_core/services/settings_service.dart'
-    show AppSettingsHostDefaults;
+    show AppSettingsHostDefaults, VoiceCallMode, appSettingsProvider;
 import 'package:conduit_core/testing.dart' show FakeAppLifecycle;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
@@ -28,6 +30,7 @@ import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
 import 'support/core.dart';
+import 'support/scripted_openai.dart';
 
 /// The services as a host other than the daemon builds them: over its
 /// container, with its own system service, a session over an in-memory
@@ -348,6 +351,82 @@ void main() {
     expect(said, hasLength(1), reason: 'no next sentence after closing began');
     // Stopped: from here a report reaches nothing.
     expect(built.core.speechReports, isNull);
+  });
+
+  test('a call still starting as transports close hears its window '
+      'answer, so closing does not wait out the stop', () async {
+    await startDesktop();
+    final provider = await ScriptedOpenAi.start();
+    addTearDown(provider.close);
+    final saved = await DirectService(runtime.container).save(
+      DirectConnectionEdit(
+        name: 'Scripted',
+        kind: DirectKind.openai,
+        baseUrl: provider.baseUrl,
+        manualModelIds: const <String>['scripted-model'],
+      ),
+    );
+    final model = DirectModelId.encode(
+      saved.connections.single.id,
+      'scripted-model',
+    );
+    await runtime.container
+        .read(appSettingsProvider.notifier)
+        .setVoiceCallMode(VoiceCallMode.standard);
+    final built = services()..attach(runtime.container);
+    final pipe = StreamChannelController<String>(sync: true);
+    final session = built.openSession(pipe.local, sessionId: 'phone');
+    addTearDown(session.close);
+    unawaited(session.listen());
+    final window = json_rpc.Peer(pipe.foreign);
+    addTearDown(window.close);
+    // The window's microphone prompt is still up: the call waits for it.
+    final asked = Completer<CallCommand>();
+    var closingBegan = false;
+    final afterClosing = <CallCommandKind>[];
+    registerEventSink(
+      window,
+      onEvent: (envelope) {
+        if (envelope.event != ConduitEvents.callsCommand) return;
+        final command = CallCommand.fromJson(envelope.payload);
+        if (closingBegan) afterClosing.add(command.kind);
+        if (command.kind == CallCommandKind.permission && !asked.isCompleted) {
+          asked.complete(command);
+        }
+      },
+    );
+    unawaited(window.listen());
+    await handshakeAndAsk(window);
+    await window.sendRequest(
+      ConduitMethods.eventsSubscribe,
+      const EventSubscription().toJson(),
+    );
+    unawaited(
+      window
+          .sendRequest(
+            ConduitMethods.callsStart,
+            CallStart(model: model).toJson(),
+          )
+          .then<void>((_) {}, onError: (Object _) {}),
+    );
+    final permission = await asked.future;
+
+    var closed = false;
+    closingBegan = true;
+    final closing = built.closeTransports().then((_) => closed = true);
+    // The user answers the prompt while closing waits for the call.
+    final answered = await window.sendRequest(
+      ConduitMethods.callsReport,
+      CallReport(id: permission.id, value: true).toJson(),
+    );
+
+    expect(answered, isA<Map<dynamic, dynamic>>());
+    await closing;
+    expect(closed, isTrue);
+    // The answer ends the start; the microphone never opens.
+    expect(afterClosing, isNot(contains(CallCommandKind.listen)));
+    // Stopped: from here a report reaches nothing.
+    expect(built.core.callsReports, isNull);
   });
 
   test('closing again after disposal shows sessions nothing', () async {

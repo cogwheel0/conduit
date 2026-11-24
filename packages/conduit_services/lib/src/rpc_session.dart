@@ -103,6 +103,7 @@ final class CoreServices {
     this.folderSettings,
     this.speech,
     this.speechReports,
+    this.callsReports,
     this.calls,
     this.apple,
     this.location,
@@ -165,6 +166,10 @@ final class CoreServices {
   /// Where `speech.report` goes. It outlives [speech] while transports
   /// close: stopping a reading asks the window, and waits for its answer.
   final SpeechService? speechReports;
+
+  /// Where `calls.report` goes. It outlives [calls] while transports close:
+  /// a call still starting waits for the window's answer before it stops.
+  final CallsService? callsReports;
 
   /// `calls.*`: voice calls.
   final CallsService? calls;
@@ -1512,7 +1517,7 @@ class RpcSession {
     _on(ConduitMethodSpecs.callsMute, (_) => _need(_calls).mute());
     _on(ConduitMethodSpecs.callsSkip, (_) => _need(_calls).skip());
     _on(ConduitMethodSpecs.callsReport, (p) async {
-      _need(_calls).report(p);
+      _need(_services().callsReports).report(p);
       return const OkResult(ok: true);
     });
 

@@ -383,6 +383,7 @@ final class ProtocolServices {
   ComputerRpcService? _computer;
   bool _transportsClosed = false;
   bool _speechStopped = false;
+  bool _callsStopped = false;
   bool _disposed = false;
 
   /// Null once [closeTransports] has begun.
@@ -438,6 +439,7 @@ final class ProtocolServices {
     folderSettings: _folderSettings,
     speech: transports ? _speech : null,
     speechReports: _speechStopped ? null : _speech,
+    callsReports: _callsStopped ? null : _calls,
     calls: transports ? _calls : null,
     apple: _apple,
     location: _ports.window.location,
@@ -479,8 +481,11 @@ final class ProtocolServices {
     // asks the window, whose answer reaches it until the stop is done.
     final speechStopping = _speech?.dispose();
     try {
+      // A call still starting finishes its start, on the window's answer,
+      // before it stops.
       await _calls?.dispose();
     } finally {
+      _callsStopped = true;
       await speechStopping;
     }
     _speechStopped = true;
