@@ -267,8 +267,23 @@ class UpdateInstall(unittest.TestCase):
         self.assertIn('Filename: "{app}\\conduit-desktop.exe"', run)
         self.assertNotIn("skipifsilent", run)
         self.assertIn("ExpandConstant('{param:RELAUNCH|0}') = '1'", text)
-        # A running Conduit and its conduitd are closed first.
+        # A running Conduit and its conduitd are closed first: Setup through
+        # Inno's CloseApplications; Uninstall, which has none, through [Code]
+        # over the processes running from the app's folder only.
         self.assertIn("\nCloseApplications=force\n", text)
+        for event in ("procedure CurUninstallStepChanged(",):
+            body = text[text.index(event):]
+            body = body[:body.index("\nend;")]
+            self.assertIn("CloseRunningApp;", body, event)
+        close = text[text.index("procedure CloseRunningApp;"):]
+        close = close[:close.index("\nend;")]
+        # RmShutdown runs only in the last session, which registers
+        # Conduit's own processes, never the files.
+        first, last = close[:close.rindex("RmStartSession(")], close[close.rindex("RmStartSession("):]
+        self.assertNotIn("RmShutdown(", first)
+        self.assertIn("RmShutdown(", last)
+        self.assertIn("RmRegisterProcess(", last)
+        self.assertNotIn("RmRegisterFiles(", last)
 
 
 class PeImports(unittest.TestCase):

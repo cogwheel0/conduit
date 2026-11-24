@@ -158,23 +158,58 @@ begin
   Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
 end;
 
-// Uninstall has no CloseApplications: a running app and its conduitd would
-// keep their files. Restart Manager closes whatever has the app's .exe and
-// .dll files open, as Setup's CloseApplications=force does, before any file
-// is removed.
+// Closing a running Conduit and its conduitd before Uninstall removes
+// their files (Inno's CloseApplications is Setup's only). Restart Manager
+// lists what has the app's .exe and .dll files open; only the processes
+// whose image is in the app's folder are shut down, through a second
+// session that registers just them. Windows services and other programs
+// that merely have the files open (the antivirus, the Program Compatibility
+// Assistant, Arm's x64 translation cache) are left alone: registering the
+// files and calling RmShutdown stops or kills them too.
+type
+  // RM_UNIQUE_PROCESS: a process id and its start time (FILETIME).
+  TRmUniqueProcess = record
+    ProcessId: DWORD;
+    StartTimeLow: DWORD;
+    StartTimeHigh: DWORD;
+  end;
+
 const
   CCH_RM_SESSION_KEY = 32;
   RmForceShutdown = 1;
+  ERROR_MORE_DATA = 234;
+  // RM_PROCESS_INFO is 668 bytes: RM_UNIQUE_PROCESS its first 12,
+  // ApplicationType at byte 652. RmGetList fills a String used as the
+  // buffer (2 bytes a character); a process goes back to Restart Manager as
+  // a record, since a String passed in stops at its first zero character.
+  RmInfoBytes = 668;
+  RmTypeAt = 652;
+  RmService = 3;
+  RmExplorer = 4;
+  RmCritical = 1000;
+  PROCESS_QUERY_LIMITED_INFORMATION = $1000;
 
 function RmStartSession(var SessionHandle: DWORD; SessionFlags: DWORD; SessionKey: String): DWORD;
   external 'RmStartSession@rstrtmgr.dll stdcall delayload';
-function RmRegisterResources(SessionHandle: DWORD; FileCount: Cardinal; FileNames: TArrayOfString;
+function RmRegisterFiles(SessionHandle: DWORD; FileCount: Cardinal; FileNames: TArrayOfString;
   ApplicationCount: Cardinal; Applications: Cardinal; ServiceCount: Cardinal; ServiceNames: Cardinal): DWORD;
   external 'RmRegisterResources@rstrtmgr.dll stdcall delayload';
+function RmRegisterProcess(SessionHandle: DWORD; FileCount: Cardinal; FileNames: Cardinal;
+  ApplicationCount: Cardinal; var Application: TRmUniqueProcess; ServiceCount: Cardinal; ServiceNames: Cardinal): DWORD;
+  external 'RmRegisterResources@rstrtmgr.dll stdcall delayload';
+function RmGetList(SessionHandle: DWORD; var Needed: Cardinal; var Count: Cardinal; AffectedApps: String;
+  var RebootReasons: DWORD): DWORD;
+  external 'RmGetList@rstrtmgr.dll stdcall delayload';
 function RmShutdown(SessionHandle: DWORD; ActionFlags: DWORD; StatusCallback: Cardinal): DWORD;
   external 'RmShutdown@rstrtmgr.dll stdcall delayload';
 function RmEndSession(SessionHandle: DWORD): DWORD;
   external 'RmEndSession@rstrtmgr.dll stdcall delayload';
+function OpenProcess(DesiredAccess: DWORD; InheritHandle: BOOL; ProcessId: DWORD): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function QueryFullProcessImageName(Process: THandle; Flags: DWORD; ExeName: String; var Size: DWORD): BOOL;
+  external 'QueryFullProcessImageNameW@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
 
 // The .exe and .dll files under Dir, the uninstaller's own left out.
 procedure AddRunnableFiles(const Dir: String; var Files: TArrayOfString);
@@ -205,15 +240,52 @@ begin
   end;
 end;
 
+// The 32-bit value at byte ByteAt of a String used as a buffer.
+function BufferDword(const Buffer: String; ByteAt: Integer): Cardinal;
+begin
+  Result := Cardinal(Ord(Buffer[ByteAt div 2 + 1])) + (Cardinal(Ord(Buffer[ByteAt div 2 + 2])) shl 16);
+end;
+
+// The full path of process Pid's executable; '' when it can't be read.
+function ProcessImage(Pid: Cardinal): String;
+var
+  Process: THandle;
+  Size: DWORD;
+begin
+  Result := '';
+  Process := OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, Pid);
+  if Process = 0 then
+    Exit;
+  try
+    Size := 1024;
+    SetLength(Result, Size);
+    if QueryFullProcessImageName(Process, 0, Result, Size) then
+      SetLength(Result, Size)
+    else
+      Result := '';
+  finally
+    CloseHandle(Process);
+  end;
+end;
+
+// Shuts down the processes that run from the app's folder and have its
+// files open (Conduit and its conduitd), forced if they don't close; logs
+// what it closed and what it left alone.
 procedure CloseRunningApp;
 var
-  Session, Status: DWORD;
-  SessionKey: String;
+  Session, Status, Reasons: DWORD;
+  Needed, Count, Pid, AppType: Cardinal;
+  SessionKey, Infos, AppDir, Image: String;
   Files: TArrayOfString;
+  Ours: array of TRmUniqueProcess;
+  Process: TRmUniqueProcess;
+  I, Listed, Closing, Tries: Integer;
 begin
-  AddRunnableFiles(ExpandConstant('{app}'), Files);
+  AppDir := ExpandConstant('{app}');
+  AddRunnableFiles(AppDir, Files);
   if GetArrayLength(Files) = 0 then
     Exit;
+  Closing := 0;
   SessionKey := StringOfChar(' ', CCH_RM_SESSION_KEY + 1);
   Status := RmStartSession(Session, 0, SessionKey);
   if Status <> 0 then
@@ -222,14 +294,77 @@ begin
     Exit;
   end;
   try
-    Status := RmRegisterResources(Session, GetArrayLength(Files), Files, 0, 0, 0, 0);
-    if Status = 0 then
-      Status := RmShutdown(Session, RmForceShutdown, 0);
-    // Status 0: nothing has them open any more (smoke.ps1 reads this line).
-    Log(Format('Restart Manager over the app''s %d files: status %d', [GetArrayLength(Files), Status]));
+    Status := RmRegisterFiles(Session, GetArrayLength(Files), Files, 0, 0, 0, 0);
+    Infos := '';
+    Count := 0;
+    Tries := 0;
+    while Status = 0 do
+    begin
+      Status := RmGetList(Session, Needed, Count, Infos, Reasons);
+      Tries := Tries + 1;
+      if (Status <> ERROR_MORE_DATA) or (Tries > 3) then
+        Break;
+      Count := Needed;
+      Infos := StringOfChar(#0, Integer(Needed) * (RmInfoBytes div 2));
+      Status := 0;
+    end;
+    if Status <> 0 then
+    begin
+      Log(Format('Restart Manager: no list of what has the app''s files open (%d); a running app keeps its files', [Status]));
+      Exit;
+    end;
+    Listed := Integer(Count);
+    for I := 0 to Listed - 1 do
+    begin
+      Pid := BufferDword(Infos, I * RmInfoBytes);
+      AppType := BufferDword(Infos, I * RmInfoBytes + RmTypeAt);
+      Image := ProcessImage(Pid);
+      if (AppType <> RmService) and (AppType <> RmExplorer) and (AppType <> RmCritical) and (Image <> '') and
+         (CompareText(Copy(Image, 1, Length(AppDir) + 1), AddBackslash(AppDir)) = 0) then
+      begin
+        Closing := Closing + 1;
+        SetArrayLength(Ours, Closing);
+        Ours[Closing - 1].ProcessId := Pid;
+        Ours[Closing - 1].StartTimeLow := BufferDword(Infos, I * RmInfoBytes + 4);
+        Ours[Closing - 1].StartTimeHigh := BufferDword(Infos, I * RmInfoBytes + 8);
+        Log(Format('Restart Manager: closing pid %d, %s', [Integer(Pid), Image]));
+      end
+      else
+        Log(Format('Restart Manager: leaving pid %d alone (type %d, %s)', [Integer(Pid), Integer(AppType), Image]));
+    end;
   finally
     RmEndSession(Session);
   end;
+  if Closing = 0 then
+  begin
+    Log('Restart Manager: no Conduit process has the app''s files open');
+    Exit;
+  end;
+  SessionKey := StringOfChar(' ', CCH_RM_SESSION_KEY + 1);
+  Status := RmStartSession(Session, 0, SessionKey);
+  if Status = 0 then
+  try
+    for I := 0 to Closing - 1 do
+      if Status = 0 then
+      begin
+        Process := Ours[I];
+        Status := RmRegisterProcess(Session, 0, 0, 1, Process, 0, 0);
+      end;
+    // How many of them Restart Manager sees running: RmShutdown also
+    // reports success for processes it didn't recognise.
+    Needed := 0;
+    Count := 0;
+    if Status = 0 then
+      Status := RmGetList(Session, Needed, Count, '', Reasons);
+    if Status = ERROR_MORE_DATA then
+      Status := 0;
+    if Status = 0 then
+      Status := RmShutdown(Session, RmForceShutdown, 0);
+  finally
+    RmEndSession(Session);
+  end;
+  // Status 0: they have ended (smoke.ps1 reads this line).
+  Log(Format('Restart Manager closed %d Conduit processes: status %d', [Integer(Needed), Status]));
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
