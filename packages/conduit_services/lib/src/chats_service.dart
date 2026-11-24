@@ -822,6 +822,7 @@ final class ChatsService {
   /// the windows are told only afterwards, or they would refetch the old
   /// copy.
   Future<void> _afterEnvelopeChange(String chatId) async {
+    chatId = await _current(chatId);
     try {
       await _container.read(primarySyncProvider).pullChatNow(chatId);
     } on Object catch (error) {
@@ -1114,14 +1115,13 @@ final class ChatsService {
     // Sent now, so the server's copy (and another device) has it before the
     // window reads the chat again.
     await _drain();
-    await _confirmBranch(request.chatId, leaf, select);
-    turns?.forgetIdle(request.chatId);
-    _container.invalidate(loadConversationProvider(request.chatId));
-    _events?.emit(
-      ConduitEventSpecs.chatsChanged,
-      ChatsChanged(chatId: request.chatId),
-    );
-    return get(request.chatId);
+    // The drain stores a chat made here, which moves it to its server id.
+    await _confirmBranch(await _current(request.chatId), leaf, select);
+    final chatId = await _current(request.chatId);
+    turns?.forgetIdle(chatId);
+    _container.invalidate(loadConversationProvider(chatId));
+    _events?.emit(ConduitEventSpecs.chatsChanged, ChatsChanged(chatId: chatId));
+    return get(chatId);
   }
 
   /// Makes sure the server kept [leaf] as [chatId]'s current message.
@@ -1230,6 +1230,14 @@ final class ChatsService {
   }
 
   Future<String>? _moved(String id) => movedChatId(_container, id);
+
+  /// [chatId] as the chat goes now, read where it is used after a wait: a
+  /// chat made here may have moved to its server id meanwhile. Not a check
+  /// of who asked: the request already acted for its account.
+  Future<String> _current(String chatId) async {
+    final current = currentChatId(_container, chatId);
+    return current is String ? current : await current;
+  }
 
   void _refuseWhileAnswering(String chatId) {
     if (turns?.isRunning(chatId) ?? false) {
@@ -1414,7 +1422,7 @@ final class ChatsService {
     }
     _events?.emit(
       ConduitEventSpecs.chatsChanged,
-      ChatsChanged(chatId: request.chatId),
+      ChatsChanged(chatId: await _current(request.chatId)),
     );
     return list();
   }

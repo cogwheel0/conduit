@@ -139,8 +139,8 @@ void main() {
     return old;
   }
 
-  /// [old] stored by the server, and so moved to its id: that id.
-  Future<String> move(String old) async {
+  /// The id [old] moves to, once the windows are told (`route.remap`).
+  Future<String> remapOf(String old) {
     final moved = Completer<String>();
     events.attach('remap-$old', (e) {
       if (e.event == ConduitEvents.routeRemap &&
@@ -149,10 +149,28 @@ void main() {
         moved.complete('${e.payload['toId']}');
       }
     });
+    return moved.future;
+  }
+
+  /// [old] stored by the server, and so moved to its id: that id.
+  Future<String> move(String old) async {
+    final moved = remapOf(old);
     await runtime.container.read(syncEngineProvider.notifier).drainNow();
-    final now = await moved.future;
+    final now = await moved;
     expect(now, isNot(old));
     return now;
+  }
+
+  /// The chats the windows are told changed, from now on.
+  List<String?> toldChanged() {
+    final told = <String?>[];
+    final untap = events.tap((event, _, payload) {
+      if (event == ConduitEvents.chatsChanged) {
+        told.add(payload['chatId'] as String?);
+      }
+    });
+    addTearDown(untap);
+    return told;
   }
 
   /// A chat made here and then stored by the server: its old `local:` id
@@ -348,6 +366,41 @@ void main() {
       'user',
       'assistant',
     ]);
+  });
+
+  test('a delete that stores a chat made here, and so moves it, tells the '
+      'windows under its current id', () async {
+    await signIn('ada@example.com', 'pw-ada');
+    final old = await localChat();
+    final answer = (await chats.get(old))!.messages.last;
+    final moved = remapOf(old);
+    final told = toldChanged();
+
+    await turns.deleteMessages(
+      DeleteMessages(chatId: old, messageIds: <String>[answer.id]),
+    );
+    final now = await moved;
+    expect(told.last, now);
+    expect(
+      (await chats.get(now))!.messages.map((m) => m.id),
+      isNot(contains(answer.id)),
+    );
+  });
+
+  test('a branch chosen in a chat made here, whose drain moves it, is told '
+      'under its current id', () async {
+    await signIn('ada@example.com', 'pw-ada');
+    final old = await localChat();
+    final answer = (await chats.get(old))!.messages.last;
+    final moved = remapOf(old);
+    final told = toldChanged();
+
+    final detail = await chats.setCurrent(
+      ChatCurrent(chatId: old, messageId: answer.id),
+    );
+    final now = await moved;
+    expect(detail?.summary.id, now);
+    expect(told.last, now);
   });
 }
 

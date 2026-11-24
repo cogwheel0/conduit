@@ -1219,11 +1219,13 @@ final class TurnsService implements ChatTurns, AddressReplies {
       request = request.copyWith(chatId: await moved);
     }
     final session = await _sessionFor(request.chatId, account: account);
-    request = request.copyWith(chatId: session.chatId ?? request.chatId);
+    // Read where it is used: the delete may move a chat made here to its
+    // server id (its own drain), and the waits below may see it moved.
+    String chatId() => session.chatId ?? request.chatId;
     var reserved = false;
     _Claim? claim;
     try {
-      if (isRunning(request.chatId) ||
+      if (isRunning(chatId()) ||
           session.merge != null ||
           session.deleting) {
         throw const RpcError(
@@ -1273,13 +1275,12 @@ final class TurnsService implements ChatTurns, AddressReplies {
           !session.scope.messages.any((m) => m.id == answer)) {
         session.ended = null;
       }
-      final chatId = request.chatId;
-      if (temporary.contains(chatId)) {
-        temporary.replace(chatId, session.scope.messages);
-        _announce(chatId);
+      if (temporary.contains(chatId())) {
+        temporary.replace(chatId(), session.scope.messages);
+        _announce(chatId());
       } else {
-        await _pull(chatId);
-        _announce(chatId);
+        await _pull(chatId());
+        _announce(chatId());
       }
       return count;
     } finally {
@@ -1319,14 +1320,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
     }
     _refuseTemporary(request.chatId);
     final session = await _sessionFor(request.chatId, account: account);
-    request = request.copyWith(chatId: session.chatId ?? request.chatId);
     var started = false;
     // Reserved before the first await, so a second merge, or a send, edit
     // or regenerate ([_requireIdle]), is refused while this one is admitted.
     _Merge? run;
     _Claim? claim;
     try {
-      if (isRunning(request.chatId) || session.merge != null) {
+      if (isRunning(session.chatId ?? request.chatId) ||
+          session.merge != null) {
         throw const RpcError(
           code: ConduitErrorCodes.conflict,
           args: <String, String>{'reason': 'busy'},
@@ -1446,12 +1447,12 @@ final class TurnsService implements ChatTurns, AddressReplies {
     _events.emit(
       ConduitEventSpecs.messagesMerge,
       MergeProgress(
-        chatId: run.chatId,
+        chatId: session.chatId ?? run.chatId,
         messageId: run.messageId,
         targetId: run.targetId,
         text: text,
       ),
-      scope: run.chatId,
+      scope: session.chatId ?? run.chatId,
     );
   }
 
@@ -1462,19 +1463,19 @@ final class TurnsService implements ChatTurns, AddressReplies {
     _events.emit(
       ConduitEventSpecs.messagesMerge,
       MergeProgress(
-        chatId: run.chatId,
+        chatId: session.chatId ?? run.chatId,
         messageId: run.messageId,
         targetId: run.targetId,
         text: run.text,
         running: false,
         error: error,
       ),
-      scope: run.chatId,
+      scope: session.chatId ?? run.chatId,
     );
     _release(session);
     // The merge's stored copy, as a turn's: a turn started before its pull
     // lands would have the transcript it reads replaced.
-    final synced = _announceWhenSynced(run.chatId);
+    final synced = _announceWhenSynced(() => session.chatId ?? run.chatId);
     session.settling = synced;
     unawaited(
       synced.whenComplete(() {
@@ -1592,7 +1593,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
         debugMessage: error.message,
       );
     } finally {
-      unawaited(_announceWhenSynced(request.chatId));
+      // Rated only on the server's copy, so by its id, which never moves.
+      unawaited(_announceWhenSynced(() => request.chatId));
     }
   }
 
@@ -1757,25 +1759,24 @@ final class TurnsService implements ChatTurns, AddressReplies {
       );
       return;
     }
-    chatId = session.chatId ?? chatId;
     try {
       if (session.scope.isDisposed || !session.scope.isStreaming) return;
       if (!account.isCurrent) {
         DebugLogger.info(
           'turn-stop-stranded-stale',
           scope: 'daemon/turns',
-          data: {'chatId': chatId},
+          data: {'chatId': session.chatId ?? chatId},
         );
         return;
       }
       DebugLogger.info(
         'turn-stop-stranded',
         scope: 'daemon/turns',
-        data: {'chatId': chatId},
+        data: {'chatId': session.chatId ?? chatId},
       );
       await session.scope.container.read(stopGenerationSettledProvider)();
       if (!session.scope.isDisposed) _project(session);
-      _announce(chatId);
+      _announce(session.chatId ?? chatId);
     } on Object catch (error, stackTrace) {
       DebugLogger.error(
         'turn-stop-stranded-failed',
@@ -3016,7 +3017,6 @@ final class TurnsService implements ChatTurns, AddressReplies {
       ref = ref.copyWith(chatId: await moved);
     }
     final session = await _sessionFor(ref.chatId, account: account);
-    ref = ref.copyWith(chatId: session.chatId ?? ref.chatId);
     try {
       final info = await _queuedInfo(session, ref.messageId);
       account.require('the queued answer was sent again');
@@ -3028,7 +3028,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       } else {
         await actions.retry(info);
       }
-      _announce(ref.chatId);
+      _announce(session.chatId ?? ref.chatId);
       return const OkResult(ok: true);
     } finally {
       _release(session);
@@ -3042,14 +3042,16 @@ final class TurnsService implements ChatTurns, AddressReplies {
       ref = ref.copyWith(chatId: await moved);
     }
     final session = await _sessionFor(ref.chatId, account: account);
-    ref = ref.copyWith(chatId: session.chatId ?? ref.chatId);
     try {
       final info = await _queuedInfo(session, ref.messageId);
       account.require('the queued answer was removed');
       final removed = await session.scope.container
           .read(queuedCompletionActionsProvider)
           .cancel(info);
-      _queuedCompletions?.followed(ref.chatId, ref.messageId);
+      _queuedCompletions?.followed(
+        session.chatId ?? ref.chatId,
+        ref.messageId,
+      );
       // Removed before its hand-off was seen: the send waiting for it ends.
       final pending = session.pending;
       if (pending != null &&
@@ -3057,7 +3059,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
           pending.assistantMessageId == ref.messageId) {
         _endQueuedBeforeStart(session, pending, ref.messageId);
       }
-      _announce(ref.chatId);
+      _announce(session.chatId ?? ref.chatId);
       return OkResult(ok: removed > 0);
     } finally {
       _release(session);
@@ -3322,7 +3324,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
       _announce(chatId);
     } else {
       await _announceWhenSynced(
-        chatId,
+        () => session.scope.isDisposed
+            ? turn.chatId
+            : (session.scope.conversation?.id ?? turn.chatId),
         answerId: failed ? null : turn.messageId,
       );
     }
@@ -3641,7 +3645,6 @@ final class TurnsService implements ChatTurns, AddressReplies {
     final account = AccountScope.capture(_container);
     if (_moved(chatId) case final moved?) chatId = await moved;
     final session = await _sessionFor(chatId, account: account);
-    chatId = session.chatId ?? chatId;
     _Claim? claim;
     try {
       final running = session.turn;
@@ -3653,7 +3656,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
         // new is started and the busy check does not apply.
         await resolvePersistedOpenWebUiPrompt(
           session.scope.container,
-          ownerConversationId: chatId,
+          ownerConversationId: session.chatId ?? chatId,
           pending: pending,
           action: action,
           answers: answers,
@@ -3680,7 +3683,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
         assistantMessageId: pending.messageId,
         start: (_) => resolvePersistedOpenWebUiPrompt(
           session.scope.container,
-          ownerConversationId: chatId,
+          ownerConversationId: session.chatId ?? chatId,
           pending: pending,
           action: action,
           answers: answers,
@@ -4634,22 +4637,27 @@ final class TurnsService implements ChatTurns, AddressReplies {
     _events.emit(ConduitEventSpecs.chatsChanged, ChatsChanged(chatId: chatId));
   }
 
-  Future<void> _announceWhenSynced(String chatId, {String? answerId}) async {
+  /// [chatId] is read at each use: a chat made here may move to its server
+  /// id while the pulls wait.
+  Future<void> _announceWhenSynced(
+    String Function() chatId, {
+    String? answerId,
+  }) async {
     // Nothing to pull for a chat the server never stored.
-    if (TemporaryChats.isTemporary(chatId)) {
-      _announce(chatId);
+    if (TemporaryChats.isTemporary(chatId())) {
+      _announce(chatId());
       return;
     }
     for (final delay in <Duration>[Duration.zero, ...syncRetryDelays]) {
       if (delay > Duration.zero) await Future<void>.delayed(delay);
       if (_disposed) return;
-      await _pull(chatId);
+      await _pull(chatId());
       // A disposal under way waits only for what was out as it began.
       if (_disposed) return;
       // A failed turn has no answer to wait for; one pull is all it gets.
-      if (answerId == null || await _hasAnswer(chatId, answerId)) break;
+      if (answerId == null || await _hasAnswer(chatId(), answerId)) break;
     }
-    if (!_disposed) _announce(chatId);
+    if (!_disposed) _announce(chatId());
   }
 
   Future<void> _pull(String chatId) => _synced(() async {
