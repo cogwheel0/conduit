@@ -1213,8 +1213,10 @@ pub(crate) mod tests {
             std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../app/run.sh"))
                 .unwrap();
         let dev = Flavor::Dev.desktop_entry();
+        // By line: a Windows checkout (core.autocrlf) ends them with CRLF.
         assert!(
-            run.contains(&format!("entry_name={dev}.desktop\n")),
+            run.lines()
+                .any(|l| l.trim() == format!("entry_name={dev}.desktop")),
             "run.sh's dev entry is not {dev}.desktop"
         );
         assert_ne!(id, dev);
