@@ -123,10 +123,14 @@ final class AccountsService {
       _container.read(openWebUiAccountsControllerProvider);
 
   void dispose() {
+    _disposed = true;
     for (final watch in _watches) {
       watch.close();
     }
   }
+
+  /// Set by [dispose]: an announcement already on its way says nothing.
+  bool _disposed = false;
 
   /// What the departing account owned goes when the active account changes,
   /// through the reset the phone uses too.
@@ -819,6 +823,7 @@ final class AccountsService {
   /// Tells every window, once per distinct state, so a change seen through
   /// two paths (the call and the listener) is announced once.
   void _announce(AccountList accounts) {
+    if (_disposed) return;
     final signature = <String>[
       accounts.activeAccountId ?? '',
       '${accounts.addingAccount}',

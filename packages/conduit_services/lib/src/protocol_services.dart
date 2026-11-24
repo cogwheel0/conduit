@@ -519,6 +519,9 @@ final class ProtocolServices {
     _ports.window.uiRequests.hermesChatOf = null;
     if (_uiRequests != null) _ports.window.uiRequests.detach();
     _chats?.dispose();
+    _models?.dispose();
+    _channels?.dispose();
+    _coreSettings?.dispose();
     _ports.window.handoff.detach();
     // The window ports the host keeps reach none of this aggregate's
     // windows once it is gone.

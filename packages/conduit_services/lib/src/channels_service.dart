@@ -49,32 +49,60 @@ import 'settled.dart';
 final class ChannelsService {
   ChannelsService(this._container, {EventBus? events}) : _events = events {
     if (events == null) return;
-    _container.listen<AsyncValue<List<Channel>>>(channelsListProvider, (
-      _,
-      next,
-    ) {
-      if (next.hasValue) events.emit(ConduitEventSpecs.channelsChanged, null);
-    });
-    _container.listen<Map<String, String>>(channelTypingUsersProvider, (
-      _,
-      typing,
-    ) {
-      final channelId = _open;
-      if (channelId == null) return;
-      events.emit(
-        ConduitEventSpecs.channelsTyping,
-        ChannelTypingUsers(
-          channelId: channelId,
-          names: typing.values.toList(growable: false),
-        ),
-        scope: scopeFor(channelId),
-      );
-    });
+    _watches.addAll(<ProviderSubscription<Object?>>[
+      _container.listen<AsyncValue<List<Channel>>>(channelsListProvider, (
+        _,
+        next,
+      ) {
+        if (next.hasValue) {
+          events.emit(ConduitEventSpecs.channelsChanged, null);
+        }
+      }),
+      _container.listen<Map<String, String>>(channelTypingUsersProvider, (
+        _,
+        typing,
+      ) {
+        final channelId = _open;
+        if (channelId == null) return;
+        events.emit(
+          ConduitEventSpecs.channelsTyping,
+          ChannelTypingUsers(
+            channelId: channelId,
+            names: typing.values.toList(growable: false),
+          ),
+          scope: scopeFor(channelId),
+        );
+      }),
+    ]);
     _bindSocket(_container.read(socketServiceProvider));
-    _container.listen<SocketService?>(
-      socketServiceProvider,
-      (_, next) => _bindSocket(next),
+    _watches.add(
+      _container.listen<SocketService?>(
+        socketServiceProvider,
+        (_, next) => _bindSocket(next),
+      ),
     );
+  }
+
+  /// What the constructor holds; [dispose] lets go of it, of the lists and
+  /// members watched, and of the socket's handlers.
+  final List<ProviderSubscription<Object?>> _watches =
+      <ProviderSubscription<Object?>>[];
+  ProviderSubscription<Object?>? _managementWatch;
+
+  void dispose() {
+    for (final watch in _watches) {
+      watch.close();
+    }
+    _watches.clear();
+    for (final watch in _watched.values) {
+      watch.close();
+    }
+    _watched.clear();
+    _membersWatch?.close();
+    _membersWatch = null;
+    _managementWatch?.close();
+    _managementWatch = null;
+    _bindSocket(null);
   }
 
   final ProviderContainer _container;
@@ -577,7 +605,11 @@ final class ChannelsService {
       cm.channelMembersControllerProvider(owner),
       (_, _) {},
     );
-    _container.listen(cm.channelMemberManagementProvider(owner), (_, _) {});
+    _managementWatch?.close();
+    _managementWatch = _container.listen(
+      cm.channelMemberManagementProvider(owner),
+      (_, _) {},
+    );
     return owner;
   }
 

@@ -16,6 +16,8 @@ import 'package:conduit_core/services/connectivity_service.dart'
     show ConnectivityService, connectivityServiceProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart'
     show DirectModelId;
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PreferredBackend, preferredBackendProvider;
 import 'package:conduit_core/services/settings_service.dart'
     show AppSettingsHostDefaults, VoiceCallMode, appSettingsProvider;
 import 'package:conduit_core/testing.dart' show FakeAppLifecycle;
@@ -242,7 +244,8 @@ void main() {
     expect(runtime.location.sent, asked);
   });
 
-  test('once disposed, Hermes says nothing more to the windows', () async {
+  test('once disposed, no service says anything more to the windows, '
+      'whatever changes in the container they watched', () async {
     await startDesktop();
     final built = services()..attach(runtime.container);
     final seen = <String>[];
@@ -251,18 +254,36 @@ void main() {
     await built.dispose();
     seen.clear();
 
-    // Show Scheduled Runs changes what Hermes' lists hold: live, the
-    // service tells the windows to read them again.
-    final settings = CoreSettingsService(runtime.container);
+    final container = runtime.container;
+    // Settings (Show Scheduled Runs also changes what Hermes' lists hold).
+    final settings = CoreSettingsService(container);
     await settings.set(
       AppSettingsPatch(
         hermesShowScheduledSessions: !settings
             .get()
             .hermesShowScheduledSessions,
+        sendOnEnter: !settings.get().sendOnEnter,
       ),
     );
-    await pumpEventQueue();
-    expect(seen, isNot(contains(ConduitEvents.hermesChanged)));
+    // A Direct connection, and with it the models and the backend in use.
+    await DirectService(container).save(
+      const DirectConnectionEdit(
+        name: 'Tide tables',
+        kind: DirectKind.openai,
+        baseUrl: 'http://127.0.0.1:9/v1',
+        manualModelIds: <String>['harbour-small'],
+      ),
+    );
+    await container
+        .read(preferredBackendProvider.notifier)
+        .set(PreferredBackend.direct);
+    // Apple's on-device model.
+    container.read(appleOnDeviceAnswersProvider.notifier).set(true);
+    for (var turn = 0; turn < 5; turn++) {
+      await pumpEventQueue();
+    }
+
+    expect(seen, isEmpty);
   });
 
   test('a reading stopped as transports close lets go before closing waits '
