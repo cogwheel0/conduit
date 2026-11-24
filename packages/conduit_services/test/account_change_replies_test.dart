@@ -9,6 +9,7 @@ import 'package:conduit_core/database/database_provider.dart'
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/models/model.dart' show Model;
 import 'package:conduit_core/providers/app_providers.dart' show modelsProvider;
+import 'package:conduit_core/sync/sync_engine.dart' show syncEngineProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
 import 'package:riverpod/riverpod.dart';
@@ -195,6 +196,26 @@ void main() {
     await certified((await accounts.list()).activeAccountId!);
   }
 
+  /// The id [chatId] goes by once the server stores it: the `route.remap`
+  /// the windows follow, as heard already or once it is.
+  Future<String> remapped(String chatId) async {
+    for (final e in heard) {
+      if (e.event == ConduitEvents.routeRemap &&
+          e.payload['fromId'] == chatId) {
+        return '${e.payload['toId']}';
+      }
+    }
+    final told = Completer<String>();
+    events.attach('remap-$chatId', (envelope) {
+      if (envelope.event == ConduitEvents.routeRemap &&
+          envelope.payload['fromId'] == chatId &&
+          !told.isCompleted) {
+        told.complete('${envelope.payload['toId']}');
+      }
+    });
+    return told.future;
+  }
+
   Future<ChatMessageDto> storedAnswer(String chatId) async =>
       (await chats.get(chatId))!.messages.lastWhere(
         (m) => m.role == 'assistant',
@@ -300,7 +321,11 @@ void main() {
       'turn.failed ${ConduitErrorCodes.sessionExpired} Still going',
       'turn.finished ${ConduitErrorCodes.sessionExpired}',
     ]);
-    final answer = await storedAnswer(chatId);
+    // The chat reaches the server and moves to its id, as a sync can do at
+    // any moment; the answer is read where the windows follow it to.
+    final moved = remapped(chatId);
+    await runtime.container.read(syncEngineProvider.notifier).drainNow();
+    final answer = await storedAnswer(await moved);
     expect(answer.content.trim(), 'Still going');
     expect(answer.streaming, isFalse);
   });
