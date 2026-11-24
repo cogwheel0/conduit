@@ -68,6 +68,7 @@ final class ProtocolHostPorts {
     this.paths,
     this.localTranscriber,
     this.chatScopeOverrides,
+    this.sharesAppContainer = false,
   });
 
   /// The ports the windows answer; the container must hold the overrides
@@ -90,7 +91,24 @@ final class ProtocolHostPorts {
   /// `composerTextInsertionProvider`):
   /// Riverpod refuses a provider overridden twice in one container.
   final List<Override> Function()? chatScopeOverrides;
+
+  /// The services run over a container an app's own interface also uses
+  /// (the phone). The app keeps its read-aloud, calls, Apple models and
+  /// location, so none of their window bridges is built, nothing the app
+  /// installed process-wide is replaced, and [sharedContainerNotOffered]
+  /// answer `rpc.unsupported`. The host applies no [WindowPorts.overrides]
+  /// to that container either.
+  final bool sharesAppContainer;
 }
+
+/// What a host that shares an app's container does not serve: the app does
+/// these itself ([ProtocolHostPorts.sharesAppContainer]).
+const List<String> sharedContainerNotOffered = <String>[
+  'speech',
+  'calls',
+  'apple',
+  'location',
+];
 
 /// The protocol's services over one container: built, wired to each other
 /// and to the host's ports, and stopped in the order they depend on.
@@ -125,6 +143,7 @@ final class ProtocolServices {
     }
     if (_servers != null) throw StateError('the services are already built');
     final ports = _ports;
+    final shared = ports.sharesAppContainer;
     _servers = ServersService(container, events: events);
     _auth = AuthService(container, events: events);
     _settings = SettingsService(container);
@@ -243,24 +262,27 @@ final class ProtocolServices {
     _valves = ValvesService(container);
     _access = AccessService(container, workspace: workspace);
     _folderSettings = FolderSettingsService(container, events: events);
-    _speech = SpeechService(
-      container,
-      events: events,
-      voice: voice,
-      answerFor: chats.answerFor,
-    );
-    _calls = CallsService(
-      container,
-      events: events,
-      turns: turns,
-      ports: ports.window.calls,
-      speech: speech,
-    );
-    // Apple's on-device model: the chat runs here, the model in the window.
-    ports.window.apple.bind(events);
-    // `{{USER_LOCATION}}`: the window asks the device's location services.
-    ports.window.location.bind(events);
-    _apple = AppleModelsService(container, bridge: ports.window.apple);
+    if (!shared) {
+      _speech = SpeechService(
+        container,
+        events: events,
+        voice: voice,
+        answerFor: chats.answerFor,
+      );
+      _calls = CallsService(
+        container,
+        events: events,
+        turns: turns,
+        ports: ports.window.calls,
+        speech: speech,
+      );
+      // Apple's on-device model: the chat runs here, the model in the
+      // window.
+      ports.window.apple.bind(events);
+      // `{{USER_LOCATION}}`: the window asks the device's location services.
+      ports.window.location.bind(events);
+      _apple = AppleModelsService(container, bridge: ports.window.apple);
+    }
     voice.speechOfChat = (chatId) async =>
         SpeechService.speechForModel(container, await chats.modelOf(chatId));
     // What the active account can use: answered by `system.capabilities`
@@ -268,6 +290,7 @@ final class ProtocolServices {
     _capabilities = CapabilitiesService(
       container,
       events: events,
+      notOffered: shared ? sharedContainerNotOffered : const <String>[],
       // Not from inside the constructor: a host that refuses the first
       // answer must find the watcher already held, so [dispose] stops it.
       onChange: (capabilities) {
@@ -442,7 +465,10 @@ final class ProtocolServices {
     callsReports: _callsStopped ? null : _calls,
     calls: transports ? _calls : null,
     apple: _apple,
-    location: _ports.window.location,
+    location: _ports.sharesAppContainer ? null : _ports.window.location,
+    notOffered: _ports.sharesAppContainer
+        ? sharedContainerNotOffered.toSet()
+        : const <String>{},
     handoff: _handoff,
     calendar: _calendar,
     automations: _automations,

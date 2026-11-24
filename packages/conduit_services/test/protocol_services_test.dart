@@ -4,7 +4,15 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/features/chat/read_aloud/device_speech_engine.dart'
+    show DeviceSpeechEngine, NoDeviceSpeech;
 import 'package:conduit_core/features/chat/read_aloud/tts_manager.dart';
+import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart'
+    show voiceModeInputProvider;
+import 'package:conduit_core/features/direct_connections/providers/apple_pcc_providers.dart'
+    show applePccHostProvider;
+import 'package:conduit_core/providers/host_ports.dart'
+    show cookieJarProvider, openExternalUrlProvider, uiRequestPortProvider;
 import 'package:conduit_core/features/chat/read_aloud/text_to_speech_controller.dart'
     show readAloudLiveDeviceSpeechProvider;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
@@ -27,6 +35,7 @@ import 'package:drift/drift.dart' show QueryExecutor;
 import 'package:drift/native.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
@@ -448,6 +457,102 @@ void main() {
     expect(afterClosing, isNot(contains(CallCommandKind.listen)));
     // Stopped: from here a report reaches nothing.
     expect(built.core.callsReports, isNull);
+  });
+
+  test('over a container an app shares, the app keeps its read-aloud, '
+      'calls, Apple models and location: nothing it installed is replaced, '
+      'and those namespaces say this host does not offer them', () async {
+    await startDesktop();
+    // The app's container, with its own ports bound and its own engines
+    // installed process-wide before the services come.
+    final container = runtime.container;
+    final previousPlayback = AudioPlaybackPort.hostFactory;
+    final previousDevice = DeviceSpeechEngine.hostFactory;
+    final previousClips = TtsManager.clipStore;
+    addTearDown(() {
+      AudioPlaybackPort.hostFactory = previousPlayback;
+      DeviceSpeechEngine.hostFactory = previousDevice;
+      TtsManager.clipStore = previousClips;
+    });
+    final AudioPlaybackPort Function() appPlayback = NullAudioPlayback.new;
+    final DeviceSpeechEngine Function() appDevice = NoDeviceSpeech.new;
+    final appClips = TemporaryFileClipStore();
+    AudioPlaybackPort.hostFactory = appPlayback;
+    DeviceSpeechEngine.hostFactory = appDevice;
+    TtsManager.clipStore = appClips;
+    final ports = <ProviderListenable<Object?>>[
+      uiRequestPortProvider,
+      openExternalUrlProvider,
+      cookieJarProvider,
+      voiceModeInputProvider,
+      applePccHostProvider,
+    ];
+    final bound = <Object?>[for (final port in ports) container.read(port)];
+    void expectAppKeepsItsOwn() {
+      expect(AudioPlaybackPort.hostFactory, same(appPlayback));
+      expect(DeviceSpeechEngine.hostFactory, same(appDevice));
+      expect(TtsManager.clipStore, same(appClips));
+      for (var i = 0; i < ports.length; i++) {
+        expect(container.read(ports[i]), same(bound[i]));
+      }
+    }
+
+    final built = ProtocolServices(
+      events: EventBus(),
+      system: system(),
+      ports: ProtocolHostPorts(
+        window: await WindowPorts.open(),
+        sharesAppContainer: true,
+      ),
+    );
+    addTearDown(built.dispose);
+    addTearDown(built.closeTransports);
+    built.attach(container);
+    expectAppKeepsItsOwn();
+
+    final window = connect(built);
+    final handshake = HandshakeResponse.fromJson(
+      await window.sendRequest(
+        ConduitMethods.systemHandshake,
+        const HandshakeRequest(
+          protocolVersion: kConduitProtocolVersion,
+          clientName: 'test',
+          clientVersion: '0.0.0',
+          windowKind: WindowKind.main,
+          locale: 'en',
+        ).toJson(),
+      ) as Map<String, dynamic>,
+    );
+    // Known before anything is asked of them.
+    expect(handshake.capabilities.notOffered, sharedContainerNotOffered);
+    for (final (method, params) in <(String, Map<String, dynamic>)>[
+      (ConduitMethods.speechGet, const <String, dynamic>{}),
+      (ConduitMethods.callsGet, const <String, dynamic>{}),
+      (ConduitMethods.appleStatus, const <String, dynamic>{}),
+      (ConduitMethods.locationReport, const LocationReport(id: 1).toJson()),
+    ]) {
+      await expectLater(
+        window.sendRequest(method, params),
+        throwsA(
+          isA<json_rpc.RpcException>().having(
+            RpcError.fromException,
+            'error',
+            isA<RpcError>()
+                .having((e) => e.code, 'code', ConduitErrorCodes.unsupported)
+                .having(
+                  (e) => e.debugMessage,
+                  'message',
+                  contains('not offered by this host'),
+                ),
+          ),
+        ),
+        reason: method,
+      );
+    }
+
+    await built.closeTransports();
+    await built.dispose();
+    expectAppKeepsItsOwn();
   });
 
   test('closing again after disposal shows sessions nothing', () async {
