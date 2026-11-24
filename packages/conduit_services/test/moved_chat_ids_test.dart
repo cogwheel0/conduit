@@ -41,7 +41,7 @@ void main() {
   late String model;
   late List<EventEnvelope> heard;
   late _MoveLookups moves;
-  void Function()? beforeBranchCheck;
+  Future<void> Function()? beforeBranchCheck;
 
   setUp(() async {
     beforeBranchCheck = null;
@@ -75,7 +75,7 @@ void main() {
     chats = ChatsService(
       runtime.container,
       events: events,
-      pause: (_) async => beforeBranchCheck?.call(),
+      pause: (_) async => await beforeBranchCheck?.call(),
     )..turns = turns;
     addTearDown(chats.dispose);
     final saved = await DirectService(runtime.container).save(
@@ -395,12 +395,24 @@ void main() {
   });
 
   test('a branch chosen in a chat made here, whose drain moves it, is told '
-      'under its current id', () async {
+      'under its current id, and made again there', () async {
     await signIn('ada@example.com', 'pw-ada');
     final old = await localChat();
-    final answer = (await chats.get(old))!.messages.last;
+    final transcript = (await chats.get(old))!.messages;
+    final answer = transcript.last;
     final moved = remapOf(old);
     final told = toldChanged();
+    // The server shows another message as the chat's current one at the
+    // first check (a pull from before the switch, another device): the
+    // switch is made again, on the chat as it goes now.
+    Map<String, dynamic> history() =>
+        (owui.chats.stored.values.single['chat']
+                as Map<String, dynamic>)['history']
+            as Map<String, dynamic>;
+    var checks = 0;
+    beforeBranchCheck = () async {
+      if (checks++ == 0) history()['currentId'] = transcript.first.id;
+    };
 
     final detail = await chats.setCurrent(
       ChatCurrent(chatId: old, messageId: answer.id),
@@ -408,6 +420,8 @@ void main() {
     final now = await moved;
     expect(detail?.summary.id, now);
     expect(told.last, now);
+    expect(checks, greaterThan(1));
+    expect(history()['currentId'], answer.id);
   });
 }
 

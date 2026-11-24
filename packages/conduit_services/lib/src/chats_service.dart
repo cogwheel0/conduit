@@ -1102,8 +1102,16 @@ final class ChatsService {
     // scope left from that answer holds the branch it showed.
     await turns?.settled(request.chatId);
     turns?.forgetIdle(request.chatId);
-    final conversation = await _load(request.chatId);
+    var loadedAs = await _current(request.chatId);
+    var conversation = await _load(loadedAs);
     Future<String> select() async {
+      // Made again after a drain, which moves a chat made here to its
+      // server id: the chat as it goes now.
+      final chatId = await _current(request.chatId);
+      if (chatId != loadedAs) {
+        loadedAs = chatId;
+        conversation = await _load(chatId);
+      }
       try {
         return (await selectChatBranch(
           _container,
@@ -1121,7 +1129,7 @@ final class ChatsService {
     // window reads the chat again.
     await _drain();
     // The drain stores a chat made here, which moves it to its server id.
-    await _confirmBranch(await _current(request.chatId), leaf, select);
+    await _confirmBranch(request.chatId, leaf, select);
     final chatId = await _current(request.chatId);
     turns?.forgetIdle(chatId);
     _container.invalidate(loadConversationProvider(chatId));
@@ -1143,8 +1151,9 @@ final class ChatsService {
   ) async {
     for (var attempt = 0; attempt < 3; attempt++) {
       await _pause(const Duration(milliseconds: 300));
+      final current = await _current(chatId);
       try {
-        final raw = await _api.getChatRaw(chatId);
+        final raw = await _api.getChatRaw(current);
         final chat = raw?['chat'];
         final history = chat is Map ? chat['history'] : null;
         if (history is! Map || history['currentId'] == leaf) return;
@@ -1157,7 +1166,9 @@ final class ChatsService {
         return;
       }
       try {
-        await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
+        await _container
+            .read(syncEngineProvider.notifier)
+            .pullChatNow(current);
       } on Object catch (error) {
         DebugLogger.error('pull-failed', scope: 'daemon/chats', error: error);
       }
