@@ -207,10 +207,20 @@ final class SpeechService {
   void report(SpeechReport report) => bridge.report(report);
 
   /// Stops what is reading, and lets go of the controller.
-  Future<void> dispose() async {
+  ///
+  /// Before its first wait, so nothing started earlier speaks afterwards: a
+  /// toggle still looking up its answer ([_toggles]), a reading still
+  /// waiting inside the controller (its stop moves the controller's request
+  /// on), and the reading under way (the manager lets it go at once).
+  /// Once, however often it is called.
+  Future<void> dispose() => _disposing ??= _dispose();
+  Future<void>? _disposing;
+
+  Future<void> _dispose() async {
+    _toggles++;
     _subscription?.close();
     _subscription = null;
-    await TtsManager.instance.stop();
+    await _controller.stop();
   }
 
   /// The message id of Settings' preview, as the phone names it.

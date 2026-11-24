@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/features/chat/read_aloud/tts_manager.dart';
 import 'package:conduit_core/features/chat/read_aloud/text_to_speech_controller.dart'
     show readAloudLiveDeviceSpeechProvider;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
@@ -40,9 +41,13 @@ void main() {
     addTearDown(() => temporary.deleteSync(recursive: true));
   });
 
-  /// The core over the desktop's stores.
-  Future<void> startDesktop() async {
-    runtime = await startTestCore(temporary);
+  /// The core over the desktop's stores; with [memoryDatabases], its
+  /// account databases in memory.
+  Future<void> startDesktop({bool memoryDatabases = false}) async {
+    runtime = await startTestCore(
+      temporary,
+      databases: memoryDatabases ? _MemoryDatabases(temporary) : null,
+    );
     addTearDown(runtime.dispose);
   }
 
@@ -232,6 +237,117 @@ void main() {
     final asked = Map.of(runtime.location.sent);
     unawaited(runtime.location.isLocationServiceEnabled());
     expect(runtime.location.sent, asked);
+  });
+
+  test('once disposed, Hermes says nothing more to the windows', () async {
+    await startDesktop();
+    final built = services()..attach(runtime.container);
+    final seen = <String>[];
+    built.events.tap((event, _, _) => seen.add(event));
+    await built.closeTransports();
+    await built.dispose();
+    seen.clear();
+
+    // Show Scheduled Runs changes what Hermes' lists hold: live, the
+    // service tells the windows to read them again.
+    final settings = CoreSettingsService(runtime.container);
+    await settings.set(
+      AppSettingsPatch(
+        hermesShowScheduledSessions: !settings
+            .get()
+            .hermesShowScheduledSessions,
+      ),
+    );
+    await pumpEventQueue();
+    expect(seen, isNot(contains(ConduitEvents.hermesChanged)));
+  });
+
+  test('a reading stopped as transports close lets go before closing waits '
+      'for anything, takes no next sentence, and hears its window answer the '
+      'stop, so closing does not wait out the timeout', () async {
+    // Not about databases: on files, a rare late write in db/ at teardown
+    // (cause unknown, older than this test) failed the directory's delete.
+    await startDesktop(memoryDatabases: true);
+    final built = services()..attach(runtime.container);
+    final pipe = StreamChannelController<String>(sync: true);
+    final session = built.openSession(pipe.local, sessionId: 'phone');
+    addTearDown(session.close);
+    unawaited(session.listen());
+    final window = json_rpc.Peer(pipe.foreign);
+    addTearDown(window.close);
+    // The window's speech engine: it answers every command, and says what
+    // it was asked to say and what the answer to the stop was.
+    final said = <SpeechCommand>[];
+    final spoke = Completer<void>();
+    final stopAnswered = Completer<Object?>();
+    registerEventSink(
+      window,
+      onEvent: (envelope) {
+        if (envelope.event != ConduitEvents.speechCommand) return;
+        final command = SpeechCommand.fromJson(envelope.payload);
+        final answered = window.sendRequest(
+          ConduitMethods.speechReport,
+          SpeechReport(id: command.id, value: true).toJson(),
+        );
+        switch (command.kind) {
+          case SpeechCommandKind.deviceSpeak:
+            said.add(command);
+            if (!spoke.isCompleted) spoke.complete();
+          case SpeechCommandKind.deviceStop when !stopAnswered.isCompleted:
+            answered.then(
+              stopAnswered.complete,
+              onError: (Object error) => stopAnswered.complete(error),
+            );
+          default:
+        }
+      },
+    );
+    unawaited(window.listen());
+    await handshakeAndAsk(window);
+    await window.sendRequest(
+      ConduitMethods.eventsSubscribe,
+      const EventSubscription().toJson(),
+    );
+    await window.sendRequest(
+      ConduitMethods.speechPreview,
+      const SpeechPreview(
+        text:
+            'The harbour lights come on one by one as the evening settles '
+            'in. A small wooden boat drifts slowly past the green buoy near '
+            'the pier.',
+      ).toJson(),
+    );
+    await spoke.future;
+
+    var closed = false;
+    final closing = built.closeTransports().then((_) => closed = true);
+    // Before closing has waited for anything (a call's stop can take
+    // seconds), the reading is let go.
+    expect(TtsManager.instance.isPlaying, isFalse);
+    // The first sentence ends meanwhile.
+    try {
+      await window.sendRequest(
+        ConduitMethods.speechReport,
+        SpeechReport(
+          kind: SpeechReportKind.complete,
+          utterance: said.single.utterance,
+        ).toJson(),
+      );
+    } on json_rpc.RpcException {
+      // Refused once the reading has stopped: nothing to advance either way.
+    }
+
+    expect(
+      await stopAnswered.future,
+      isA<Map<dynamic, dynamic>>(),
+      reason: "the window's answer to the stop was refused",
+    );
+    await pumpEventQueue();
+    expect(closed, isTrue);
+    await closing;
+    expect(said, hasLength(1), reason: 'no next sentence after closing began');
+    // Stopped: from here a report reaches nothing.
+    expect(built.core.speechReports, isNull);
   });
 
   test('closing again after disposal shows sessions nothing', () async {

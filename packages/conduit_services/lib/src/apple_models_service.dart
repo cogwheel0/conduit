@@ -302,11 +302,24 @@ final class AppleModelsBridge implements ApplePccHost {
 
   void bind(EventBus events) => _events = events;
 
-  /// Back to no window and no service: what [bind] and the service set.
+  /// Back to no window and no service: what [bind] and the service set,
+  /// and the windows. No window answers from here (their sessions no longer
+  /// reach this bridge), so what waits for one is answered now rather than
+  /// at its timeout, and the runs end as they do when their window goes.
   void unbind() {
     _events = null;
     _onReady = null;
     _onRecheck = null;
+    for (final pending in _pending.values.toList()) {
+      if (!pending.answer.isCompleted) {
+        pending.answer.completeError(StateError('the services stopped'));
+      }
+    }
+    for (final runId in _owners.keys.toList()) {
+      _end(runId, stop: false);
+    }
+    _engines.clear();
+    _taken.clear();
   }
 
   @override
