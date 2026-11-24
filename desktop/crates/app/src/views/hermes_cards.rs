@@ -153,6 +153,9 @@ pub struct FormQuestion<'a> {
     pub draft: ClarifyDraft,
     /// Its own-words field (none once answered elsewhere).
     pub input: Option<Entity<InputState>>,
+    /// The question is the card's title: not shown again over its options,
+    /// which still take it as their group's name.
+    pub titled: bool,
 }
 
 /// Every question of a clarify form, scrolling past ~360 pt. With no
@@ -179,6 +182,8 @@ pub fn clarify_form(
         .map(|(qi, fq)| {
             let q = fq.question;
             let skipped = fq.draft.skipped;
+            let titled = fq.titled;
+            let has_skip = on_skip.is_some() && !q.locked;
             let label: SharedString = if q.text.is_empty() {
                 l10n.hermes_response().into()
             } else {
@@ -198,20 +203,23 @@ pub fn clarify_form(
                             .child(SharedString::from(format!("{}.", qi + 1))),
                     )
                 })
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(px(m.control))
-                        .line_height(relative(1.4))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(if skipped { r.text_subtle } else { r.text })
-                        .child(if q.text.is_empty() {
-                            SharedString::default()
-                        } else {
-                            label.clone()
-                        }),
-                )
+                .when(!titled, |d| {
+                    d.child(
+                        div()
+                            .debug_selector(|| "clarify-question-text".into())
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(m.control))
+                            .line_height(relative(1.4))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(if skipped { r.text_subtle } else { r.text })
+                            .child(if q.text.is_empty() {
+                                SharedString::default()
+                            } else {
+                                label.clone()
+                            }),
+                    )
+                })
                 .when_some(on_skip.clone().filter(|_| !q.locked), |d, on_skip| {
                     d.child(skip_toggle(
                         format!("hermes-skip-{id}-{qi}"),
@@ -349,7 +357,9 @@ pub fn clarify_form(
                 .when(qi > 0, |d| {
                     d.pt(px(12.)).border_t_1().border_color(r.divider)
                 })
-                .child(header)
+                // Nothing left to head a titled question that has no number
+                // and no Skip.
+                .when(!titled || count > 1 || has_skip, |d| d.child(header))
                 .child(body)
                 .into_any_element()
         })

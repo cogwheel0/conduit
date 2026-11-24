@@ -1079,6 +1079,7 @@ impl ApprovalsView {
                         question: q,
                         draft: self.clarify.get(&q.id).cloned().unwrap_or_default(),
                         input: self.clarify_inputs.get(&q.id).cloned(),
+                        titled: false,
                     })
                     .collect();
                 let on_pick: hermes_cards::OnPick = {
@@ -1321,6 +1322,7 @@ impl ApprovalsView {
                         .cloned()
                         .unwrap_or_default(),
                     input: self.clarify_inputs.get(&q.question.id).cloned(),
+                    titled: true,
                 }];
                 let on_pick: hermes_cards::OnPick = {
                     let this = this.clone();
@@ -2523,6 +2525,58 @@ mod librechat_tests {
                 "respond".to_string(),
                 Some("High tide at 07:15.".to_string())
             )]
+        );
+    }
+
+    /// The question is the card's title and is not shown again over its
+    /// options (the options' group keeps it as its name); a Hermes form,
+    /// whose title is its own, still shows each question.
+    #[gpui_kit::test]
+    fn a_question_shows_its_text_once(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        let question = paused(
+            "q",
+            UiRequestKind::LibreChatQuestion,
+            &[("title", "Which days?")],
+            json!({
+                "question": "Which days?",
+                "description": "Pick any.",
+                "options": [{"label": "Monday", "value": "mon"}],
+                "multiSelect": true,
+            }),
+        );
+        b.stores
+            .ui_requests
+            .update(vcx, |u, cx| u.on_request(question, cx));
+        open(&b, "chat-a", vcx);
+        assert!(
+            vcx.debug_bounds("clarify-question-text").is_none(),
+            "the question is shown twice"
+        );
+
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_settled("q", cx);
+            u.on_request(
+                UiRequest {
+                    request_id: "h".into(),
+                    kind: UiRequestKind::HermesClarify,
+                    message_code: "hermes.clarify".into(),
+                    message_args: BTreeMap::new(),
+                    detail: json!({"questions": [
+                        {"id": "q1", "text": "Which room?", "choices": [{"value": "a"}]},
+                    ]}),
+                    timeout_ms: None,
+                    default_choice: "deny".into(),
+                    input_type: None,
+                    options: None,
+                },
+                cx,
+            )
+        });
+        open(&b, "chat-a", vcx);
+        assert!(
+            vcx.debug_bounds("clarify-question-text").is_some(),
+            "a Hermes form lost its question"
         );
     }
 
