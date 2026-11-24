@@ -44,7 +44,10 @@ final class NotificationsService {
        _announced = announced,
        _answerGrace = answerGrace {
     if (events != null) {
-      _container.listen<AppSettings>(appSettingsProvider, (previous, next) {
+      _settings = _container.listen<AppSettings>(appSettingsProvider, (
+        previous,
+        next,
+      ) {
         if (previous != null && _dto(previous) == _dto(next)) return;
         events.emit(ConduitEventSpecs.notificationsChanged, null);
       });
@@ -60,6 +63,7 @@ final class NotificationsService {
   final EventBus? _events;
   final bool Function(String messageId)? _announced;
   final Duration _answerGrace;
+  ProviderSubscription<AppSettings>? _settings;
   ProviderSubscription<SocketService?>? _socket;
   SocketService? _boundSocket;
   SocketEventSubscription? _chatEvents;
@@ -185,6 +189,8 @@ final class NotificationsService {
   }
 
   void dispose() {
+    _settings?.close();
+    _settings = null;
     _socket?.close();
     _socket = null;
     _chatEvents?.dispose();
