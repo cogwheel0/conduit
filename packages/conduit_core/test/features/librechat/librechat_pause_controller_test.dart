@@ -291,6 +291,9 @@ void main() {
       final second = pause.current! as LibreChatQuestionCard;
       check(second.multiSelect).isTrue();
       check(second.answerFor('["Mon","Tue"]')).equals('monday, Tue');
+      // One label alone maps as it does in a list.
+      check(second.answerFor('Mon')).equals('monday');
+      check(second.answerFor('["Mon"]')).equals('monday');
       check(second.answerFor('weekends')).equals('weekends');
       check(second.answerForPlaces([1, 0])).equals('monday, Tue');
       check(

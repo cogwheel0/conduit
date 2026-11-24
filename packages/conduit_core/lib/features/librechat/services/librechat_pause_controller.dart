@@ -131,9 +131,9 @@ final class LibreChatQuestionCard extends LibreChatPauseCard {
   final bool multiSelect;
 
   /// The answer to send for what was [picked]: a choice's label becomes its
-  /// value. Several choices come as a JSON list of labels, and LibreChat
-  /// takes one answer per question, the values joined with ", ". Typed text
-  /// goes as it is.
+  /// value. Several choices come as a JSON list of labels (one may also
+  /// come alone), and LibreChat takes one answer per question, the values
+  /// joined with ", ". Typed text goes as it is.
   String answerFor(String picked) {
     String valueOf(String label) =>
         choices.where((choice) => choice.label == label).firstOrNull?.value ??
@@ -145,9 +145,9 @@ final class LibreChatQuestionCard extends LibreChatPauseCard {
         return decoded.map((label) => valueOf('$label')).join(', ');
       }
     } on FormatException {
-      // Typed text, not a list of choices.
+      // A label alone, or typed text, not a list of choices.
     }
-    return picked;
+    return valueOf(picked);
   }
 
   /// The answer for the choices at [places] in [choices], by their values
