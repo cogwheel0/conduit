@@ -55,8 +55,7 @@ git tag desktop-v1.2.0 && git push origin desktop-v1.2.0
    ├─ "build" (macOS, Apple silicon, Xcode 26+)
    │    build (no secrets) ─ strip, keep dSYMs ─ import Developer ID into a temporary keychain
    │    ─ sign inside out ─ notarize + staple the app ─ DMG ─ sign, notarize + staple it
-   │    ─ verify ─ smoke --launch ─ sign the appcast ─ onto the draft:
-   │        Conduit-1.2.0.dmg, Conduit-1.2.0-dSYMs.zip, appcast.xml, SHA256SUMS.txt
+   │    ─ verify ─ smoke --launch ─ sign the appcast ─ the Mac's files onto the draft
    ├─ "notices" ─ "build-windows" (installer) + "build-linux" (.deb, .rpm), no secrets
    │    ─ "winlinux-feeds": each OS's feed signed with its own key
    │    ─ "smoke-windows" + "smoke-linux": installed on fresh runners
