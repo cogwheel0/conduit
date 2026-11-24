@@ -132,8 +132,8 @@ cat >"$tmp/bin/gh" <<'STUB'
 # A stub gh: STUB_LOOKUP=ok|404|500 answers release lookups; a release's
 # files live in $STUB_ASSETS (one file per asset, named "<id> <name>"); the
 # feed release's state (none, draft, published) is in $STUB_STATE (no file:
-# published). STUB_UPLOAD, STUB_PUBLISH=fail and STUB_DOWNLOAD=other make
-# those steps fail or read back other bytes.
+# published). STUB_UPLOAD, STUB_PUBLISH=fail and STUB_DOWNLOAD=other|fail
+# make those steps fail, or read back other bytes or nothing.
 echo "gh $*" >>"$STUB_LOG"
 if [ "$1" = api ] && [[ "$*" == *"/releases?per_page"* ]]; then
   [ "${STUB_LOOKUP:-ok}" = 500 ] && { echo "gh: Server Error (HTTP 500)" >&2; exit 1; }
@@ -213,6 +213,7 @@ if [ "$1 $2" = "release download" ]; then
     case "$1" in -p) pattern="$2"; shift ;; -D) dir="$2"; shift ;; esac
     shift
   done
+  [ "${STUB_DOWNLOAD:-}" = fail ] && { echo "gh: download failed" >&2; exit 1; }
   file="$(ls "$STUB_ASSETS" | awk -v n="$pattern" '$2 == n')"
   [ -n "$file" ] || { echo "no asset $pattern" >&2; exit 1; }
   if [ "${STUB_DOWNLOAD:-}" = other ]; then printf 'other bytes' >"$dir/$pattern"; else cp "$STUB_ASSETS/$file" "$dir/$pattern"; fi
@@ -574,6 +575,29 @@ already_live() { # label name feed [publish-appcast.sh args...]
 }
 already_live "the Mac's feed already live is left as it is" appcast.xml "$tmp/good.xml"
 already_live "a Windows feed already live is left as it is" appcast-windows.xml "$tmp/good-other-key.xml" --os windows
+# A live feed that cannot be read back stops the run, nothing changed:
+# replacing it then could set an identical copy aside over the last one.
+read_back_fails() { # label name feed [publish-appcast.sh args...]
+  local label="$1" name="$2" xml="$3" base="${2%.xml}"
+  shift 3
+  feed_release
+  [ "$name" = appcast.xml ] || cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
+  cp "$xml" "$STUB_ASSETS/11 $name"
+  printf '<rss/>older\n' >"$STUB_ASSETS/12 $base.previous.xml"
+  local files uploads
+  files="$(ls "$STUB_ASSETS" | tr '\n' ' ')"
+  uploads="$(grep -c '^gh release upload' "$STUB_LOG")"
+  expect 1 "$label" env STUB_DOWNLOAD=fail APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$xml" --push "$@"
+  if [ "$(ls "$STUB_ASSETS" | tr '\n' ' ')" = "$files" ] && grep -qx '<rss/>older' "$STUB_ASSETS/12 $base.previous.xml" &&
+    grep -q "could not read back the live $name" "$tmp/out.txt" &&
+    [ "$(grep -c '^gh release upload' "$STUB_LOG")" = "$uploads" ]; then
+    pass "$label: nothing uploaded or renamed, the last copy kept"
+  else
+    fail "$label: files $(ls "$STUB_ASSETS" | tr '\n' ' '); $(tail -1 "$tmp/out.txt")"
+  fi
+}
+read_back_fails "a live Mac feed that cannot be read back stops the run" appcast.xml "$tmp/good.xml"
+read_back_fails "a live Windows feed that cannot be read back stops the run" appcast-windows.xml "$tmp/good-other-key.xml" --os windows
 
 # winlinux_feed_state: what the release workflow adds an OS's release to.
 # `live` once its feed is published, `new` for its first release; it stops

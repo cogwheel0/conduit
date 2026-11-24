@@ -175,15 +175,18 @@ replace_feed_asset() {
   fi
   # A re-run after a publication that stopped part way: a feed already live
   # stays as it is, so its last copy is kept. A live copy that cannot be
-  # read back is replaced as usual.
+  # read back stops the run with nothing changed: replacing it then could
+  # set an identical copy aside over the last one.
   if [ -n "$current" ]; then
     local live
-    live="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed-live.XXXXXX")" && [ -d "$live" ] &&
-      gh release download "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" -p "$name" -D "$live" >/dev/null 2>&1 &&
-      cmp -s "$new" "$live/$name" && {
+    live="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed-live.XXXXXX")" && [ -d "$live" ] ||
+      die "could not make a scratch folder; nothing was changed"
+    gh release download "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" -p "$name" -D "$live" >/dev/null 2>&1 ||
+      die "could not read back the live $name; nothing was changed: re-run the job"
+    if cmp -s "$new" "$live/$name"; then
       log "$name is already live, byte for byte: left as it is"
       return 0
-    }
+    fi
   fi
   gh release upload "$APPCAST_RELEASE_TAG" "$staged/$stage" -R "$RELEASE_REPO" ||
     die "the new $name did not upload; the live one is unchanged"

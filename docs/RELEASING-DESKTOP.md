@@ -868,8 +868,9 @@ live, then the Windows upload failed): GitHub has no way to swap the three
 files at once, so for now Mac copies are offered the release and Windows or
 Linux copies are not. Re-run the feed job. Its checks pass again, a feed
 that is already live, byte for byte, is left as it is (its last copy stays
-`*.previous.xml`), and the rest go live. If it stopped between a feed's two
-renames, put that feed back first, as below.
+`*.previous.xml`), and the rest go live. A live feed it cannot read back
+stops the run with nothing changed; re-run it again. If it stopped between
+a feed's two renames, put that feed back first, as below.
 
 **The first publication fails** (the feed release is still a draft):
 nothing is live and no installed copy reads a draft. Re-run the feed job;
