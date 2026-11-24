@@ -50,9 +50,24 @@ A reply is streamed over protocol v2 (`POST /api/agents/chat/:endpoint`, then
 `GET /api/agents/chat/stream/:id`, with `resume=true` snapshots, `abort` and
 `status`). What it does depends on the user's words:
 
-- **"approve"**: pauses on a tool approval for `lookup_tide_mcp_harbour_docs`;
-  approving gives "The next high tide at Port Wren is at 06:40."
+- **"approve"**: pauses on a tool approval for `lookup_tide_mcp_harbour_docs`
+  that allows Approve or Reject; approving gives "The next high tide at Port
+  Wren is at 06:40."
+- **"decide"**: pauses on the same call allowing all four decisions. The reply
+  names the one taken: "Approved: …", "Rejected: …", "Edited: the next high
+  tide at <the edited `harbour`> …", or "Responded: the tool was not run, and
+  returned <the response>".
+- **"respond only"**: the same call, which only Respond may answer.
 - **"ask me"**: pauses on a question with two options (Port Wren, Gull Haven).
+- **"ask several"**: pauses on two questions at once, `harbour` (Port Wren or
+  Gull Haven, answered as `port-wren` or `gull-haven`) and `days` (several of
+  Monday and Tuesday, answered as `mon`, `tue`); the reply quotes the answers.
+
+A paused run's `status` reads `requires_action`, and `POST
+/api/agents/chat/resume` refuses an answer as LibreChat does: 400 without an
+`actionId`, 409 for a stale one, 400 for an undecided call, an edit without an
+arguments object or a response without text, 403 for a decision the call does
+not allow, and 400 for a missing or unknown answer to a question.
 - **"long"** or **"story"**: streams for about 15 seconds, to stop.
 - **"fail"**: ends with an error frame.
 - anything else: `Noted: "<text>". <model> answers from the fake harbour server.`
