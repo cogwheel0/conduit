@@ -41,9 +41,13 @@ void main() {
     addTearDown(() => temporary.deleteSync(recursive: true));
   });
 
-  /// The core over the desktop's stores.
-  Future<void> startDesktop() async {
-    runtime = await startTestCore(temporary);
+  /// The core over the desktop's stores; with [memoryDatabases], its
+  /// account databases in memory.
+  Future<void> startDesktop({bool memoryDatabases = false}) async {
+    runtime = await startTestCore(
+      temporary,
+      databases: memoryDatabases ? _MemoryDatabases(temporary) : null,
+    );
     addTearDown(runtime.dispose);
   }
 
@@ -260,7 +264,9 @@ void main() {
 
   test('a reading stopped as transports close hears its window answer the '
       'stop, so closing does not wait out the timeout', () async {
-    await startDesktop();
+    // Not about databases: on files, a rare late write in db/ at teardown
+    // (cause unknown, older than this test) failed the directory's delete.
+    await startDesktop(memoryDatabases: true);
     final built = services()..attach(runtime.container);
     final pipe = StreamChannelController<String>(sync: true);
     final session = built.openSession(pipe.local, sessionId: 'phone');
@@ -320,7 +326,7 @@ void main() {
 
   test('once transports begin closing, a reading takes no next sentence: '
       'the end of its sentence arriving meanwhile starts nothing', () async {
-    await startDesktop();
+    await startDesktop(memoryDatabases: true);
     final built = services()..attach(runtime.container);
     final pipe = StreamChannelController<String>(sync: true);
     final session = built.openSession(pipe.local, sessionId: 'phone');
