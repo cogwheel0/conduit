@@ -1501,8 +1501,9 @@ MAX_ANSWER_LENGTH = 16000
 
 def js_length(text):
     """A string's length as LibreChat measures it: UTF-16 code units, so a
-    character outside the basic plane counts twice."""
-    return len(text.encode("utf-16-le")) // 2
+    character outside the basic plane counts twice. A lone surrogate, which
+    JSON may carry, counts once."""
+    return len(text.encode("utf-16-le", errors="surrogatepass")) // 2
 
 
 def resume_refusal(payload, body):
