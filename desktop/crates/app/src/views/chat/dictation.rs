@@ -328,7 +328,7 @@ pub fn notice_banner(
         actions.push(
             Button::new(
                 "dictation-system-settings",
-                l10n.desktop_open_system_settings(),
+                crate::stores::dictation::open_settings_label(&l10n),
             )
             .on_click(Rc::new(move |_, _, cx| cx.open_url(url)))
             .into_any_element(),

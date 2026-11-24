@@ -342,6 +342,59 @@ fn a_lone_alt_opens_the_menu_on_windows_only(cx: &mut TestAppContext) {
     assert!(!is_open(&host, vcx));
 }
 
+/// Windows' activation injects an Alt press and release to win the
+/// foreground: the lone Alt that follows the app bringing the window
+/// forward is not the user's, and leaves ☰ shut with focus where it was.
+/// The next one is the user's.
+#[gpui_kit::test]
+fn the_alt_an_activation_injects_leaves_the_menu_shut(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
+    vcx.update(|window, cx| super::activate(window, cx));
+    vcx.simulate_modifiers_change(Modifiers::alt());
+    vcx.simulate_modifiers_change(Modifiers::none());
+    draw(vcx);
+    assert!(!is_open(&host, vcx), "the activation's own Alt opened ☰");
+    assert!(field_focused(&host, vcx));
+    vcx.simulate_modifiers_change(Modifiers::alt());
+    vcx.simulate_modifiers_change(Modifiers::none());
+    draw(vcx);
+    assert!(is_open(&host, vcx), "the user's Alt is ☰'s");
+}
+
+/// Two activations close together (the app's New Chat from Settings
+/// brings the main window forward twice) inject two Alts: neither opens ☰.
+#[gpui_kit::test]
+fn each_activations_alt_is_owed(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
+    vcx.update(|window, cx| {
+        super::activate(window, cx);
+        super::activate(window, cx);
+    });
+    for _ in 0..2 {
+        vcx.simulate_modifiers_change(Modifiers::alt());
+        vcx.simulate_modifiers_change(Modifiers::none());
+        draw(vcx);
+        assert!(!is_open(&host, vcx), "an activation's Alt opened ☰");
+    }
+    vcx.simulate_modifiers_change(Modifiers::alt());
+    vcx.simulate_modifiers_change(Modifiers::none());
+    draw(vcx);
+    assert!(is_open(&host, vcx), "the user's Alt is ☰'s");
+}
+
+/// Any key between the activation and a lone Alt means the activation's
+/// Alt went elsewhere: that Alt is the user's.
+#[gpui_kit::test]
+fn a_key_after_an_activation_makes_the_next_alt_the_users(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
+    vcx.update(|window, cx| super::activate(window, cx));
+    vcx.simulate_keystrokes("x");
+    vcx.simulate_modifiers_change(Modifiers::alt());
+    vcx.simulate_modifiers_change(Modifiers::none());
+    draw(vcx);
+    assert!(is_open(&host, vcx));
+}
+
 #[gpui_kit::test]
 fn a_lone_alt_leaves_gnomes_menu_shut(cx: &mut TestAppContext) {
     let (host, _, vcx) = open_host(ChromeStyle::Gnome, Menu::Rows, true, cx);
@@ -473,6 +526,70 @@ fn closing_with_nothing_focused_leaves_nothing_focused(cx: &mut TestAppContext) 
     assert!(vcx.update(|window, cx| window.focused(cx).is_none()));
 }
 
+/// The app's window in outline: its own focus deeper than the window's
+/// root, where its commands are answered (Go's rows on the main window).
+struct HomeHost {
+    home: FocusHandle,
+    menu: Entity<MainMenu>,
+    answered: usize,
+}
+
+impl Render for HomeHost {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(
+            div()
+                .track_focus(&self.home)
+                .size_full()
+                .on_action(cx.listener(|h, _: &Answered, _, _| h.answered += 1))
+                .child(MainMenuButton::new(self.menu.clone())),
+        )
+    }
+}
+
+/// With nothing focused, ☰ acts for the window: the rows the window
+/// answers stay on, run there, and focus comes back to the window.
+#[gpui_kit::test]
+fn with_nothing_focused_the_menu_acts_for_the_window(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        cx.set_global(ConduitTheme::new(
+            "conduit",
+            false,
+            DesignPrefs::default(),
+            gpui_kit::blue(),
+        ))
+    });
+    let (host, vcx) = cx.add_window_view(|window, cx| {
+        let home = cx.focus_handle();
+        let build: super::MenuItems = Rc::new(|_, _| rows());
+        let menu = cx.new(|cx| {
+            MainMenu::new(ChromeStyle::Windows, "Main Menu", build, window, cx).home(home.clone())
+        });
+        HomeHost {
+            home,
+            menu,
+            answered: 0,
+        }
+    });
+    vcx.update(|window, _| window.activate_window());
+    draw(vcx);
+    assert!(vcx.update(|window, cx| window.focused(cx).is_none()));
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    let answered_on = vcx.update(|_, cx| {
+        host.read(cx)
+            .menu
+            .read(cx)
+            .items()
+            .first()
+            .is_some_and(|i| !i.is_disabled())
+    });
+    assert!(answered_on, "the window's own row is greyed");
+    vcx.simulate_keystrokes("enter");
+    draw(vcx);
+    assert_eq!(vcx.update(|_, cx| host.read(cx).answered), 1);
+    assert!(vcx.update(|window, cx| host.read(cx).home.is_focused(window)));
+}
+
 #[gpui_kit::test]
 fn a_keyboard_zoom_in_lets_actual_size_act(cx: &mut TestAppContext) {
     let (host, _, vcx) = open_host(ChromeStyle::Gnome, Menu::Zoom, true, cx);
@@ -597,6 +714,31 @@ fn the_deepest_chains_fit_the_smallest_window(cx: &mut TestAppContext) {
     shows(&host, vcx, smallest());
     step("end right end", vcx);
     shows(&host, vcx, smallest());
+}
+
+/// A panel cut at the window's bottom shows a scroll bar, so the pointer
+/// can see and reach the rows below the cut (Chat in a 720-point-tall
+/// window); a panel that fits shows none.
+#[gpui_kit::test]
+fn a_panel_cut_at_the_window_shows_a_scroll_bar(cx: &mut TestAppContext) {
+    let (_host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Deep, true, cx);
+    vcx.simulate_resize(smallest());
+    draw(vcx);
+    vcx.simulate_keystrokes("f10 down down down down down down down down right");
+    draw(vcx);
+    let panel = bounds("chrome-menu-panel-1".into(), vcx);
+    let bar = vcx
+        .debug_bounds("chrome-menu-scrollbar-1")
+        .expect("Chat, cut at the window's bottom, shows no scroll bar");
+    assert!(
+        bar.right() <= panel.right() && bar.left() >= panel.left(),
+        "the bar {bar:?} is inside its panel {panel:?}"
+    );
+    // Go, which fits, has none.
+    vcx.simulate_keystrokes("escape up right");
+    draw(vcx);
+    assert!(vcx.debug_bounds("chrome-menu-panel-1").is_some());
+    assert!(vcx.debug_bounds("chrome-menu-scrollbar-1").is_none());
 }
 
 /// Opens GNOME's menu with ☰ `menu_at` in from the leading edge of a

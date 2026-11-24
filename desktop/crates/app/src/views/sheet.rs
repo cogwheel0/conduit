@@ -32,8 +32,12 @@ pub const PADDING: f32 = 20.;
 /// What a sheet opens at, before its first frame measures the body.
 const FIRST_HEIGHT: f32 = 360.;
 /// The least room left under the sheet in the main window.
-#[cfg(target_os = "macos")]
-const PARENT_MARGIN: f64 = 40.;
+const PARENT_MARGIN: f32 = 40.;
+/// A sheet's top below its parent's, off the Mac: under the parent's
+/// toolbar, where a Mac sheet hangs.
+const BELOW_PARENT_TOP: f32 = conduit_components::window::TOOLBAR_HEIGHT;
+/// The least a sheet may be fitted to, however small its parent.
+const LEAST_ROOM: f32 = 240.;
 
 /// What a sheet shows.
 pub trait SheetBody: Render + Sized + 'static {
@@ -68,6 +72,12 @@ pub trait SheetBody: Render + Sized + 'static {
 pub struct SheetHost<V: SheetBody> {
     pub body: Entity<V>,
     focus: FocusHandle,
+    /// How tall the sheet may grow off the Mac ([`dialog_room`]).
+    room: Option<f32>,
+    hang: Hang,
+    /// The dialog's title as last set (off the Mac), which follows the
+    /// body's label.
+    title: Option<SharedString>,
     /// The height last asked of the window, so a request never repeats
     /// while AppKit resizes it.
     requested: Rc<Cell<Option<f32>>>,
@@ -118,15 +128,46 @@ struct OpenSheet {
     quit: Option<PendingQuit>,
     /// The last [`PendingQuit::ticket`] given.
     quit_tickets: u64,
+    /// Sheets' windows closing are watched (once).
+    watching: bool,
 }
 
 impl Global for OpenSheet {}
 
-fn window_options(width: f32) -> WindowOptions {
-    WindowOptions {
+/// How a sheet's window hangs from the window it is about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hang {
+    /// The Mac: AppKit's `beginSheet:` hangs it from the parent's title bar;
+    /// it opens hidden and untitled, and AppKit places and shows it.
+    BeginSheet,
+    /// Windows and Linux: a modal dialog of its own over the parent
+    /// (Windows owns it by the parent and disables the parent while it is
+    /// up; X11 marks it transient for the parent, and modal). The OS's
+    /// title bar names it to screen readers and has its close button.
+    Dialog,
+}
+
+impl Hang {
+    pub const NATIVE: Self = if cfg!(target_os = "macos") {
+        Self::BeginSheet
+    } else {
+        Self::Dialog
+    };
+}
+
+/// A sheet window's options: `width` by `height`, titled `title` (off the
+/// Mac), over `parent` (its bounds on screen).
+pub fn window_options(
+    hang: Hang,
+    width: f32,
+    height: f32,
+    title: &str,
+    parent: Bounds<Pixels>,
+) -> WindowOptions {
+    let sheet = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
-            size(px(width), px(FIRST_HEIGHT)),
+            size(px(width), px(height)),
         ))),
         titlebar: Some(gpui_kit::TitlebarOptions {
             title: None,
@@ -142,7 +183,41 @@ fn window_options(width: f32) -> WindowOptions {
         window_background: WindowBackgroundAppearance::Opaque,
         window_min_size: None,
         ..Default::default()
+    };
+    match hang {
+        Hang::BeginSheet => sheet,
+        Hang::Dialog => WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                point(
+                    parent.center().x - px(width / 2.),
+                    parent.top() + px(BELOW_PARENT_TOP),
+                ),
+                size(px(width), px(height)),
+            ))),
+            titlebar: Some(gpui_kit::TitlebarOptions {
+                title: Some(title.to_string().into()),
+                appears_transparent: false,
+                traffic_light_position: None,
+            }),
+            focus: true,
+            show: true,
+            kind: WindowKind::Dialog,
+            is_movable: true,
+            ..sheet
+        },
     }
+}
+
+/// How tall a dialog over `parent` may grow (off the Mac): to the
+/// parent's bottom, short of it as a Mac sheet stops.
+pub fn dialog_room(parent: Bounds<Pixels>) -> f32 {
+    (f32::from(parent.size.height) - BELOW_PARENT_TOP - PARENT_MARGIN).max(LEAST_ROOM)
+}
+
+/// The height a sheet takes for a body `measured` tall, in `room` (off the
+/// Mac; AppKit fits a Mac sheet itself).
+pub fn fitted_height(measured: f32, room: Option<f32>) -> f32 {
+    room.map_or(measured, |room| measured.min(room))
 }
 
 /// Opens a sheet `width` points wide on `parent` (the main window) with the
@@ -154,21 +229,49 @@ pub fn open<V: SheetBody>(
     cx: &mut App,
     build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
 ) -> Option<Entity<V>> {
+    open_on(Hang::NATIVE, parent, width, cx, build)
+}
+
+/// [`open`], hung as `hang`.
+pub(crate) fn open_on<V: SheetBody>(
+    hang: Hang,
+    parent: &Window,
+    width: f32,
+    cx: &mut App,
+    build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
+) -> Option<Entity<V>> {
     if refuse_another(cx) {
         return None;
     }
+    let over = parent.bounds();
+    let room = (hang == Hang::Dialog).then(|| dialog_room(over));
     let opened = conduit_components::window::open_window_clear_root(
-        window_options(width),
+        window_options(hang, width, FIRST_HEIGHT, "", over),
         cx,
         move |window, cx| {
             let body = cx.new(|cx| build(window, cx));
-            cx.new(|cx| SheetHost {
+            let title = (hang == Hang::Dialog).then(|| {
+                let label = body.read(cx).label(cx);
+                window.set_window_title(&label);
+                label
+            });
+            let host = cx.new(|cx| SheetHost {
                 body,
                 focus: cx.focus_handle(),
+                room,
+                hang,
+                title,
                 requested: Rc::new(Cell::new(None)),
                 footer_height: Rc::new(Cell::new(0.)),
                 overflowing: Rc::new(Cell::new(false)),
-            })
+            });
+            // A body that focuses no field of its own leaves the sheet
+            // focused, so its keys (Esc) reach it.
+            if window.focused(cx).is_none() {
+                let focus = host.read(cx).focus.clone();
+                window.focus(&focus, cx);
+            }
+            host
         },
     );
     let (handle, host) = match opened {
@@ -187,7 +290,7 @@ pub fn open<V: SheetBody>(
         ask: Rc::new(move |cx: &mut App| {
             let Some(body) = asked.upgrade() else { return };
             let _ = handle.update(cx, |_, window, cx| {
-                window.activate_window();
+                conduit_components::chrome::activate(window, cx);
                 body.update(cx, |b, cx| b.cancel(window, cx));
             });
         }),
@@ -203,7 +306,9 @@ pub fn refuse_another(cx: &mut App) -> bool {
         return false;
     };
     cx.defer(move |cx| {
-        let _ = handle.update(cx, |_, window, _| window.activate_window());
+        let _ = handle.update(cx, |_, window, cx| {
+            conduit_components::chrome::activate(window, cx)
+        });
     });
     true
 }
@@ -216,6 +321,19 @@ pub fn adopt(handle: AnyWindowHandle, body: AnyEntity, cx: &mut App) {
     open.after = None;
     open.unsaved = None;
     open.quit = None;
+    if !std::mem::replace(&mut open.watching, true) {
+        // A sheet whose window went some other way (with its parent) is no
+        // longer down, and keeps no other from opening.
+        cx.on_window_closed(|cx, id| {
+            if let Some(gone) = current_window(cx).filter(|h| h.window_id() == id) {
+                forget(gone, cx);
+            }
+        })
+        .detach();
+    }
+    let _ = handle.update(cx, |_, window, cx| {
+        window.on_window_should_close(cx, window_manager_closes)
+    });
 }
 
 /// Hangs the sheet window `handle` from `parent` with `beginSheet:`, once
@@ -254,6 +372,27 @@ pub fn begin(parent: &Window, handle: AnyWindowHandle, cx: &mut App) {
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (parent, handle, cx);
+}
+
+/// The window manager asked to close a sheet's window (its × button,
+/// Alt+F4): whether it may. That is the sheet's Cancel, as Esc: the body
+/// asks first when it holds edits, and the sheet ends its own way, which
+/// closes the window. A window no longer the sheet down goes.
+pub(crate) fn window_manager_closes(window: &mut Window, cx: &mut App) -> bool {
+    let handle = window.window_handle();
+    if current_window(cx) != Some(handle) {
+        return true;
+    }
+    // Asked already: that question stays, and keeps the keyboard.
+    if crate::shell::sheet::question_up(handle, cx) {
+        conduit_components::chrome::activate(window, cx);
+        return false;
+    }
+    match cx.try_global::<OpenSheet>().and_then(|o| o.unsaved.clone()) {
+        Some(unsaved) => cx.defer(move |cx| (unsaved.ask)(cx)),
+        None => cx.defer(dismiss),
+    }
+    false
 }
 
 /// Forgets `handle` as the sheet down now, when it is: it is being ended
@@ -359,7 +498,9 @@ pub(crate) fn quit_with(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     // while it can't take the key; ⌘Q works again once the sheet is idle.
     let busy = unsaved.as_ref().is_some_and(|u| (u.busy)(cx));
     if busy || waiting || crate::shell::sheet::question_up(sheet, cx) {
-        let _ = sheet.update(cx, |_, window, _| window.activate_window());
+        let _ = sheet.update(cx, |_, window, cx| {
+            conduit_components::chrome::activate(window, cx)
+        });
         crate::shell::sheet::beep(cx);
         return;
     }
@@ -391,7 +532,9 @@ pub(crate) fn quit_with(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
 /// after [`SAVES_BEFORE_QUIT`]).
 pub fn ready_for_installer(cx: &mut App) -> Task<bool> {
     if let Some(sheet) = holding_sheet(cx) {
-        let _ = sheet.update(cx, |_, window, _| window.activate_window());
+        let _ = sheet.update(cx, |_, window, cx| {
+            conduit_components::chrome::activate(window, cx)
+        });
         crate::shell::sheet::beep(cx);
         return Task::ready(false);
     }
@@ -613,6 +756,18 @@ pub fn ask_for_account(
     })
 }
 
+/// Runs `f` (the next sheet, say) once a sheet window being ended has gone.
+/// Off the Mac a dialog's owner is the window in front as it opens
+/// (Windows), and GPUI destroys a closed window from a task of its own,
+/// spawned as the task that closes it ([`crate::views::settings::end_sheet_window`])
+/// runs: so `f` waits for a task spawned after that one.
+pub fn once_sheet_window_gone(cx: &mut App, f: impl FnOnce(&mut App) + 'static) {
+    cx.spawn(async move |cx| {
+        cx.update(|cx| cx.spawn(async move |cx| cx.update(f)).detach());
+    })
+    .detach();
+}
+
 /// Closes the sheet down now (it slides up), from its body or anywhere.
 pub fn dismiss(cx: &mut App) {
     end_sheet(cx, Ending::Own);
@@ -651,7 +806,7 @@ fn end_sheet(cx: &mut App, ending: Ending) {
     // focus where it was.
     crate::views::settings::end_sheet_window(handle, cx);
     if let Some(after) = after {
-        cx.defer(after);
+        once_sheet_window_gone(cx, after);
     }
     // Quit asked about this sheet and it has gone (Discard, or the save it
     // was busy with closed it): the app quits now.
@@ -675,18 +830,35 @@ fn needs_fit(requested: Option<f32>, measured: f32) -> bool {
 /// Fits the sheet's window to the body, `height` points tall, after this
 /// frame (AppKit calls back into GPUI on a resize). The first fit comes as
 /// the sheet drops in, so it doesn't animate on top of AppKit's slide.
-fn fit(height: f32, first: bool, window: &Window, cx: &App) {
+fn fit(height: f32, first: bool, room: Option<f32>, window: &Window, cx: &App) {
     #[cfg(target_os = "macos")]
     if let Some(ns) = crate::shell::macos::ns_window(window) {
+        let _ = room;
         let animate = !first && !cx.reduce_motion();
         cx.foreground_executor()
             .spawn(async move {
-                crate::shell::macos::fit_sheet(&ns, f64::from(height), PARENT_MARGIN, animate)
+                crate::shell::macos::fit_sheet(
+                    &ns,
+                    f64::from(height),
+                    f64::from(PARENT_MARGIN),
+                    animate,
+                )
             })
             .detach();
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (height, first, window, cx);
+    {
+        let _ = first;
+        let handle = window.window_handle();
+        let fitted = size(
+            window.viewport_size().width,
+            px(fitted_height(height, room)),
+        );
+        cx.spawn(async move |cx| {
+            let _ = handle.update(cx, |_, window, _| window.resize(fitted));
+        })
+        .detach();
+    }
 }
 
 impl<V: SheetBody> Render for SheetHost<V> {
@@ -695,7 +867,14 @@ impl<V: SheetBody> Render for SheetHost<V> {
         let (page, _) = grouped_tones(&t);
         let requested = self.requested.clone();
         let footer_height = self.footer_height.clone();
+        let room = self.room;
         let label = self.body.read(cx).label(cx);
+        // A label that changes once the body has loaded (a server's sheet
+        // names the server) renames the dialog.
+        if self.hang == Hang::Dialog && self.title.as_ref() != Some(&label) {
+            window.set_window_title(&label);
+            self.title = Some(label.clone());
+        }
         // The body's scroll, kept by the sheet's window; a scroll asked for
         // from outside a render ([`scroll_to`]) is made here.
         let scroll = window
@@ -725,7 +904,7 @@ impl<V: SheetBody> Render for SheetHost<V> {
                 let before = requested.get();
                 if needs_fit(before, total) {
                     requested.set(Some(total));
-                    fit(total, before.is_none(), window, cx);
+                    fit(total, before.is_none(), room, window, cx);
                 }
             },
         )
@@ -743,12 +922,24 @@ impl<V: SheetBody> Render for SheetHost<V> {
         .size_full();
         let body = self.body.clone();
         let cancel_body = self.body.clone();
+        let (esc_body, stop_body) = (self.body.clone(), self.body.clone());
         div()
             .id("sheet")
             .role(Role::Dialog)
             .aria_label(label)
             .key_context("ConduitSheet")
             .track_focus(&self.focus)
+            // Esc: a field's Escape, and the app's (Stop Generating, bound
+            // with no context and answered app-wide), would take the key
+            // first; the capture phase reaches the sheet before either.
+            .capture_action(move |_: &gpui_kit::component::input::Escape, window, cx| {
+                esc_body.update(cx, |b, cx| b.cancel(window, cx));
+                cx.stop_propagation();
+            })
+            .capture_action(move |_: &crate::actions::StopGenerating, window, cx| {
+                stop_body.update(cx, |b, cx| b.cancel(window, cx));
+                cx.stop_propagation();
+            })
             .size_full()
             .flex()
             .flex_col()
@@ -809,15 +1000,59 @@ impl<V: SheetBody> Render for SheetHost<V> {
 mod tests {
     use super::*;
 
+    /// The main window a sheet is about, on screen.
+    fn parent() -> Bounds<Pixels> {
+        Bounds::new(point(px(100.), px(50.)), size(px(1280.), px(720.)))
+    }
+
     #[test]
     fn a_sheet_opens_hidden_fixed_and_as_wide_as_asked() {
-        let o = window_options(520.);
+        let o = window_options(Hang::BeginSheet, 520., FIRST_HEIGHT, "Synthetic", parent());
         assert!(!o.show && !o.focus);
         assert!(!o.is_resizable && !o.is_minimizable && !o.is_movable);
+        // AppKit hangs it, untitled: VoiceOver reads the sheet's own label.
+        assert_eq!(o.kind, WindowKind::Normal);
+        assert!(o.titlebar.as_ref().is_some_and(|t| t.title.is_none()));
         match o.window_bounds {
             Some(WindowBounds::Windowed(b)) => assert_eq!(f32::from(b.size.width), 520.),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// Off the Mac a sheet is a titled modal dialog over its parent: the
+    /// OS's title bar names it to screen readers ("Chat Settings, dialog",
+    /// not "window"), and it hangs under the parent's toolbar, centred.
+    #[test]
+    fn off_the_mac_a_sheet_is_a_titled_dialog_over_its_parent() {
+        let o = window_options(Hang::Dialog, 520., FIRST_HEIGHT, "Synthetic", parent());
+        assert_eq!(o.kind, WindowKind::Dialog);
+        assert!(o.show && o.focus && o.is_movable);
+        assert!(!o.is_resizable && !o.is_minimizable);
+        let titlebar = o.titlebar.expect("a title bar");
+        assert_eq!(titlebar.title.as_deref(), Some("Synthetic"));
+        assert!(!titlebar.appears_transparent, "the OS draws its title bar");
+        match o.window_bounds {
+            Some(WindowBounds::Windowed(b)) => {
+                assert_eq!(f32::from(b.origin.x), 100. + (1280. - 520.) / 2.);
+                assert_eq!(f32::from(b.origin.y), 50. + BELOW_PARENT_TOP);
+                assert_eq!(f32::from(b.size.width), 520.);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Off the Mac a sheet is as tall as its body, up to the room under its
+    /// parent's toolbar (it scrolls beyond), and never shorter than a form
+    /// needs however small the parent.
+    #[test]
+    fn off_the_mac_a_sheet_fits_its_body_under_its_parent() {
+        let room = dialog_room(parent());
+        assert_eq!(room, 720. - BELOW_PARENT_TOP - PARENT_MARGIN);
+        assert_eq!(fitted_height(410., Some(room)), 410.);
+        assert_eq!(fitted_height(900., Some(room)), room);
+        assert_eq!(fitted_height(900., None), 900.);
+        let small = Bounds::new(point(px(0.), px(0.)), size(px(720.), px(260.)));
+        assert_eq!(dialog_room(small), LEAST_ROOM);
     }
 
     /// A sheet body that counts how often it is asked to close, and puts
@@ -937,6 +1172,246 @@ mod tests {
         landed.send(()).unwrap();
         vcx.run_until_parked();
         assert_eq!(futures::FutureExt::now_or_never(&mut ready), Some(true));
+    }
+
+    /// A sheet body whose Cancel closes it (nothing to discard), with a
+    /// field it focuses as it opens, or none.
+    struct Closer(Rc<Cell<u32>>, Option<FocusHandle>);
+
+    impl Render for Closer {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().when_some(self.1.clone(), |d, f| {
+                d.child(div().track_focus(&f).size_full())
+            })
+        }
+    }
+
+    impl SheetBody for Closer {
+        fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+            self.0.set(self.0.get() + 1);
+            dismiss(cx);
+        }
+
+        fn label(&self, _: &App) -> SharedString {
+            "Closer".into()
+        }
+    }
+
+    fn open_closer(
+        vcx: &mut gpui_kit::VisualTestContext,
+        field: bool,
+    ) -> (Rc<Cell<u32>>, AnyWindowHandle) {
+        let cancels = Rc::new(Cell::new(0));
+        let counted = cancels.clone();
+        vcx.update(|window, cx| {
+            open(window, 400., cx, move |window, cx| {
+                let focus = field.then(|| cx.focus_handle());
+                if let Some(f) = &focus {
+                    window.focus(f, cx);
+                }
+                Closer(counted, focus)
+            })
+        })
+        .expect("the sheet opens");
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| current_window(cx))
+            .expect("a sheet is down");
+        (cancels, sheet)
+    }
+
+    /// Esc cancels a sheet, its field focused or nothing, though the app's
+    /// Esc (Stop Generating, bound with no context and answered app-wide)
+    /// would take the key first.
+    #[gpui_kit::test]
+    fn esc_cancels_a_sheet_over_the_apps_esc(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let stops = Rc::new(Cell::new(0));
+        let seen = stops.clone();
+        vcx.update(|_, cx| {
+            cx.bind_keys([gpui_kit::KeyBinding::new(
+                "escape",
+                crate::actions::StopGenerating,
+                None,
+            )]);
+            cx.on_action(move |_: &crate::actions::StopGenerating, _| seen.set(seen.get() + 1));
+        });
+        for field in [true, false] {
+            let (cancels, sheet) = open_closer(vcx, field);
+            vcx.cx.simulate_keystrokes(sheet, "escape");
+            vcx.run_until_parked();
+            assert_eq!(
+                cancels.get(),
+                1,
+                "field {field}: Esc didn't cancel the sheet"
+            );
+            assert!(!vcx.update(|_, cx| is_open(cx)), "field {field}");
+        }
+        assert_eq!(
+            stops.get(),
+            0,
+            "Esc reached Stop Generating behind the sheet"
+        );
+    }
+
+    /// The window manager's close (its × button, Alt+F4) is Cancel: the
+    /// body asks first when it holds edits, and the window stays until the
+    /// sheet ends its own way.
+    #[gpui_kit::test]
+    fn the_window_managers_close_is_cancel(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let asks = Rc::new(Cell::new(0));
+        let (probe, question) = (asks.clone(), Rc::new(Cell::new(None)));
+        vcx.update(|window, cx| open(window, 400., cx, move |_, _| Probe(probe, question)))
+            .expect("the sheet opens");
+        vcx.run_until_parked();
+        let sheet = vcx.update(|_, cx| current_window(cx)).unwrap();
+        let closes = vcx
+            .cx
+            .update(|cx| sheet.update(cx, |_, window, cx| window_manager_closes(window, cx)))
+            .unwrap();
+        vcx.run_until_parked();
+        assert!(!closes, "the window manager closed a sheet with edits");
+        assert_eq!(asks.get(), 1, "the body wasn't asked");
+        assert!(vcx.update(|_, cx| is_open(cx)));
+    }
+
+    /// A sheet whose window went some other way (its parent closed under
+    /// it) no longer counts as down: the next sheet opens.
+    #[gpui_kit::test]
+    fn a_sheet_whose_window_went_lets_the_next_one_open(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let (_, sheet) = open_closer(vcx, false);
+        vcx.cx
+            .update(|cx| sheet.update(cx, |_, window, _| window.remove_window()))
+            .unwrap();
+        vcx.run_until_parked();
+        assert!(
+            !vcx.update(|_, cx| is_open(cx)),
+            "the gone sheet still counts"
+        );
+        let (_, next) = open_closer(vcx, false);
+        assert_ne!(next, sheet);
+    }
+
+    /// Opens a sheet on `vcx`'s window that runs `then` once it has been
+    /// dismissed, with whether its own window was still open by then.
+    #[gpui_kit::test]
+    fn the_sheet_after_one_opens_once_its_window_has_gone(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let (_, sheet) = open_closer(vcx, false);
+        let still_open = Rc::new(Cell::new(None));
+        let seen = still_open.clone();
+        vcx.update(|_, cx| {
+            after_dismiss(cx, move |cx| seen.set(Some(cx.windows().contains(&sheet))));
+            dismiss(cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            still_open.get(),
+            Some(false),
+            "the next sheet opened while the last one's window was still there"
+        );
+    }
+
+    /// A body that asks before it closes, its question held open.
+    struct Asker(Rc<Cell<u32>>);
+
+    impl Render for Asker {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    impl SheetBody for Asker {
+        fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+            self.0.set(self.0.get() + 1);
+            let spec = crate::shell::sheet::SheetSpec::new(
+                "Discard edits?",
+                "Synthetic",
+                "Discard",
+                "Keep",
+            );
+            crate::shell::sheet::present_sheet(window, spec, cx).detach();
+        }
+
+        fn label(&self, _: &App) -> SharedString {
+            "Asker".into()
+        }
+    }
+
+    /// The window manager's close again while the sheet's question is up
+    /// asks nothing more: the question stays, and keeps the keyboard.
+    #[gpui_kit::test]
+    fn a_second_close_while_the_question_is_up_asks_nothing(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        let asks = Rc::new(Cell::new(0));
+        let counted = asks.clone();
+        vcx.update(|window, cx| open(window, 400., cx, move |_, _| Asker(counted)))
+            .expect("the sheet opens");
+        vcx.run_until_parked();
+        let sheet = vcx.update(|_, cx| current_window(cx)).unwrap();
+        for _ in 0..2 {
+            let closes = vcx
+                .cx
+                .update(|cx| sheet.update(cx, |_, window, cx| window_manager_closes(window, cx)))
+                .unwrap();
+            assert!(!closes);
+            vcx.run_until_parked();
+        }
+        assert_eq!(asks.get(), 1, "asked again over its own question");
+        assert_eq!(
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::HeldAnswers>().0.len()),
+            1
+        );
+    }
+
+    /// A body whose label changes once it has loaded (a server's sheet
+    /// names the server).
+    struct Renamer(Rc<std::cell::RefCell<String>>);
+
+    impl Render for Renamer {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    impl SheetBody for Renamer {
+        fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+            dismiss(cx);
+        }
+
+        fn label(&self, _: &App) -> SharedString {
+            self.0.borrow().clone().into()
+        }
+    }
+
+    /// Off the Mac the dialog's title (its name to screen readers) follows
+    /// the sheet's label as it changes.
+    #[gpui_kit::test]
+    fn a_dialogs_title_follows_its_label(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let label = Rc::new(std::cell::RefCell::new("Synthetic Settings…".to_string()));
+        let named = label.clone();
+        let body = vcx
+            .update(|window, cx| {
+                open_on(Hang::Dialog, window, 400., cx, move |_, _| Renamer(named))
+            })
+            .expect("the sheet opens");
+        vcx.run_until_parked();
+        let sheet = vcx.update(|_, cx| current_window(cx)).unwrap();
+        let mut sheet_cx = gpui_kit::VisualTestContext::from_window(sheet, &vcx.cx);
+        sheet_cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            sheet_cx.window_title().as_deref(),
+            Some("Synthetic Settings…")
+        );
+        *label.borrow_mut() = "Synthetic Server".into();
+        body.update(&mut sheet_cx, |_, cx| cx.notify());
+        sheet_cx.update(|window, cx| window.draw(cx).clear(cx));
+        sheet_cx.run_until_parked();
+        assert_eq!(sheet_cx.window_title().as_deref(), Some("Synthetic Server"));
     }
 
     #[test]

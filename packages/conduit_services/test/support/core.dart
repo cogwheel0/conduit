@@ -25,10 +25,12 @@ import 'fake_owui_auth_server.dart';
 /// values so what the tests expect is unchanged.
 ///
 /// [interceptDatabase], given a database's file name, returns what that
-/// database's queries and close go through (null for none).
+/// database's queries and close go through (null for none). [databases]
+/// replaces the account databases in [dataDir].
 Future<CoreRuntime> startTestCore(
   Directory dataDir, {
   QueryInterceptor? Function(String fileName)? interceptDatabase,
+  DatabaseOpenerPort? databases,
 }) async {
   // `PreferencesStore` is process-wide and keeps the first store it loads,
   // so each runtime gets its own rather than one an earlier test left.
@@ -64,10 +66,9 @@ Future<CoreRuntime> startTestCore(
           attachmentQueue: await open(HiveBoxNames.attachmentQueue),
           metadata: await open(HiveBoxNames.metadata),
         ),
-        databaseOpener: _TestDatabases(
-          Directory('${dataDir.path}/db'),
-          interceptDatabase,
-        ),
+        databaseOpener:
+            databases ??
+            _TestDatabases(Directory('${dataDir.path}/db'), interceptDatabase),
         worker: const DaemonWorkerPort(),
         connectivity: connectivity,
         reportNetwork: connectivity.report,

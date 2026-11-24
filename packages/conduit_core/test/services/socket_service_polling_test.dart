@@ -215,6 +215,98 @@ void main() {
     check(reachedElsewhere).isEmpty();
   });
 
+  test('a polling fallback ends with the outage it was chosen in: back on '
+      'the network, the next connection starts on a WebSocket', () async {
+    // The server's policy is unknown, so polling may serve it.
+    final transports = <List<Object?>>[];
+    final sockets = <io.Socket>[];
+    final service = SocketService(
+      serverConfig: const ServerConfig(
+        id: 'outage',
+        name: 'Outage',
+        url: 'https://example.com',
+      ),
+      websocketOnly: true,
+      socketFactory: (base, builder, _) {
+        transports.add(builder.build()['transports'] as List<Object?>);
+        final socket = io.io(base, <String, dynamic>{
+          'autoConnect': false,
+          'forceNew': true,
+          'reconnection': false,
+        });
+        sockets.add(socket);
+        return socket;
+      },
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+    // The way to the server drops the WebSocket's connection before the
+    // network's report says it went: polling is tried next.
+    sockets.last.emitReserved(
+      'connect_error',
+      const HttpException('Connection closed before full header was received'),
+    );
+    check(transports).deepEquals([
+      ['websocket'],
+      ['polling'],
+    ]);
+
+    service.updateNetworkAvailability(false);
+    service.updateNetworkAvailability(true);
+    check(transports).length.equals(3);
+    check(transports.last).deepEquals(['websocket']);
+  });
+
+  test('a polling fallback goes back to a WebSocket once the server is known '
+      'to serve no polling', () async {
+    // A first sign-in: the socket is up before the server's config is read.
+    final transports = <List<Object?>>[];
+    final sockets = <io.Socket>[];
+    final service = SocketService(
+      serverConfig: const ServerConfig(
+        id: 'policy',
+        name: 'Policy',
+        url: 'https://example.com',
+      ),
+      websocketOnly: true,
+      socketFactory: (base, builder, _) {
+        transports.add(builder.build()['transports'] as List<Object?>);
+        final socket = io.io(base, <String, dynamic>{
+          'autoConnect': false,
+          'forceNew': true,
+          'reconnection': false,
+        });
+        sockets.add(socket);
+        return socket;
+      },
+    );
+    addTearDown(service.dispose);
+
+    await service.connect();
+    sockets.last.emitReserved(
+      'connect_error',
+      const HttpException('Connection closed before full header was received'),
+    );
+    check(transports.last).deepEquals(['polling']);
+
+    service.allowPolling = false;
+    // The polling attempt in flight ends as such a server ends it.
+    sockets.last.emitReserved(
+      'connect_error',
+      const WebSocketException('Engine.IO polling handshake answered HTTP 400'),
+    );
+    check(transports).length.equals(3);
+    check(transports.last).deepEquals(['websocket']);
+
+    // A failed WebSocket attempt now stays on the WebSocket.
+    sockets.last.emitReserved(
+      'connect_error',
+      const HttpException('Connection closed before full header was received'),
+    );
+    check(transports).length.equals(3);
+  });
+
   group('a socket the server never completed a handshake for', () {
     // The server accepts the WebSocket and refuses polling, so neither the
     // first attempt nor the polling fallback after it can connect.

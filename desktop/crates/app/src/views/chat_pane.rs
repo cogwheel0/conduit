@@ -621,10 +621,12 @@ impl ChatPane {
                     .collect()
             })
             .unwrap_or_default();
+        let title = cx.l10n().desktop_branches_title();
         crate::views::chat::sheets::open(
             window,
             crate::views::chat::branches::WIDTH,
             crate::views::chat::branches::HEIGHT,
+            &title,
             cx,
             move |window, cx| {
                 crate::views::chat::branches::BranchesSheet::new(store, tree, names, window, cx)
@@ -1284,6 +1286,15 @@ impl ChatPane {
                     ChatStoreEvent::Missing => cx.notify(),
                     // For the app's view in the transcript.
                     ChatStoreEvent::McpApp(_) => {}
+                    // Heard as well as drawn: the row's error block is an
+                    // alert, which screen readers don't speak by itself.
+                    ChatStoreEvent::AnswerFailed { error } => {
+                        conduit_components::announce::announce(
+                            crate::views::chat::blocks::error_text(error, &l10n),
+                            conduit_components::announce::Priority::High,
+                            cx,
+                        );
+                    }
                     ChatStoreEvent::InsertText { text } => {
                         // The composition the words were given to: written
                         // into it only while it is still the one shown.

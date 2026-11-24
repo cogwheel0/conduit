@@ -1070,7 +1070,9 @@ pub fn open(stores: Stores, chat_id: String, status: ComputerStatus, cx: &mut Ap
     if let Some((open_chat, handle, _)) = cx.default_global::<OpenComputer>().0.clone() {
         if open_chat == chat_id
             && handle
-                .update(cx, |_, window, _| window.activate_window())
+                .update(cx, |_, window, cx| {
+                    conduit_components::chrome::activate(window, cx)
+                })
                 .is_ok()
         {
             return;

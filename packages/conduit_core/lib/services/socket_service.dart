@@ -76,6 +76,27 @@ class SocketService {
   final ServerConfig serverConfig;
   final bool websocketOnly;
   final bool allowWebsocketUpgrade;
+
+  /// Whether the server serves Engine.IO long-polling. Open WebUI with its
+  /// WebSocket support on, its default, serves a WebSocket alone and answers
+  /// every polling handshake 400, so there a connection never falls back to
+  /// polling.
+  ///
+  /// The server's config can arrive after the service is made (a first
+  /// sign-in has none stored). The connection that is up is kept; the answer
+  /// applies from the next attempt, and a polling fallback that is running
+  /// goes back to a WebSocket.
+  bool get allowPolling => _allowPolling;
+  bool _allowPolling;
+  set allowPolling(bool value) {
+    if (_allowPolling == value) return;
+    _allowPolling = value;
+    if (value || !_forcePollingFallback) return;
+    _forcePollingFallback = false;
+    if (_mayMaintainTransport && !isConnected) {
+      connectBestEffort(force: true, reason: 'server-serves-no-polling');
+    }
+  }
   final SocketFactory _socketFactory;
   final Duration _resumeReconnectWatchdogTimeout;
   final DateTime Function() _now;
@@ -471,11 +492,13 @@ class SocketService {
     String? authToken,
     this.websocketOnly = false,
     this.allowWebsocketUpgrade = true,
+    bool allowPolling = true,
     SocketFactory? socketFactory,
     DateTime Function()? now,
     Duration resumeReconnectWatchdogTimeout =
         _defaultResumeReconnectWatchdogTimeout,
-  }) : _authToken = authToken,
+  }) : _allowPolling = allowPolling,
+       _authToken = authToken,
        _now = now ?? DateTime.now,
        _resumeReconnectWatchdogTimeout = resumeReconnectWatchdogTimeout,
        _socketFactory =
@@ -590,12 +613,16 @@ class SocketService {
   String? get sessionId => _socket?.id;
 
   /// Whether a connection starts on a WebSocket, falling back to polling when
-  /// that fails. In WebSocket mode it does; in polling mode, a session that
-  /// cannot upgrade (native platforms, see [socketPollingCanUpgrade]) does too
-  /// when the server allows WebSockets, which keeps that mode's promise of a
-  /// WebSocket when possible and polling when it is blocked.
+  /// that fails and the server serves polling ([allowPolling]). In WebSocket
+  /// mode it does, and on a server that serves no polling; in polling mode, a
+  /// session that cannot upgrade (native platforms, see
+  /// [socketPollingCanUpgrade]) does too when the server allows WebSockets,
+  /// which keeps that mode's promise of a WebSocket when possible and polling
+  /// when it is blocked.
   bool get _triesWebsocketFirst =>
-      websocketOnly || (allowWebsocketUpgrade && !socketPollingCanUpgrade);
+      websocketOnly ||
+      !allowPolling ||
+      (allowWebsocketUpgrade && !socketPollingCanUpgrade);
 
   /// How long the server's `execute:tool` call may wait for this client.
   static const Duration toolExecutionTimeout = Duration(seconds: 120);
@@ -756,6 +783,9 @@ class SocketService {
   void updateNetworkAvailability(bool available) {
     if (_hasNetwork == available) return;
     _hasNetwork = available;
+    // A polling fallback chosen while the way to the server was failing
+    // says nothing about it once the network is back.
+    if (!available) _forcePollingFallback = false;
     _applyTransportActivityPolicy();
     if (_mayMaintainTransport && !isConnected) {
       connectBestEffort(force: true, reason: 'network-available');
@@ -1494,12 +1524,13 @@ class SocketService {
     );
 
     // If WebSocket-only handshake fails, retry once with polling+websocket
-    // transports to avoid endless spinners (issue #172). Not when the server
-    // could not be reached at all (refused, no route, no such host): polling
-    // would fail the same way, and the fallback, cleared only by a successful
-    // connection, would keep a WebSocket-only server's later recovery out of
-    // reach (it answers every polling handshake 400).
+    // transports to avoid endless spinners (issue #172). Not on a server that
+    // serves no polling: it answers every polling handshake 400, and the
+    // fallback, cleared only by a successful connection, would keep it out of
+    // reach for good. Nor when the server could not be reached at all
+    // (refused, no route, no such host): polling would fail the same way.
     if (_triesWebsocketFirst &&
+        allowPolling &&
         !_forcePollingFallback &&
         !_serverUnreachable(err)) {
       _forcePollingFallback = true;
