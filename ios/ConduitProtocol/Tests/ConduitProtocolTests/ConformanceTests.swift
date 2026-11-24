@@ -27,9 +27,15 @@ enum Goldens {
     return try JSONDecoder().decode([String: String].self, from: data)
   }
 
+  /// A golden file that is not what `dump_goldens.dart` writes: the test
+  /// that read it fails.
+  struct Malformed: Error, CustomStringConvertible {
+    let description: String
+  }
+
   static func specs() throws -> [String: JSONValue] {
     guard case .object(let specs) = try json("specs.json") else {
-      throw XCTSkip("specs.json is not an object")
+      throw Malformed(description: "specs.json is not an object")
     }
     return specs
   }
