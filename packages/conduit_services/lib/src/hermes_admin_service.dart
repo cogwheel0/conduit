@@ -322,6 +322,7 @@ final class HermesAdminService {
           HermesConfig.isValidDesktopProfile(edit.desktopProfile.trim())
           ? edit.desktopProfile.trim()
           : 'default',
+      useTailscale: saved.useTailscale,
       allowSelfSignedCertificates: edit.allowSelfSignedCertificates,
       plainHttpConsentOrigin: edit.allowPlainHttp
           ? HermesConfig.plainHttpOrigin(edit.baseUrl)

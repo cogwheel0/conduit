@@ -314,6 +314,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     super.didUpdateWidget(oldWidget);
     _serverConfig = widget.serverConfig ?? _serverConfig;
     _backendConfig = widget.backendConfig ?? _backendConfig;
+    _reconcileAuthMode();
   }
 
   void _resetTransientLogin() {
@@ -350,6 +351,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       _authMode = AuthMode.token;
     }
 
+    _reconcileAuthMode();
+  }
+
+  void _reconcileAuthMode() {
     // Keep the selected segment and rendered form in sync with the methods
     // supported by both the server and this platform.
     final selectableModes = _availableAuthModes;
@@ -694,8 +699,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     ref.listen(activeServerProvider, (previous, next) {
       if (_serverConfig == null &&
           previous?.value?.useTailscale != next.value?.useTailscale) {
-        final modes = _availableAuthModes;
-        if (!modes.contains(_authMode)) setState(() => _authMode = modes.first);
+        setState(_reconcileAuthMode);
       }
     });
 

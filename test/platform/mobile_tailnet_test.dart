@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:conduit/platform/mobile_tailnet.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
+import 'package:file/memory.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_time.dart';
@@ -17,6 +18,8 @@ void main() {
       addTearDown(() async {
         if (await dir.exists()) await dir.delete(recursive: true);
       });
+      final identity = File('${dir.path}/identity');
+      await identity.writeAsString('orphaned encrypted state');
       final operations = <String>[];
       final keys = <String>[];
       final node = MobileTailnet(
@@ -25,7 +28,16 @@ void main() {
         openLogin: (_) async => fail('unexpected browser'),
         call: (cmd) async {
           operations.add(cmd['op'] as String);
-          if (cmd['op'] == 'start') keys.add(cmd['key'] as String);
+          if (cmd['op'] == 'start') {
+            if (keys.isEmpty) {
+              expect(await identity.exists(), isFalse);
+              await dir.create();
+              await identity.writeAsString('fresh synthetic node');
+            } else {
+              expect(await identity.readAsString(), 'fresh synthetic node');
+            }
+            keys.add(cmd['key'] as String);
+          }
           if (cmd['op'] == 'logout') throw const SocketException('offline');
           return {'state': 'Running'};
         },
@@ -122,7 +134,7 @@ void main() {
       });
       final node = MobileTailnet(
         storage: InMemorySecureKeyValueStore(),
-        directory: () async => dir,
+        directory: () async => MemoryFileSystem().directory('/node'),
         openLogin: (_) async => fail('unexpected browser'),
         call: (command) async => command['op'] == 'dial'
             ? {'port': handoff.port, 'ticket': ticket}
@@ -164,7 +176,7 @@ void main() {
       final cancelled = <Object?>[];
       final node = MobileTailnet(
         storage: InMemorySecureKeyValueStore(),
-        directory: () async => Directory.systemTemp,
+        directory: () async => MemoryFileSystem().directory('/node'),
         openLogin: (_) async => false,
         call: (cmd) async {
           if (cmd['op'] == 'dial')
@@ -182,14 +194,31 @@ void main() {
         null,
         null,
       );
-      final closed = expectLater(
-        task.socket.timeout(const Duration(seconds: 5)),
-        throwsA(isA<IOException>()),
-      );
-      await hello.future.timeout(const Duration(seconds: 5));
+      final closed = expectLater(task.socket, throwsA(isA<IOException>()));
+      await hello.future;
       task.cancel();
       await closed;
       expect(cancelled, [ticket]);
+    },
+  );
+
+  fakeTimeTest(
+    'the last startup status can complete enrollment without a browser',
+    () async {
+      var reads = 0;
+      final node = MobileTailnet(
+        storage: InMemorySecureKeyValueStore(),
+        directory: () async => MemoryFileSystem().directory('/node'),
+        call: (command) async => {
+          'state': command['op'] == 'status' && ++reads == 60
+              ? 'Running'
+              : 'Starting',
+        },
+        openLogin: (_) async => fail('unexpected browser'),
+      );
+      await node.signIn();
+      expect(reads, 60);
+      expect(node.state, TailnetState.connected);
     },
   );
 
@@ -199,9 +228,7 @@ void main() {
       var stops = 0;
       final node = MobileTailnet(
         storage: InMemorySecureKeyValueStore(),
-        directory: () async => Directory.fromUri(
-          Directory.systemTemp.uri.resolve('unused-synthetic-node'),
-        ),
+        directory: () async => MemoryFileSystem().directory('/node'),
         openLogin: (_) async => true,
         call: (command) async {
           if (command['op'] == 'stop') stops++;

@@ -1107,6 +1107,26 @@ void main() {
       },
     );
 
+    testWidgets(
+      'replacing the open server with its Tailscale configuration leaves SSO',
+      (tester) async {
+        final harness = await openSignIn(
+          tester,
+          saved: config,
+          backendConfig: const BackendConfig(enableLoginForm: false),
+        );
+        expect(find.byKey(const ValueKey('sso_form')), findsOneWidget);
+        harness.routeExtraLost.value = true;
+        await tester.pumpAndSettle();
+        harness.server = harness.server.copyWith(useTailscale: true);
+        harness.routeExtraLost.value = false;
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('api_key_form')), findsOneWidget);
+        expect(find.byKey(const ValueKey('sso_form')), findsNothing);
+        await harness.unmount(tester);
+      },
+    );
+
     testWidgets('is not set up from the sign-in page', (tester) async {
       final harness = await openSignIn(tester);
 

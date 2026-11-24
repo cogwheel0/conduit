@@ -313,15 +313,33 @@ void main() {
 
     // A new address on the same server: it is asked which sign-in it wants
     // (a token) while its profiles are listed for the sign-in chosen before.
-    final changing = rig.module.handleChange(
-      _row('url', _work),
-      '${gateway.baseUrl}/hermes',
-      _l10n,
-    );
-    for (var i = 0; i < 60; i++) {
-      await rig.settleIo();
+    Future<void> changeAndWaitForProfile(
+      String field,
+      Object value,
+      String name,
+    ) async {
+      await tester.runAsync(() async {
+        final shown = Completer<void>();
+        final subscription = rig.container.listen(settingsPagesProvider, (
+          _,
+          next,
+        ) {
+          final profile = rig.row(editor, _row('profile', _work));
+          if (!shown.isCompleted &&
+              profile?.options.any((item) => item.id == name) == true) {
+            shown.complete();
+          }
+        });
+        try {
+          await rig.module.handleChange(_row(field, _work), value, _l10n);
+          await shown.future;
+        } finally {
+          subscription.close();
+        }
+      });
     }
-    await changing;
+
+    await changeAndWaitForProfile('url', '${gateway.baseUrl}/hermes', 'travel');
 
     final profile = rig.row(editor, _row('profile', _work))!;
     check(profile.options.map((option) => option.id)).contains('travel');
@@ -339,15 +357,7 @@ void main() {
         privateGateway._server.port,
       );
     };
-    final switching = rig.module.handleChange(
-      _row('tailscale', _work),
-      true,
-      _l10n,
-    );
-    for (var i = 0; i < 60; i++) {
-      await rig.settleIo();
-    }
-    await switching;
+    await changeAndWaitForProfile('tailscale', true, 'orchard');
     check(dials).isGreaterThan(0);
     final privateProfile = rig.row(editor, _row('profile', _work))!;
     check(privateProfile.options.map((option) => option.id))
@@ -357,32 +367,23 @@ void main() {
     check(dials).equals(before);
   });
 
-  testWidgets('a change on the Advanced page marks the editor edited', (
-    tester,
-  ) async {
-    final rig = await _pump(tester, secrets: secrets);
-    final editor = hermesConnectionPageId(_work);
-    await rig.open(editor);
-    await rig.open('$hermesConnectionAdvancedPagePrefix${_key(_work)}');
-    check(rig.page(editor)!.edited).isFalse();
+  for (final field in ['self-signed', 'tailscale']) {
+    testWidgets(
+      'changing $field on the Advanced page marks the editor edited',
+      (tester) async {
+        final rig = await _pump(tester, secrets: secrets);
+        final editor = hermesConnectionPageId(_work);
+        await rig.open(editor);
+        await rig.open('$hermesConnectionAdvancedPagePrefix${_key(_work)}');
+        if (field == 'tailscale') await rig.change(_row(field, _work), false);
+        check(rig.page(editor)!.edited).isFalse();
 
-    await rig.change(_row('self-signed', _work), true);
+        await rig.change(_row(field, _work), true);
 
-    check(rig.page(editor)!.edited).isTrue();
-  });
-
-  testWidgets('only changing the Tailscale route marks the connection edited', (
-    tester,
-  ) async {
-    final rig = await _pump(tester, secrets: secrets);
-    final editor = hermesConnectionPageId(_work);
-    await rig.open(editor);
-    await rig.open('$hermesConnectionAdvancedPagePrefix${_key(_work)}');
-    await rig.change(_row('tailscale', _work), false);
-    check(rig.page(editor)!.edited).isFalse();
-    await rig.change(_row('tailscale', _work), true);
-    check(rig.page(editor)!.edited).isTrue();
-  });
+        check(rig.page(editor)!.edited).isTrue();
+      },
+    );
+  }
 
   testWidgets('a header with no name says a name is needed', (tester) async {
     final rig = await _pump(tester, secrets: secrets);
@@ -1166,12 +1167,13 @@ final class _OpenGateway {
         return;
       case '/hermes/api/profiles':
         await _statusAnswered.future;
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        request.response.write(jsonEncode({
-          'profiles': [
-            {'name': profile},
-          ],
-        }));
+        request.response.write(
+          jsonEncode({
+            'profiles': [
+              {'name': profile},
+            ],
+          }),
+        );
       case '/api/status':
         request.response.write('{"auth_required":true}');
       case '/api/profiles':

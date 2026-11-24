@@ -5,6 +5,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
+    show hermesConfigProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
 import 'package:test/test.dart';
@@ -119,6 +121,31 @@ void main() {
       // Secrets never leave the daemon.
       expect(jsonEncode(list.toJson()), isNot(contains(first.key)));
       expect(announced, contains(ConduitEvents.hermesChanged));
+    },
+  );
+
+  test(
+    'renaming a saved mobile connection preserves its Tailscale route',
+    () async {
+      await saveHome();
+      final studio = await saveSecond('Studio');
+      final controller = runtime.container.read(hermesConfigProvider.notifier);
+      await controller.saveConnection(
+        connectionId: studio.id,
+        baseUrl: second.baseUrl,
+        useTailscale: true,
+      );
+      await admin.saveConnection(
+        HermesConnectionEdit(
+          id: studio.id,
+          name: 'Orchard',
+          baseUrl: second.baseUrl,
+        ),
+      );
+      expect(
+        (await controller.savedConnectionConfig(studio.id)).useTailscale,
+        isTrue,
+      );
     },
   );
 

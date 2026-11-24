@@ -56,6 +56,8 @@ class MobileTailnet extends ChangeNotifier {
     openLogin: (url) => launchUrl(url, mode: LaunchMode.externalApplication),
   );
   final SecureKeyValueStore storage;
+
+  /// The dedicated node directory. Its contents belong to this identity.
   final Future<Directory> Function() directory;
   final Future<Map<String, dynamic>> Function(Map<String, Object>) call;
   final Future<bool> Function(Uri) openLogin;
@@ -126,13 +128,16 @@ class MobileTailnet extends ChangeNotifier {
       return;
     }
     var key = await _credentials.readTailnetIdentityKey();
-    if (key == null) {
-      if (!enroll) {
-        throw const SocketException('Sign in to Tailscale in Settings.');
-      }
-      key = await _credentials.createTailnetIdentityKey();
+    if (key == null && !enroll) {
+      throw const SocketException('Sign in to Tailscale in Settings.');
     }
     final dir = await directory();
+    if (key == null) {
+      // A previous sign-out or device restore can leave ciphertext without
+      // its key. Clear it before persisting the replacement key.
+      await _clearNodeState(dir);
+      key = await _credentials.createTailnetIdentityKey();
+    }
     try {
       final response = await call({'op': 'start', 'dir': dir.path, 'key': key});
       _started = true;
@@ -163,7 +168,7 @@ class MobileTailnet extends ChangeNotifier {
         if (epoch != _epoch) return;
         await refresh();
       }
-      if (epoch != _epoch) return;
+      if (epoch != _epoch || state == TailnetState.connected) return;
       if (state != TailnetState.needsApproval &&
           (_loginUrl == null || !await openLogin(_loginUrl!))) {
         throw StateError('Sign-in is unavailable');
@@ -198,6 +203,11 @@ class MobileTailnet extends ChangeNotifier {
     });
   }
 
+  Future<void> _clearNodeState(Directory dir) async {
+    await storage.delete(key: _enrolled);
+    if (await dir.exists()) await dir.delete(recursive: true);
+  }
+
   Future<void> signOut() async {
     _browserGracePeriod?.cancel();
     _epoch++;
@@ -214,9 +224,7 @@ class MobileTailnet extends ChangeNotifier {
       _started = false;
       // Forget locally even when the control plane or the peer is offline.
       await _credentials.deleteTailnetIdentityKey();
-      await storage.delete(key: _enrolled);
-      final dir = await directory();
-      if (await dir.exists()) await dir.delete(recursive: true);
+      await _clearNodeState(await directory());
       _loginUrl = null;
       _set(TailnetState.signedOut);
     });
