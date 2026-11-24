@@ -42,7 +42,12 @@ final class CoreSettingsService {
   final EventBus? _events;
   ProviderSubscription<AppSettings>? _watch;
 
+  /// Set by [dispose]: a save still waiting on storage then finishes
+  /// without announcing.
+  bool _disposed = false;
+
   void dispose() {
+    _disposed = true;
     _watch?.close();
     _watch = null;
   }
@@ -55,7 +60,7 @@ final class CoreSettingsService {
   /// alone, so the provider does not notify for it.
   void _announceIfChanged() {
     final events = _events;
-    if (events == null) return;
+    if (events == null || _disposed) return;
     final now = settingsDto(_container.read(appSettingsProvider));
     if (now == _announced) return;
     _announced = now;

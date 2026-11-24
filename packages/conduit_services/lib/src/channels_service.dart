@@ -89,7 +89,12 @@ final class ChannelsService {
       <ProviderSubscription<Object?>>[];
   ProviderSubscription<Object?>? _managementWatch;
 
+  /// Set by [dispose]: work still waiting on the server then announces,
+  /// watches and writes nothing ([_sameAccount]).
+  bool _disposed = false;
+
   void dispose() {
+    _disposed = true;
     for (final watch in _watches) {
       watch.close();
     }
@@ -148,8 +153,14 @@ final class ChannelsService {
 
   /// Refuses an answer read under [session] once another account is in
   /// use: one account's channel is never applied to, read under or shown
-  /// for the next.
+  /// for the next. Nor for anyone, once the service is disposed.
   void _sameAccount(Object session) {
+    if (_disposed) {
+      throw const RpcError(
+        code: ConduitErrorCodes.shuttingDown,
+        debugMessage: 'the channels service is stopping',
+      );
+    }
     if (!identical(session, _session())) {
       throw const RpcError(
         code: ConduitErrorCodes.sessionExpired,
@@ -942,7 +953,7 @@ final class ChannelsService {
       }
     }
     // Read under another account: its notice is not the next one's.
-    if (_me != me || !identical(session, _session())) return;
+    if (_disposed || _me != me || !identical(session, _session())) return;
     final summary = _summarize(channel);
     _events?.emit(
       ConduitEventSpecs.channelsPosted,
@@ -980,6 +991,7 @@ final class ChannelsService {
     ProviderListenable<AsyncValue<List<ChannelMessage>>> provider,
     bool Function() hasOlder,
   ) {
+    if (_disposed) return;
     final key = parentId == null ? channelId : '$channelId/$parentId';
     _watched.putIfAbsent(
       key,

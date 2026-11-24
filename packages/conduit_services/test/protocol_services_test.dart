@@ -254,23 +254,33 @@ void main() {
   });
 
   test('once disposed, no service says anything more to the windows, '
-      'whatever changes in the container they watched', () async {
-    await startDesktop();
+      'whatever changes in the container they watched, or finishes '
+      'afterwards', () async {
+    final store = _HeldWrites();
+    runtime = await startTestCore(temporary, preferences: store);
+    addTearDown(runtime.dispose);
     final built = services()..attach(runtime.container);
     final seen = <String>[];
     built.events.tap((event, _, _) => seen.add(event));
+    // A settings change still saving when the services stop.
+    final shown = built.coreSettings.get().hermesShowScheduledSessions;
+    final saved = store.hold();
+    final saving = built.coreSettings.set(
+      AppSettingsPatch(hermesShowScheduledSessions: !shown),
+    );
+    await store.held.future;
     await built.closeTransports();
     await built.dispose();
     seen.clear();
+    saved.complete();
+    await saving;
 
     final container = runtime.container;
     // Settings (Show Scheduled Runs also changes what Hermes' lists hold).
     final settings = CoreSettingsService(container);
     await settings.set(
       AppSettingsPatch(
-        hermesShowScheduledSessions: !settings
-            .get()
-            .hermesShowScheduledSessions,
+        hermesShowScheduledSessions: shown,
         sendOnEnter: !settings.get().sendOnEnter,
       ),
     );
@@ -691,4 +701,23 @@ final class _MemoryDatabases implements DatabaseOpenerPort {
 
   @override
   Future<Directory> databaseDirectory() async => _directory;
+}
+
+/// Preferences in memory whose next bool write waits for [hold]'s answer.
+final class _HeldWrites extends InMemoryKeyValueStore {
+  Completer<void>? _gate;
+  final held = Completer<void>();
+
+  Completer<void> hold() => _gate = Completer<void>();
+
+  @override
+  Future<bool> setBool(String key, bool value) async {
+    final gate = _gate;
+    if (gate != null) {
+      _gate = null;
+      if (!held.isCompleted) held.complete();
+      await gate.future;
+    }
+    return super.setBool(key, value);
+  }
 }

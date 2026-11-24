@@ -98,6 +98,7 @@ class EventBus {
     String? scope,
     Map<String, dynamic> payload = const <String, dynamic>{},
   }) {
+    if (_closed) return 0;
     for (final listener in _taps.toList()) {
       listener(event, scope, payload);
     }
@@ -123,8 +124,16 @@ class EventBus {
     String? scope,
     Map<String, dynamic> payload = const <String, dynamic>{},
   }) {
+    if (_closed) return;
     _subscribers[sessionId]?.send(event, scope, payload);
   }
+
+  bool _closed = false;
+
+  /// Delivers nothing from now on, to windows or taps: what the services
+  /// publishing here still finish after they stopped (an answer the server
+  /// sends late, a save storage completes late) tells no one.
+  void close() => _closed = true;
 
   /// Publishes [spec]'s event with [payload], typed by the protocol's event
   /// table: what the services use, so a payload cannot drift from what

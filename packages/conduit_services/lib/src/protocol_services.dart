@@ -119,6 +119,7 @@ final class ProtocolServices {
     required ProtocolHostPorts ports,
   }) : _ports = ports;
 
+  /// What these services tell the windows; [dispose] closes it.
   final EventBus events;
   final SystemService system;
   final ProtocolHostPorts _ports;
@@ -561,5 +562,8 @@ final class ProtocolServices {
     // Waits for the recordings' writers: nothing writes once the database
     // closes.
     await _notes?.close();
+    // Last, so what the services said while stopping still reached the
+    // windows; work still in flight after this says nothing.
+    events.close();
   }
 }
