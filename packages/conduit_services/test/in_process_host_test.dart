@@ -284,9 +284,12 @@ void main() {
     late _Client phone;
     late EventBus events;
 
-    Future<void> watch(List<String> scopes) => phone.ask(
+    Future<void> watch(
+      List<String> scopes, {
+      List<String> events = const <String>[],
+    }) => phone.ask(
       ConduitMethods.eventsSubscribe,
-      EventSubscription(scopes: scopes).toJson(),
+      EventSubscription(events: events, scopes: scopes).toJson(),
     );
 
     setUp(() async {
@@ -428,6 +431,81 @@ void main() {
       check(last.scope).equals('tide');
       check(last.payload['chatId']).equals('tide');
       check(last.payload['n']).equals(10);
+    });
+
+    group('several chats held', () {
+      final chats = <String>[for (var c = 1; c <= 6; c++) 'chat-$c'];
+      bool heardLast(String chat) =>
+          phone.events.any((e) => e.scope == chat && e.payload['n'] == 5);
+
+      setUp(() async {
+        // Only what these tests publish reaches the client.
+        await watch(
+          chats,
+          events: <String>[
+            ConduitEvents.turnDelta,
+            ConduitEvents.turnCompleted,
+            ConduitEvents.syncStatus,
+          ],
+        );
+        phone.queueAcknowledgements();
+        for (var n = 1; n <= 5; n++) {
+          for (final chat in chats) {
+            await publish(ConduitEvents.turnDelta, chat, 'main', n);
+          }
+        }
+        check(chats.where(heardLast)).isEmpty();
+      });
+
+      test('catching up, one acknowledgement lets one held frame go, so the '
+          'client is never sent more than the limit', () async {
+        check(phone.countInFlightFromHere()).equals(4);
+        for (var round = 0; round < 3; round++) {
+          final before = phone.events.length;
+          final first = phone.next((_) => true);
+          phone.acknowledgeOne();
+          await first;
+          // Never held, and sent after whatever that acknowledgement let go.
+          final marked = phone.next((e) => e.event == ConduitEvents.syncStatus);
+          events.publish(
+            ConduitEvents.syncStatus,
+            payload: <String, dynamic>{'n': 'marker $round'},
+          );
+          await marked;
+          check(
+            phone.events.length - before - 1,
+            because: 'held frames one acknowledgement let go',
+          ).equals(1);
+          // The marker's own place in flight.
+          phone.acknowledgeOne();
+        }
+        final rest = [
+          for (final chat in chats)
+            if (!heardLast(chat))
+              phone.next((e) => e.scope == chat && e.payload['n'] == 5),
+        ];
+        phone.releaseAcknowledgements();
+        await Future.wait(rest);
+        phone.expectNumberedWithoutGaps();
+      });
+
+      test("each chat's final state goes before its completion, held or "
+          'not', () async {
+        for (final chat in chats) {
+          await publish(ConduitEvents.turnCompleted, chat, 'main', 'done');
+        }
+        for (final chat in chats) {
+          final answer = [
+            for (final e in phone.events)
+              if (e.scope == chat) e.payload['n'],
+          ];
+          check(
+            answer.sublist(answer.length - 2),
+            because: chat,
+          ).deepEquals(<Object>[5, 'done']);
+        }
+        phone.expectNumberedWithoutGaps();
+      });
     });
 
     test('a session whose transport fails a send is closed: nothing more '
@@ -852,6 +930,14 @@ final class _Client {
         }
         if (failed) sentAfterFailure++;
         pipe.foreign.sink.add(message);
+        // One at a time, events only: what the host holds back.
+        if (_queue case final queue?
+            when (jsonDecode(message) as Map)['method'] == kEventNotification) {
+          final acknowledged = Completer<void>();
+          queue.add(acknowledged);
+          if (queue.length > maxInFlight) maxInFlight = queue.length;
+          return acknowledged.future;
+        }
         return _acknowledged?.future ?? Future<void>.value();
       },
     );
@@ -880,6 +966,20 @@ final class _Client {
       StreamController<EventEnvelope>.broadcast(sync: true);
   Completer<void>? _acknowledged;
 
+  /// Events taken and not yet acknowledged, one at a time
+  /// ([acknowledgeOne]); anything else is acknowledged at once.
+  List<Completer<void>>? _queue;
+  int maxInFlight = 0;
+
+  void queueAcknowledgements() => _queue = <Completer<void>>[];
+
+  int get inFlight => _queue!.length;
+
+  /// How many are in flight now, the most from here on.
+  int countInFlightFromHere() => maxInFlight = _queue!.length;
+
+  void acknowledgeOne() => _queue!.removeAt(0).complete();
+
   /// The next message the host hands over fails to send.
   bool failNextSend = false;
   bool failed = false;
@@ -906,6 +1006,11 @@ final class _Client {
     final held = _acknowledged;
     _acknowledged = null;
     held?.complete();
+    final queue = _queue;
+    _queue = null;
+    for (final acknowledged in queue ?? const <Completer<void>>[]) {
+      acknowledged.complete();
+    }
   }
 
   Future<Map<String, dynamic>> ask(String method, [Object? params]) async =>

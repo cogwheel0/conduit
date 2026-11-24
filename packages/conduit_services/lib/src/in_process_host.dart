@@ -371,8 +371,26 @@ final class InProcessSession {
   late final RpcSession _rpc;
   late final _HeldFrames _held;
 
+  /// Messages handed to the transport and not yet taken.
   int _unacknowledged = 0;
+
+  /// Events the gate let through that the peer has yet to hand over (it
+  /// does a step later): counted from the gate on, or a burst would get
+  /// past the limit before any of it was counted.
+  int _eventsOnTheWay = 0;
   bool _closed = false;
+
+  /// How the peer begins an event notification
+  /// (`{"jsonrpc":"2.0","method":"event","params":…}`), told from a reply or
+  /// a request by this alone: the host sends no request named `event`.
+  static final String _eventPrefix = () {
+    final sample = jsonEncode(<String, Object>{
+      'jsonrpc': '2.0',
+      'method': kEventNotification,
+      'params': 0,
+    });
+    return sample.substring(0, sample.length - 2);
+  }();
   final Completer<void> _ended = Completer<void>();
 
   /// Completes when the session has ended, however it ended: closed here,
@@ -380,7 +398,7 @@ final class InProcessSession {
   /// tells the client then.
   Future<void> get closed => _ended.future;
 
-  bool get _behind => _unacknowledged >= _limit;
+  bool get _behind => _unacknowledged + _eventsOnTheWay >= _limit;
 
   /// A message from the client.
   void receive(String message) {
@@ -414,14 +432,20 @@ final class InProcessSession {
       _failed(error, stack);
       return;
     }
+    if (_eventsOnTheWay > 0 && message.startsWith(_eventPrefix)) {
+      _eventsOnTheWay--;
+    }
     _unacknowledged++;
     unawaited(
       sent.then((_) {
         _unacknowledged--;
-        if (!_closed && !_behind) _held.release(null);
+        if (!_closed && !_behind) _held.release(null, whileRoom: true);
       }, onError: _failed),
     );
   }
+
+  /// An event the gate lets through: in flight from now.
+  void _countAhead() => _eventsOnTheWay++;
 
   void _failed(Object error, StackTrace stack) {
     DebugLogger.error(
@@ -478,23 +502,24 @@ final class _HeldFrames implements EventGate {
     if (_session._closed) return true;
     if (event == ConduitEvents.routeRemap) {
       _move(payload);
-      return true;
+    } else if (scope != null) {
+      if (_intermediate(event) && _session._behind) {
+        final key = _key(event, scope, payload);
+        _held.remove(key);
+        _held[key] = (event: event, scope: scope, payload: payload);
+        return false;
+      }
+      _before(event, scope, payload);
     }
-    if (scope == null) return true;
-    if (_intermediate(event) && _session._behind) {
-      final key = _key(event, scope, payload);
-      _held.remove(key);
-      _held[key] = (event: event, scope: scope, payload: payload);
-      return false;
-    }
-    _before(event, scope, payload);
+    _session._countAhead();
     return true;
   }
 
   @override
   void direct(String event, String? scope, Map<String, dynamic> payload) {
-    if (_session._closed || _releasing || scope == null) return;
-    _before(event, scope, payload);
+    if (_session._closed) return;
+    if (!_releasing && scope != null) _before(event, scope, payload);
+    _session._countAhead();
   }
 
   @override
@@ -534,8 +559,10 @@ final class _HeldFrames implements EventGate {
   }
 
   /// Sends what is held, for [scope] or for every chat, in the order it was
-  /// held.
-  void release(String? scope) {
+  /// held. [whileRoom]: only until the client is at the limit again, as a
+  /// catch-up on acknowledgements is; what stays held keeps its place, and
+  /// still goes before anything else for its chat.
+  void release(String? scope, {bool whileRoom = false}) {
     final going = [
       for (final entry in _held.entries)
         if (scope == null || entry.value.scope == scope) entry.key,
@@ -543,6 +570,7 @@ final class _HeldFrames implements EventGate {
     _releasing = true;
     try {
       for (final key in going) {
+        if (whileRoom && _session._behind) break;
         final held = _held.remove(key);
         if (held == null) continue;
         if (!_events.wantedBy(_session.id, held.event, held.scope)) continue;
