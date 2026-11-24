@@ -434,17 +434,20 @@ fn failed(call: &Entity<CallStore>, cx: &App) -> AnyElement {
     let mut actions: Vec<AnyElement> = vec![];
     let microphone = store.failure == Some(CallListenFailure::MicrophoneDenied)
         || store.state().error_kind == Some(CallErrorKind::MicrophoneDenied);
-    if microphone {
+    // The OS's microphone settings, where it has a page to open (not Linux).
+    let microphone_settings = microphone
+        .then(|| crate::stores::dictation::Notice::MicrophoneDenied.settings_url())
+        .flatten();
+    if let Some(url) = microphone_settings {
         actions.push(
-            Button::new("call-system-settings", l10n.desktop_open_system_settings())
-                .on_click(Rc::new(|_, _, cx| {
-                    cx.open_url(
-                        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
-                    )
-                }))
-                .into_any_element(),
+            Button::new(
+                "call-system-settings",
+                crate::stores::dictation::open_settings_label(&l10n),
+            )
+            .on_click(Rc::new(move |_, _, cx| cx.open_url(url)))
+            .into_any_element(),
         );
-    } else if store.failure.is_some() {
+    } else if microphone || store.failure.is_some() {
         actions.push(
             Button::new("call-audio-settings", l10n.desktop_audio_settings_button())
                 .on_click(Rc::new(|_, _, cx| {

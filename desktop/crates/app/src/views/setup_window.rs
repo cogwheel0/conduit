@@ -56,6 +56,10 @@ pub const TITLE_BAR: f32 = 28.;
 /// the chooser's mark) sits here on every step.
 pub const SETUP_TOP: f32 = 24.;
 
+/// What the display keeps around the window off the Mac: the OS's title
+/// bar, and on Linux the top bar its display's bounds still include.
+const OS_FRAME: f32 = 80.;
+
 /// How long the window may stay hidden waiting for its chooser: a daemon
 /// slow to answer shows its status card by then.
 const REVEAL_AFTER: Duration = Duration::from_millis(1500);
@@ -193,7 +197,7 @@ impl SetupWindow {
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 cx.background_executor().timer(REVEAL_AFTER).await;
                 let _ = this.update_in(cx, |s, window, cx| {
-                    if reveal(&s.fit, window) {
+                    if reveal(&s.fit, window, cx) {
                         s.refit(window, cx);
                     }
                 });
@@ -373,10 +377,10 @@ fn setup_frame(
 }
 
 /// Puts the window on screen, once: whether it did now.
-fn reveal(fit: &Fit, window: &mut Window) -> bool {
+fn reveal(fit: &Fit, window: &mut Window, cx: &mut App) -> bool {
     let now = !fit.shown.replace(true);
     if now {
-        window.activate_window();
+        conduit_components::chrome::activate(window, cx);
     }
     now
 }
@@ -408,13 +412,31 @@ fn resize(height: f32, fit: Rc<Fit>, window: &Window, cx: &mut App) {
         }
         fit.applied.set(Some(height));
         #[cfg(target_os = "macos")]
-        if let Some(ns) = ns {
-            let area =
-                crate::shell::macos::fit_setup_window(&ns, f64::from(height), shown, animate);
-            fit.area.set(area);
-        }
+        let by_appkit = match ns {
+            Some(ns) => {
+                let area =
+                    crate::shell::macos::fit_setup_window(&ns, f64::from(height), shown, animate);
+                fit.area.set(area);
+                true
+            }
+            None => false,
+        };
+        #[cfg(not(target_os = "macos"))]
+        let by_appkit = false;
         if !shown {
-            let _ = handle.update(cx, |_, window, _| reveal(&fit, window));
+            let _ = handle.update(cx, |_, window, cx| reveal(&fit, window, cx));
+        }
+        // A window with no NSWindow (Windows, Linux): GPUI sizes it, up to
+        // what its display has room for, once shown (Windows applies the
+        // frame it opened with as a hidden window comes forward).
+        if !by_appkit {
+            let _ = handle.update(cx, |_, window, cx| {
+                let room = window
+                    .display(cx)
+                    .map(|d| f32::from(d.visible_bounds().size.height) - OS_FRAME);
+                let height = room.map_or(height, |room| height.min(room));
+                window.resize(gpui_kit::size(px(crate::windows::SETUP_WIDTH), px(height)));
+            });
         }
     })
     .detach();
@@ -471,7 +493,7 @@ impl Render for SetupWindow {
                     | Status::KeychainPrompt { .. }
                     | Status::VersionMismatch { .. }
             );
-        if !chooser && !starting && reveal(&self.fit, window) {
+        if !chooser && !starting && reveal(&self.fit, window, cx) {
             self.refit(window, cx);
         }
         let probe = chooser.then(|| chooser_probe(self.fit.clone()));
@@ -723,6 +745,21 @@ mod fit_tests {
         vcx.run_until_parked();
         assert!(measured.is_some());
         assert_eq!(fit.applied.get(), measured);
+    }
+
+    /// A window with no NSWindow (Windows and Linux) is made as tall as its
+    /// chooser by GPUI, as AppKit makes the Mac's: no scroll bar on the
+    /// chooser.
+    #[gpui_kit::test]
+    fn without_appkit_the_window_takes_the_choosers_height(cx: &mut TestAppContext) {
+        let (_daemon, _session, fit, _view, vcx) = bench(true, cx);
+        draw(vcx);
+        vcx.run_until_parked();
+        let applied = fit.applied.get().expect("the chooser's height was applied");
+        let height = vcx.update(|window, _| f32::from(window.bounds().size.height));
+        assert_eq!(height, applied, "the window kept its first height");
+        let width = vcx.update(|window, _| f32::from(window.bounds().size.width));
+        assert_eq!(width, crate::windows::SETUP_WIDTH);
     }
 
     /// The window asks for the chooser's height, and for the Apple

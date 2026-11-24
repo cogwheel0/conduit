@@ -216,11 +216,13 @@ impl MainWindow {
                 }
             }),
         ];
+        let focus = cx.focus_handle();
         let main_menu = ChromeStyle::native().map(|style| {
             let items: conduit_components::chrome::MenuItems =
                 std::rc::Rc::new(move |_, cx| crate::menus::chrome_menu_items(style, cx));
             let name = cx.l10n().desktop_main_menu();
-            cx.new(|cx| MainMenu::new(style, name, items, window, cx))
+            let home = focus.clone();
+            cx.new(|cx| MainMenu::new(style, name, items, window, cx).home(home))
         });
         let mut subscriptions = subscriptions;
         if main_menu.is_some() {
@@ -230,7 +232,6 @@ impl MainWindow {
             subscriptions.push(cx.observe_window_activation(window, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe_window_bounds(window, |_, _, cx| cx.notify()));
         }
-        let focus = cx.focus_handle();
         window.focus(&focus, cx);
         Self {
             stores,

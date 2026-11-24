@@ -95,14 +95,33 @@ pub enum Notice {
     DiscardFailed,
 }
 
+/// The button that opens [`Notice::settings_url`]: the OS's settings app
+/// by its own name (Linux has no page to open).
+pub fn open_settings_label(l10n: &crate::l10n::L10n) -> String {
+    if cfg!(target_os = "windows") {
+        l10n.desktop_open_windows_settings()
+    } else {
+        l10n.desktop_open_system_settings()
+    }
+}
+
 impl Notice {
-    /// Where System Settings shows the permission this notice is about.
+    /// Where the OS's settings show the permission this notice is about.
     pub fn settings_url(&self) -> Option<&'static str> {
-        match self {
-            Self::MicrophoneDenied => {
+        self.settings_url_on(crate::keymap::KeyOs::CURRENT)
+    }
+
+    /// [`Self::settings_url`] on `os`. Windows' Settings has a page for the
+    /// microphone; a Linux desktop has none to open, and off the Mac the
+    /// app uses no OS speech recognizer.
+    pub fn settings_url_on(&self, os: crate::keymap::KeyOs) -> Option<&'static str> {
+        use crate::keymap::KeyOs;
+        match (self, os) {
+            (Self::MicrophoneDenied, KeyOs::Mac) => {
                 Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
             }
-            Self::SpeechDenied => Some(
+            (Self::MicrophoneDenied, KeyOs::Windows) => Some("ms-settings:privacy-microphone"),
+            (Self::SpeechDenied, KeyOs::Mac) => Some(
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
             ),
             _ => None,
@@ -1200,21 +1219,34 @@ mod tests {
         );
     }
 
+    /// A refused permission points at its page in the OS's settings: System
+    /// Settings on the Mac, Settings on Windows (the microphone; off the Mac
+    /// the app uses no OS speech recognizer), and none on Linux, where the
+    /// button that would open it is left out.
     #[test]
     fn a_refused_permission_points_at_its_pane() {
+        use crate::keymap::KeyOs;
+        let mic = Notice::MicrophoneDenied;
+        let speech = Notice::SpeechDenied;
         assert!(
-            Notice::MicrophoneDenied
-                .settings_url()
-                .unwrap()
-                .ends_with("Privacy_Microphone")
+            mic.settings_url_on(KeyOs::Mac)
+                .is_some_and(|u| u.ends_with("Privacy_Microphone"))
         );
         assert!(
-            Notice::SpeechDenied
-                .settings_url()
-                .unwrap()
-                .ends_with("Privacy_SpeechRecognition")
+            speech
+                .settings_url_on(KeyOs::Mac)
+                .is_some_and(|u| u.ends_with("Privacy_SpeechRecognition"))
         );
-        assert_eq!(Notice::ServerUnavailable.settings_url(), None);
+        assert_eq!(
+            mic.settings_url_on(KeyOs::Windows),
+            Some("ms-settings:privacy-microphone")
+        );
+        assert_eq!(speech.settings_url_on(KeyOs::Windows), None);
+        assert_eq!(mic.settings_url_on(KeyOs::Linux), None);
+        assert_eq!(speech.settings_url_on(KeyOs::Linux), None);
+        for os in [KeyOs::Mac, KeyOs::Windows, KeyOs::Linux] {
+            assert_eq!(Notice::ServerUnavailable.settings_url_on(os), None);
+        }
     }
 
     #[test]

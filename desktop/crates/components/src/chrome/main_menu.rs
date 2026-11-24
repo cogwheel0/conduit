@@ -8,6 +8,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use gpui_kit::base::{Scrollbar, ScrollbarMode};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     Action, Anchor, AnyElement, App, Bounds, Context, ElementId, Entity, FocusHandle, Hsla,
@@ -37,6 +38,9 @@ pub struct MainMenu {
     /// What had focus before it opened: it gets focus and the chosen action
     /// back.
     return_focus: Option<FocusHandle>,
+    /// The window's own focus: where the menu acts, and focus goes back,
+    /// when nothing in the window had focus.
+    home: Option<FocusHandle>,
     /// Where ☰ was last drawn: a press there is ☰'s own, not one outside
     /// the menu, and the menu fits itself to the window from there.
     trigger: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -60,11 +64,19 @@ impl MainMenu {
         let home = window.window_handle();
         let menu = cx.entity().downgrade();
         // Keystrokes reach interceptors before any key binding: F10 and a
-        // lone Alt open the menu, and while it is open its keys can't be
-        // taken by a binding without a context (Esc's Stop). A prompt the
-        // window draws keeps the keyboard, as the app's interceptors leave it.
+        // lone Alt open the menu (not the Alt Windows' activation injects),
+        // and while it is open its keys can't be taken by a binding without
+        // a context (Esc's Stop). A prompt the window draws keeps the
+        // keyboard, as the app's interceptors leave it.
         let intercept = cx.intercept_keystrokes(move |event, window, cx| {
-            if window.window_handle() != home || window.has_active_prompt() {
+            if window.window_handle() != home {
+                return;
+            }
+            if super::activation::is_injected_alt(home, &event.keystroke, cx) {
+                cx.stop_propagation();
+                return;
+            }
+            if window.has_active_prompt() {
                 return;
             }
             let Some(menu) = menu.upgrade() else {
@@ -87,11 +99,20 @@ impl MainMenu {
             cursor: Cursor::default(),
             focus,
             return_focus: None,
+            home: None,
             trigger: Rc::default(),
             scrolls: vec![],
             _intercept: intercept,
             _focus_out: focus_out,
         }
+    }
+
+    /// The window's own focus, for when nothing in it has focus: the menu
+    /// greys and runs its rows as the window would, as the Mac's menu bar
+    /// acts for the key window.
+    pub fn home(mut self, home: FocusHandle) -> Self {
+        self.home = Some(home);
+        self
     }
 
     pub fn style(&self) -> ChromeStyle {
@@ -130,6 +151,11 @@ impl MainMenu {
     /// `App::is_action_available` asks the active window, which it can't
     /// read while this window is being updated.
     pub fn open(&mut self, by_keyboard: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if window.focused(cx).is_none()
+            && let Some(home) = &self.home
+        {
+            window.focus(home, cx);
+        }
         let items = (self.build)(window, cx);
         self.return_focus = window.focused(cx);
         let menu = cx.entity().downgrade();
@@ -509,6 +535,26 @@ fn panels(menu: &mut MainMenu, window: &mut Window, cx: &mut Context<MainMenu>) 
                 .unwrap_or_default(),
         };
         let scroll = menu.scrolls[level].1.clone();
+        // Cut at the window's edge: a scroll bar shows there are more rows,
+        // and lets the pointer reach them.
+        let cut = p.height < size.height;
+        let bar = cut.then(|| {
+            div()
+                .id(ElementId::Name(
+                    format!("chrome-menu-scrollbar-{level}").into(),
+                ))
+                .debug_selector(|| format!("chrome-menu-scrollbar-{level}"))
+                .absolute()
+                .top_0()
+                .left_0()
+                .w(px(size.width))
+                .h(px(p.height))
+                .child(
+                    Scrollbar::vertical(&scroll)
+                        .mode(ScrollbarMode::Always)
+                        .viewport_from_layout(),
+                )
+        });
         let panel = panel(
             menu, level, rows, label, size.width, p.height, scroll, &look, &t, cx,
         );
@@ -518,7 +564,8 @@ fn panels(menu: &mut MainMenu, window: &mut Window, cx: &mut Context<MainMenu>) 
                 .left(px(p.x - min_x))
                 .top(px(p.y - min_y))
                 .w(px(size.width))
-                .child(panel),
+                .child(panel)
+                .children(bar),
         );
     }
     out.into_any_element()

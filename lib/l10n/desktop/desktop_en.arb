@@ -3393,6 +3393,14 @@
   "@desktopExportDiagnosticsHint": {
     "description": "Explains Export diagnostics in Settings › About."
   },
+  "desktopExportDiagnosticsHintWindows": "Saves the logs and a redacted configuration to a zip file and shows it in File Explorer. Nothing is uploaded.",
+  "@desktopExportDiagnosticsHintWindows": {
+    "description": "Explains Export Diagnostics in Settings › About on Windows, which shows the zip in File Explorer (Windows' own localized name for it). The Mac's is desktopExportDiagnosticsHint."
+  },
+  "desktopExportDiagnosticsHintLinux": "Saves the logs and a redacted configuration to a zip file and opens its folder. Nothing is uploaded.",
+  "@desktopExportDiagnosticsHintLinux": {
+    "description": "Explains Export Diagnostics in Settings › About on Linux, which opens the zip's folder in the desktop's file manager. The Mac's is desktopExportDiagnosticsHint."
+  },
   "desktopExporting": "Exporting…",
   "@desktopExporting": {
     "description": "Shown while diagnostics are being exported."
@@ -3601,6 +3609,10 @@
   "@desktopClearLocalDataConfirmBody": {
     "description": "Message of the Clear local data sheet."
   },
+  "desktopClearLocalDataConfirmBodyPc": "Conduit signs out of every account on this computer and starts over. The old data is moved aside, not deleted.",
+  "@desktopClearLocalDataConfirmBodyPc": {
+    "description": "Message of the Clear Local Data prompt on Windows and Linux: the Mac's desktopClearLocalDataConfirmBody with \"this computer\" for \"this Mac\"."
+  },
   "desktopClearLocalDataConfirmTitle": "Clear local data?",
   "@desktopClearLocalDataConfirmTitle": {
     "description": "Title of the Clear local data sheet."
@@ -3608,6 +3620,10 @@
   "desktopClearLocalDataHint": "Saved accounts, sessions, and the chats downloaded to this Mac. Your chats stay on your servers.",
   "@desktopClearLocalDataHint": {
     "description": "Settings › Data: what Clear local data removes from this Mac."
+  },
+  "desktopClearLocalDataHintPc": "Saved accounts, sessions, and the chats downloaded to this computer. Your chats stay on your servers.",
+  "@desktopClearLocalDataHintPc": {
+    "description": "Settings › Data on Windows and Linux: what Clear Local Data removes from this computer (the Mac's desktopClearLocalDataHint with \"this computer\" for \"this Mac\")."
   },
   "desktopClientCertificateHelp": "For servers that require mutual TLS.",
   "@desktopClientCertificateHelp": {
@@ -4787,6 +4803,10 @@
   "desktopOpenSystemSettings": "Open System Settings",
   "@desktopOpenSystemSettings": {
     "description": "Button that opens the relevant page of macOS System Settings."
+  },
+  "desktopOpenWindowsSettings": "Open Settings",
+  "@desktopOpenWindowsSettings": {
+    "description": "Windows only: button that opens the matching page of the Windows Settings app, such as the microphone privacy page from the dictation notice and a failed call (Windows' own localized name for Settings). The Mac's is desktopOpenSystemSettings."
   },
   "desktopQuickAskShortcutUnsupported": "This key can't be a global shortcut. Choose another.",
   "@desktopQuickAskShortcutUnsupported": {

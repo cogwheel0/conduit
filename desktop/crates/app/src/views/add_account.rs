@@ -27,8 +27,7 @@ use conduit_components::views::kit::{Button, Segment, Segmented, grouped_tones};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, Role, SharedString,
-    Subscription, Window, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div,
-    point, px, size,
+    Subscription, Window, WindowOptions, div, px,
 };
 
 use crate::actions::CloseWindow;
@@ -46,28 +45,17 @@ pub const FIRST_HEIGHT: f32 = 330.;
 /// The least room left under the sheet in its parent.
 pub const PARENT_MARGIN: f64 = 40.;
 
-/// The sheet's window: opened hidden and fixed; `beginSheet:` shows it.
-pub fn window_options() -> WindowOptions {
-    WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-            point(px(0.), px(0.)),
-            size(px(SHEET_WIDTH), px(FIRST_HEIGHT)),
-        ))),
-        titlebar: Some(gpui_kit::TitlebarOptions {
-            title: None,
-            appears_transparent: true,
-            traffic_light_position: None,
-        }),
-        focus: false,
-        show: false,
-        kind: WindowKind::Normal,
-        is_movable: false,
-        is_resizable: false,
-        is_minimizable: false,
-        window_background: WindowBackgroundAppearance::Opaque,
-        window_min_size: None,
-        ..Default::default()
-    }
+/// The sheet's window over Settings (`parent`): on the Mac opened hidden
+/// and fixed, and `beginSheet:` shows it; elsewhere a titled dialog
+/// ([`crate::views::sheet::Hang`]).
+pub fn window_options(title: &str, parent: Bounds<Pixels>) -> WindowOptions {
+    crate::views::sheet::window_options(
+        crate::views::sheet::Hang::NATIVE,
+        SHEET_WIDTH,
+        FIRST_HEIGHT,
+        title,
+        parent,
+    )
 }
 
 /// Whether a sheet sized for `requested` must change for a form `measured`
@@ -97,6 +85,9 @@ pub struct AddAccountSheet {
     /// The height last asked of the window, so a request never repeats
     /// while AppKit resizes it.
     requested: Rc<Cell<Option<f32>>>,
+    /// How tall the sheet may grow off the Mac
+    /// ([`crate::views::sheet::dialog_room`]).
+    pub room: Option<f32>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -136,6 +127,7 @@ impl AddAccountSheet {
             kind: Kind::OpenWebUi,
             focus: cx.focus_handle(),
             requested: Rc::new(Cell::new(None)),
+            room: None,
             _subscriptions: subscriptions,
         }
     }
@@ -280,9 +272,10 @@ impl Focusable for AddAccountSheet {
 /// Fits the sheet's window to the form, `height` points tall, after this
 /// frame (AppKit calls back into GPUI on a resize). The first fit comes
 /// as the sheet drops in, so it doesn't animate on top of AppKit's slide.
-fn fit(height: f32, first: bool, window: &Window, cx: &App) {
+fn fit(height: f32, first: bool, room: Option<f32>, window: &Window, cx: &App) {
     #[cfg(target_os = "macos")]
     if let Some(ns) = crate::shell::macos::ns_window(window) {
+        let _ = room;
         let animate = !first && !cx.reduce_motion();
         cx.foreground_executor()
             .spawn(async move {
@@ -291,7 +284,16 @@ fn fit(height: f32, first: bool, window: &Window, cx: &App) {
             .detach();
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (height, first, window, cx);
+    {
+        let _ = first;
+        let handle = window.window_handle();
+        let height = crate::views::sheet::fitted_height(height, room);
+        let fitted = gpui_kit::size(window.viewport_size().width, px(height));
+        cx.spawn(async move |cx| {
+            let _ = handle.update(cx, |_, window, _| window.resize(fitted));
+        })
+        .detach();
+    }
 }
 
 impl Render for AddAccountSheet {
@@ -326,6 +328,7 @@ impl Render for AddAccountSheet {
             Kind::Hermes | Kind::Direct => self.connection_pane(cx),
         };
         let requested = self.requested.clone();
+        let room = self.room;
         // The form's natural height (the content box, padding included).
         let probe = gpui_kit::canvas(
             |bounds: Bounds<Pixels>, _, _| f32::from(bounds.size.height),
@@ -333,7 +336,7 @@ impl Render for AddAccountSheet {
                 let before = requested.get();
                 if needs_fit(before, height) {
                     requested.set(Some(height));
-                    fit(height, before.is_none(), window, cx);
+                    fit(height, before.is_none(), room, window, cx);
                 }
             },
         )
@@ -347,6 +350,20 @@ impl Render for AddAccountSheet {
             .aria_label(SharedString::from(cx.l10n().desktop_add_account()))
             .key_context("ConduitSheet")
             .track_focus(&self.focus)
+            // Esc: a field's Escape, and the app's (Stop Generating), would
+            // take the key first; the capture phase reaches the sheet first.
+            .capture_action(
+                cx.listener(|this, _: &gpui_kit::component::input::Escape, _, cx| {
+                    this.cancel(cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .capture_action(
+                cx.listener(|this, _: &crate::actions::StopGenerating, _, cx| {
+                    this.cancel(cx);
+                    cx.stop_propagation();
+                }),
+            )
             .size_full()
             .overflow_y_scroll()
             .font_family(ui_font())
@@ -393,7 +410,15 @@ mod tests {
 
     #[test]
     fn the_sheet_opens_hidden_fixed_and_480_wide() {
-        let o = window_options();
+        use gpui_kit::{WindowBounds, point, size};
+        let parent = Bounds::new(point(px(0.), px(0.)), size(px(760.), px(640.)));
+        let o = crate::views::sheet::window_options(
+            crate::views::sheet::Hang::BeginSheet,
+            SHEET_WIDTH,
+            FIRST_HEIGHT,
+            "Add Account",
+            parent,
+        );
         assert!(!o.show && !o.focus);
         assert!(!o.is_resizable && !o.is_minimizable && !o.is_movable);
         assert!(o.window_min_size.is_none());

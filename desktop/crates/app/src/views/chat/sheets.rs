@@ -9,9 +9,8 @@ use conduit_components::theme::{ConduitTheme, ui_font};
 use conduit_components::views::kit::grouped_tones;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, FontWeight, Global, Render, Role,
-    SharedString, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, point,
-    px, relative, size,
+    AnyElement, AnyWindowHandle, App, Context, Entity, FontWeight, Global, Render, Role,
+    SharedString, div, px, relative,
 };
 
 /// The chat sheet opened last; it is the one showing while the sheet host
@@ -20,31 +19,6 @@ use gpui_kit::{
 struct ChatSheet(Option<AnyWindowHandle>);
 
 impl Global for ChatSheet {}
-
-/// A sheet's window: opened hidden and fixed, `width` by `height`;
-/// `beginSheet:` shows it.
-fn options(width: f32, height: f32) -> WindowOptions {
-    WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-            point(px(0.), px(0.)),
-            size(px(width), px(height)),
-        ))),
-        titlebar: Some(gpui_kit::TitlebarOptions {
-            title: None,
-            appears_transparent: true,
-            traffic_light_position: None,
-        }),
-        focus: false,
-        show: false,
-        kind: WindowKind::Normal,
-        is_movable: false,
-        is_resizable: false,
-        is_minimizable: false,
-        window_background: WindowBackgroundAppearance::Opaque,
-        window_min_size: None,
-        ..Default::default()
-    }
-}
 
 /// The chat sheet's window, while one shows.
 pub fn handle(cx: &App) -> Option<AnyWindowHandle> {
@@ -58,22 +32,30 @@ pub fn is_open(cx: &App) -> bool {
 }
 
 /// Opens `build`'s view as a sheet on `parent`, `width` by `height`
-/// points; none when another chat sheet is showing.
+/// points, titled `title` (the window's name off the Mac); none when
+/// another chat sheet is showing.
 pub fn open<V: Render + 'static>(
     parent: &gpui_kit::Window,
     width: f32,
     height: f32,
+    title: &str,
     cx: &mut App,
     build: impl FnOnce(&mut gpui_kit::Window, &mut Context<V>) -> V + 'static,
 ) -> Option<Entity<V>> {
     if crate::views::sheet::refuse_another(cx) {
         return None;
     }
-    let opened = conduit_components::window::open_window_clear_root(
-        options(width, height),
-        cx,
-        move |window, cx| cx.new(|cx| build(window, cx)),
+    let options = crate::views::sheet::window_options(
+        crate::views::sheet::Hang::NATIVE,
+        width,
+        height,
+        title,
+        parent.bounds(),
     );
+    let opened =
+        conduit_components::window::open_window_clear_root(options, cx, move |window, cx| {
+            cx.new(|cx| build(window, cx))
+        });
     let (handle, view) = match opened {
         Ok(v) => v,
         Err(e) => {
@@ -110,11 +92,22 @@ pub fn frame(
     let (r, m) = (t.roles, t.metrics);
     let on_close = std::rc::Rc::new(on_close);
     let close_action = on_close.clone();
+    let (esc_close, stop_close) = (on_close.clone(), on_close.clone());
     div()
         .id(id)
         .role(Role::Dialog)
         .aria_label(SharedString::from(title.clone()))
         .key_context("ConduitSheet")
+        // Esc: a field's Escape, and the app's (Stop Generating), would take
+        // the key first; the capture phase reaches the sheet before either.
+        .capture_action(move |_: &gpui_kit::component::input::Escape, _, cx| {
+            esc_close(cx);
+            cx.stop_propagation();
+        })
+        .capture_action(move |_: &crate::actions::StopGenerating, _, cx| {
+            stop_close(cx);
+            cx.stop_propagation();
+        })
         .size_full()
         .font_family(ui_font())
         .bg(page)
