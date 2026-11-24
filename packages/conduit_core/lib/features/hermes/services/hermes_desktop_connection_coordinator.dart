@@ -69,6 +69,8 @@ String hermesProfileAfterRefresh(List<String> profiles, String current) {
 bool hermesDesktopConnectionMatches(HermesConfig left, HermesConfig right) {
   if (HermesConfig.connectionEndpoint(left.baseUrl) !=
           HermesConfig.connectionEndpoint(right.baseUrl) ||
+      left.useTailscale != right.useTailscale ||
+      left.allowSelfSignedCertificates != right.allowSelfSignedCertificates ||
       left.desktopAuthKind != right.desktopAuthKind ||
       left.desktopProfile != right.desktopProfile ||
       (left.desktopAuthKind == HermesDesktopAuthKind.legacyToken &&

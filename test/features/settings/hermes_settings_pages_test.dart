@@ -25,6 +25,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 
 const _home = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const _work = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -324,6 +325,36 @@ void main() {
 
     final profile = rig.row(editor, _row('profile', _work))!;
     check(profile.options.map((option) => option.id)).contains('travel');
+
+    final privateGateway = (await tester.runAsync(
+      () => _OpenGateway.start(profile: 'orchard'),
+    ))!;
+    addTearDown(privateGateway.close);
+    addTearDown(() => ServerTlsHttpClientFactory.tailnetConnect = null);
+    var dials = 0;
+    ServerTlsHttpClientFactory.tailnetConnect = (uri, context, trust) {
+      dials++;
+      return Socket.startConnect(
+        InternetAddress.loopbackIPv4,
+        privateGateway._server.port,
+      );
+    };
+    final switching = rig.module.handleChange(
+      _row('tailscale', _work),
+      true,
+      _l10n,
+    );
+    for (var i = 0; i < 60; i++) {
+      await rig.settleIo();
+    }
+    await switching;
+    check(dials).isGreaterThan(0);
+    final privateProfile = rig.row(editor, _row('profile', _work))!;
+    check(privateProfile.options.map((option) => option.id))
+        .contains('orchard');
+    final before = dials;
+    await rig.change(_row('tailscale', _work), true);
+    check(dials).equals(before);
   });
 
   testWidgets('a change on the Advanced page marks the editor edited', (
@@ -337,6 +368,19 @@ void main() {
 
     await rig.change(_row('self-signed', _work), true);
 
+    check(rig.page(editor)!.edited).isTrue();
+  });
+
+  testWidgets('only changing the Tailscale route marks the connection edited', (
+    tester,
+  ) async {
+    final rig = await _pump(tester, secrets: secrets);
+    final editor = hermesConnectionPageId(_work);
+    await rig.open(editor);
+    await rig.open('$hermesConnectionAdvancedPagePrefix${_key(_work)}');
+    await rig.change(_row('tailscale', _work), false);
+    check(rig.page(editor)!.edited).isFalse();
+    await rig.change(_row('tailscale', _work), true);
     check(rig.page(editor)!.edited).isTrue();
   });
 
@@ -1095,12 +1139,17 @@ class _RealHttpOverrides extends HttpOverrides {}
 /// A Desktop gateway that, under `/hermes`, needs only a token, and whose
 /// profiles there answer only once its status was asked for.
 final class _OpenGateway {
-  _OpenGateway._(this._server) {
+  _OpenGateway._(this._server, this.profile) {
     _server.listen(_handle);
   }
 
-  static Future<_OpenGateway> start() async =>
-      _OpenGateway._(await HttpServer.bind(InternetAddress.loopbackIPv4, 0));
+  static Future<_OpenGateway> start({String profile = 'travel'}) async =>
+      _OpenGateway._(
+        await HttpServer.bind(InternetAddress.loopbackIPv4, 0),
+        profile,
+      );
+
+  final String profile;
 
   final HttpServer _server;
   final Completer<void> _statusAnswered = Completer<void>();
@@ -1118,7 +1167,11 @@ final class _OpenGateway {
       case '/hermes/api/profiles':
         await _statusAnswered.future;
         await Future<void>.delayed(const Duration(milliseconds: 20));
-        request.response.write('{"profiles":[{"name":"travel"}]}');
+        request.response.write(jsonEncode({
+          'profiles': [
+            {'name': profile},
+          ],
+        }));
       case '/api/status':
         request.response.write('{"auth_required":true}');
       case '/api/profiles':

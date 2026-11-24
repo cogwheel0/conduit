@@ -287,7 +287,7 @@ final class HermesDesktopApiService
        _browserAuth = browserAuth ?? const NullBrowserAuthPort(),
        _readStoredTokens = readStoredTokens,
        _guardTokens = guardTokens,
-       _dashboardBridgeFactory = config.useTailscale ? null : dashboardBridgeFactory,
+       _dashboardBridgeFactory = dashboardBridgeFactory,
        _confirmModelSwitch = confirmModelSwitch,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
        _origin =
@@ -347,6 +347,18 @@ final class HermesDesktopApiService
 
   /// Supplies the WebView-backed dashboard bridge, when the host has one.
   final HermesDashboardBridgeFactory? _dashboardBridgeFactory;
+
+  HermesDashboardBridgeFactory _requireDashboardBridge() {
+    if (config.useTailscale) {
+      throw HermesDashboardUnavailable(
+        'Dashboard sign-in uses a browser. Use a server token or turn off Tailscale for this connection.',
+      );
+    }
+    return _dashboardBridgeFactory ??
+        (throw StateError(
+          'This host has no WebView, so the Hermes dashboard cannot be reached.',
+        ));
+  }
 
   final String _origin;
   final Uri _root;

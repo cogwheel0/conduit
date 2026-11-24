@@ -2420,6 +2420,7 @@ class OptimizedStorageService {
         _normalizedServerIdentityUrl(stored.url) ==
             _normalizedServerIdentityUrl(validated.url) &&
         _sameStringMap(stored.customHeaders, validated.customHeaders) &&
+        stored.useTailscale == validated.useTailscale &&
         stored.allowSelfSignedCertificates ==
             validated.allowSelfSignedCertificates &&
         stored.mtlsCertificateChainPem == validated.mtlsCertificateChainPem &&

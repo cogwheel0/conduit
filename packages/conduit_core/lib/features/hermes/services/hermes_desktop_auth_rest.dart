@@ -584,12 +584,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       );
     }
     if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
-    final bridgeFactory = _dashboardBridgeFactory;
-    if (bridgeFactory == null) {
-      throw StateError(
-        'This host has no WebView, so the Hermes dashboard cannot be reached.',
-      );
-    }
+    final bridgeFactory = _requireDashboardBridge();
     final bridge = _dashboardBridge ??= bridgeFactory(
       root: _root,
       accessHeaders: config.accessHeaders,

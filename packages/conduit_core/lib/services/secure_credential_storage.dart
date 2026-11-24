@@ -20,6 +20,21 @@ class SecureCredentialStorage {
 
   final SecureKeyValueStore _secureStorage;
 
+  static const _tailnetIdentityKey = 'mobile_tailnet_identity_key_v1';
+
+  Future<String?> readTailnetIdentityKey() =>
+      _secureStorage.read(key: _tailnetIdentityKey);
+
+  Future<String> createTailnetIdentityKey() async {
+    final random = Random.secure();
+    final key = base64Encode(List.generate(32, (_) => random.nextInt(256)));
+    await _secureStorage.write(key: _tailnetIdentityKey, value: key);
+    return key;
+  }
+
+  Future<void> deleteTailnetIdentityKey() =>
+      _secureStorage.delete(key: _tailnetIdentityKey);
+
   static const String _credentialsKey = 'user_credentials_v2';
 
   /// The one-server layout's config list. Read once, to build the registry,

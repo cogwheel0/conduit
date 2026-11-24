@@ -1103,7 +1103,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   bool _hasExplicitHttpScheme(String input) => hasExplicitHttpScheme(input);
 
   Future<String> _canonicalizeSchemeLessServerUrl(String url) =>
-      upgradeSchemeLessServerUrl(url);
+      upgradeSchemeLessServerUrl(url, useTailscale: _useTailscale);
 
   /// The saved server's own name while the form still reaches it: saving an
   /// added account's connection renames the server it joins after it, for

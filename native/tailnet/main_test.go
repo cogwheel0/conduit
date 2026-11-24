@@ -66,6 +66,36 @@ func TestPersistedIdentity(t *testing.T) {
 	}
 }
 
+func TestCancelHandoff(t *testing.T) {
+	for _, attached := range []bool{false, true} {
+		client, peer := net.Pipe()
+		route, err := handoff(context.Background(), client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if attached {
+			local, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(route.Port)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer local.Close()
+			go local.Write([]byte(route.Ticket + "x"))
+			peer.SetReadDeadline(time.Now().Add(time.Second))
+			if _, err := io.ReadFull(peer, make([]byte, 1)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := run(command{Op: "cancel", Ticket: route.Ticket}); err != nil {
+			t.Fatal(err)
+		}
+		peer.SetReadDeadline(time.Now().Add(time.Second))
+		if _, err := peer.Read(make([]byte, 1)); err != io.EOF {
+			t.Fatalf("cancel did not disconnect peer: %v", err)
+		}
+		peer.Close()
+	}
+}
+
 func TestOnlyNamedPeersAreRoutable(t *testing.T) {
 	ip := netip.MustParseAddr("100.64.0.17")
 	status := &ipnstate.Status{Peer: map[key.NodePublic]*ipnstate.PeerStatus{{}: {DNSName: "orchard.preview.ts.net.", TailscaleIPs: []netip.Addr{ip}}}}

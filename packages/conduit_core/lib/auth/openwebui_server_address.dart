@@ -20,6 +20,7 @@ import '../providers/openwebui_route_resolver.dart'
         reloadAfterRoutesEdited;
 import '../services/api_service.dart';
 import '../services/optimized_storage_service.dart' show ServerConnectionTaken;
+import '../services/server_tls_http_client_factory.dart';
 import '../services/worker_manager.dart';
 import '../utils/debug_logger.dart';
 import '../utils/sensitive_value_utils.dart';
@@ -933,10 +934,22 @@ bool hasExplicitHttpScheme(String input) {
 /// [url], typed without a scheme and so tried over http first, as the https
 /// address its server redirects to on the same host; else [url] itself. The
 /// probe carries no custom header, which may hold credentials.
-Future<String> upgradeSchemeLessServerUrl(String url) async {
+Future<String> upgradeSchemeLessServerUrl(
+  String url, {
+  required bool useTailscale,
+}) async {
   final original = Uri.parse(url);
   if (original.scheme != 'http') return url;
   final dio = Dio(buildSchemeLessPlaintextHealthProbeOptions(url));
+  ServerTlsHttpClientFactory.configureDio(
+    dio,
+    ServerConfig(
+      id: 'scheme-probe',
+      name: '',
+      url: url,
+      useTailscale: useTailscale,
+    ),
+  );
   try {
     final response = await dio.get('/health');
     return _sameHostHttpsRedirect(
@@ -1236,7 +1249,10 @@ Future<ServerAddressCheck> checkServerAddressDraft(
   try {
     var url = formatServerAddressInput(draft.url);
     if (!hasExplicitHttpScheme(draft.url)) {
-      url = await upgradeSchemeLessServerUrl(url);
+      url = await upgradeSchemeLessServerUrl(
+        url,
+        useTailscale: draft.useTailscale,
+      );
     }
     final config = ServerConfig(
       id: const Uuid().v4(),

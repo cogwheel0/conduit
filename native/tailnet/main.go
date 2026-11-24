@@ -39,10 +39,11 @@ type mobileNode struct {
 
 var nodeMu sync.Mutex
 var current *mobileNode
+var handoffCancels sync.Map // ticket -> context.CancelFunc, until the stream closes
 
 type command struct {
-	Op, Dir, Key, Host string
-	Port               int
+	Op, Dir, Key, Host, Ticket string
+	Port                       int
 }
 type result struct {
 	State    string `json:"state,omitempty"`
@@ -72,6 +73,12 @@ func conduit_tailnet_call(raw *C.char) *C.char {
 func conduit_tailnet_free(p *C.char) { C.free(unsafe.Pointer(p)) }
 
 func run(c command) (result, error) {
+	if c.Op == "cancel" {
+		if cancel, ok := handoffCancels.Load(c.Ticket); ok {
+			cancel.(context.CancelFunc)()
+		}
+		return result{}, nil
+	}
 	nodeMu.Lock()
 	if c.Op == "start" && current == nil {
 		key, err := base64.StdEncoding.DecodeString(c.Key)
@@ -188,7 +195,11 @@ func handoff(ctx context.Context, remote net.Conn) (result, error) {
 	var secret [32]byte
 	rand.Read(secret[:])
 	ticket := hex.EncodeToString(secret[:])
+	ctx, cancel := context.WithCancel(ctx)
+	handoffCancels.Store(ticket, cancel)
 	go func() {
+		defer handoffCancels.Delete(ticket)
+		defer cancel()
 		defer remote.Close()
 		defer listener.Close()
 		stop := context.AfterFunc(ctx, func() { listener.Close(); remote.Close() })
@@ -200,10 +211,12 @@ func handoff(ctx context.Context, remote net.Conn) (result, error) {
 			if err != nil {
 				return
 			}
+			stopSocket := context.AfterFunc(ctx, func() { s.Close() })
 			s.SetReadDeadline(deadline)
 			var offered [64]byte
 			_, err = io.ReadFull(s, offered[:])
 			if err != nil || subtle.ConstantTimeCompare(offered[:], []byte(ticket)) != 1 {
+				stopSocket()
 				s.Close()
 				continue
 			}
@@ -211,7 +224,6 @@ func handoff(ctx context.Context, remote net.Conn) (result, error) {
 			s.SetReadDeadline(time.Time{})
 			defer s.Close()
 			// Shutdown must release both pumps even when the peer is silent.
-			stopSocket := context.AfterFunc(ctx, func() { s.Close() })
 			defer stopSocket()
 			done := make(chan struct{})
 			go func() {

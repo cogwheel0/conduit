@@ -91,13 +91,11 @@ void main() {
     test('older saved servers keep using their original network', () {
       final json = _server().toJson()..remove('useTailscale');
       final direct = ServerConfig.fromJson(json);
-      expect(direct.useTailscale, isFalse);
-      expect(
-        ServerTlsHttpClientFactory.requiresCustomHttpClient(direct),
-        isFalse,
-      );
+      check(direct.useTailscale).isFalse();
+      check(ServerTlsHttpClientFactory.requiresCustomHttpClient(direct))
+          .isFalse();
       final private = direct.copyWith(useTailscale: true);
-      expect(ServerConfig.fromJson(private.toJson()).useTailscale, isTrue);
+      check(ServerConfig.fromJson(private.toJson()).useTailscale).isTrue();
     });
 
     test(
@@ -127,7 +125,7 @@ void main() {
         configureHermesTransport(clients.last, hermes);
         for (final client in clients) {
           addTearDown(() => client.close(force: true));
-          expect((await client.get<String>(url)).data, 'orchard');
+          check((await client.get<String>(url)).data).equals('orchard');
         }
         for (final client in [
           ServerTlsHttpClientFactory.createHttpClient(webui),
@@ -139,11 +137,11 @@ void main() {
             customClient: client,
           );
           socket.add('blue kite');
-          expect(await socket.first, 'blue kite');
+          check(await socket.first).equals('blue kite');
           await socket.close();
         }
-        expect(routes, hasLength(4));
-        expect(routes.every((uri) => uri.host == 'orchard.test'), isTrue);
+        check(routes.length).equals(4);
+        check(routes.every((uri) => uri.host == 'orchard.test')).isTrue();
       },
     );
 
@@ -171,12 +169,12 @@ void main() {
           await (await req.close()).drain<void>();
         }
 
-        await expectLater(get(), throwsA(isA<SocketException>()));
-        expect(hits, 0);
+        await check(get()).throws<SocketException>();
+        check(hits).equals(0);
         ServerTlsHttpClientFactory.tailnetConnect = (uri, context, trust) =>
             Socket.startConnect(InternetAddress.loopbackIPv4, uri.port);
-        await expectLater(get(), throwsA(isA<SocketException>()));
-        expect(hits, 1);
+        await check(get()).throws<SocketException>();
+        check(hits).equals(1);
       },
     );
   });

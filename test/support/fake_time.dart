@@ -17,7 +17,11 @@ const int _callbackBudget = 100000;
 ///
 /// Waits measured with a [Stopwatch] or [DateTime.now] still use real time.
 @isTest
-void fakeTimeTest(String description, Future<void> Function() body) {
+void fakeTimeTest(
+  String description,
+  Future<void> Function() body, {
+  Duration limit = const Duration(minutes: 1),
+}) {
   test(description, () {
     fakeAsync((async) {
       var done = false;
@@ -52,7 +56,6 @@ void fakeTimeTest(String description, Future<void> Function() body) {
               }),
         ),
       );
-      const limit = Duration(minutes: 1);
       while (!done && callbacks <= _callbackBudget && async.elapsed < limit) {
         async.elapse(const Duration(milliseconds: 10));
       }

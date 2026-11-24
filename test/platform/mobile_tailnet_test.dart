@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit/platform/mobile_tailnet.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/fake_time.dart';
 
 void main() {
   test(
@@ -141,30 +144,82 @@ void main() {
     },
   );
 
-  testWidgets('an abandoned browser login stops the node in the background', (
-    tester,
-  ) async {
-    var stops = 0;
-    final node = MobileTailnet(
-      storage: InMemorySecureKeyValueStore(),
-      directory: () async => Directory.fromUri(
-        Directory.systemTemp.uri.resolve('unused-synthetic-node'),
-      ),
-      openLogin: (_) async => true,
-      call: (command) async {
-        if (command['op'] == 'stop') stops++;
-        return {
-          'state': 'NeedsLogin',
-          'loginURL': 'https://login.tailscale.com/example',
-        };
-      },
-    );
-    await node.signIn();
-    await node.lifecycle(true);
-    await tester.pump(const Duration(minutes: 2));
-    expect(stops, 1);
-    expect(node.state, TailnetState.authorizing);
-  });
+  test(
+    'cancel closes the native tunnel while the TLS handshake is stalled',
+    () async {
+      final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(listener.close);
+      final hello = Completer<void>();
+      const ticket = 'orchard-ticket';
+      Socket? peer;
+      listener.listen((socket) {
+        peer = socket;
+        var received = 0;
+        socket.listen((bytes) {
+          received += bytes.length;
+          if (received > ticket.length && !hello.isCompleted) hello.complete();
+        });
+      });
+      addTearDown(() => peer?.destroy());
+      final cancelled = <Object?>[];
+      final node = MobileTailnet(
+        storage: InMemorySecureKeyValueStore(),
+        directory: () async => Directory.systemTemp,
+        openLogin: (_) async => false,
+        call: (cmd) async {
+          if (cmd['op'] == 'dial')
+            return {'port': listener.port, 'ticket': ticket};
+          if (cmd['op'] == 'cancel') {
+            cancelled.add(cmd['ticket']);
+            peer?.destroy();
+          }
+          return {'state': 'Running'};
+        },
+      );
+      await node.signIn();
+      final task = await node.connect(
+        Uri.parse('https://orchard.test'),
+        null,
+        null,
+      );
+      final closed = expectLater(
+        task.socket.timeout(const Duration(seconds: 5)),
+        throwsA(isA<IOException>()),
+      );
+      await hello.future.timeout(const Duration(seconds: 5));
+      task.cancel();
+      await closed;
+      expect(cancelled, [ticket]);
+    },
+  );
+
+  fakeTimeTest(
+    'an abandoned browser login stops the node in the background',
+    () async {
+      var stops = 0;
+      final node = MobileTailnet(
+        storage: InMemorySecureKeyValueStore(),
+        directory: () async => Directory.fromUri(
+          Directory.systemTemp.uri.resolve('unused-synthetic-node'),
+        ),
+        openLogin: (_) async => true,
+        call: (command) async {
+          if (command['op'] == 'stop') stops++;
+          return {
+            'state': 'NeedsLogin',
+            'loginURL': 'https://login.tailscale.com/example',
+          };
+        },
+      );
+      await node.signIn();
+      await node.lifecycle(true);
+      await Future<void>.delayed(const Duration(minutes: 2));
+      await Future<void>.delayed(Duration.zero);
+      expect(stops, 1);
+      expect(node.state, TailnetState.authorizing);
+    },
+    limit: const Duration(minutes: 3),
+  );
 
   test(
     'browser handoff and outstanding authorization can be cancelled',

@@ -353,7 +353,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     // Keep the selected segment and rendered form in sync with the methods
     // supported by both the server and this platform.
     final selectableModes = _availableAuthModes;
-    if (selectableModes.length > 1 && !selectableModes.contains(_authMode)) {
+    if (!selectableModes.contains(_authMode)) {
       _authMode = selectableModes.first;
     }
   }
@@ -691,6 +691,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       }
     });
 
+    ref.listen(activeServerProvider, (previous, next) {
+      if (_serverConfig == null &&
+          previous?.value?.useTailscale != next.value?.useTailscale) {
+        final modes = _availableAuthModes;
+        if (!modes.contains(_authMode)) setState(() => _authMode = modes.first);
+      }
+    });
+
     // Rebuilt when the browser sign-in config of the account's server loads
     // or changes; a config that loads after the page opened makes browser
     // sign-in the method, unless the user picked one already.
@@ -700,6 +708,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         ref.watch(browserSignInConfigProvider(account));
         ref.listen(browserSignInConfigProvider(account), (previous, next) {
           if (!mounted ||
+              _usesTailscale ||
               _authModeChosen ||
               _browserConfigChosen ||
               previous?.value != null ||
@@ -1240,7 +1249,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       _browserConfigPersisted = persist;
       _browserFailure = null;
       _loginError = null;
-      if (config != null) _authMode = AuthMode.sso;
+      if (config != null && !_usesTailscale) _authMode = AuthMode.sso;
     });
   }
 

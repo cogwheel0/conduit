@@ -75,7 +75,7 @@ class _HermesDesktopConnectionSectionState
   List<String> _profiles = const [];
   String? _profilesError;
   bool _profilesLoading = false;
-  String? _lastOrigin;
+  (String?, bool)? _lastOrigin;
   String? _lastProfileIdentity;
   final Object _credentialIdentitySalt = Object();
   int _recommendationEpoch = 0;
@@ -86,7 +86,10 @@ class _HermesDesktopConnectionSectionState
   @override
   void initState() {
     super.initState();
-    _lastOrigin = HermesConfig.connectionEndpoint(_controller.url.text);
+    _lastOrigin = (
+      HermesConfig.connectionEndpoint(_controller.url.text),
+      _controller.useTailscale,
+    );
     _lastProfileIdentity = _authDraftIdentity(
       _controller.buildDraft(widget.savedConfig()).config,
     );
@@ -104,7 +107,10 @@ class _HermesDesktopConnectionSectionState
   }
 
   void _handleDraftChanged() {
-    final origin = HermesConfig.connectionEndpoint(_controller.url.text);
+    final origin = (
+      HermesConfig.connectionEndpoint(_controller.url.text),
+      _controller.useTailscale,
+    );
     if (origin != _lastOrigin) {
       _lastOrigin = origin;
       _recommendationEpoch++;
@@ -138,7 +144,7 @@ class _HermesDesktopConnectionSectionState
           )
         : 0;
     return '${HermesConfig.connectionEndpoint(config.baseUrl)}\u0000'
-        '${config.desktopAuthKind.name}\u0000'
+        '${config.useTailscale}\u0000${config.desktopAuthKind.name}\u0000'
         '$legacyMarker\u0000'
         '${headers.map((entry) => '${entry.key.toLowerCase()}=${entry.value}').join('\u0000')}';
   }

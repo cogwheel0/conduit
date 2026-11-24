@@ -3,7 +3,11 @@ import 'package:conduit_core/features/hermes/models/hermes_connection_contract.d
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 
 /// Why a connection form cannot be tested or saved yet.
-enum HermesConnectionValidationIssue { invalidUrl, credentialsReentryRequired }
+enum HermesConnectionValidationIssue {
+  invalidUrl,
+  credentialsReentryRequired,
+  dashboardRequiresDeviceNetwork,
+}
 
 /// What a Hermes connection editor holds: its fields as typed, and which of
 /// its secrets were touched. The phone's editor and the desktop's send the
@@ -155,6 +159,11 @@ HermesConnectionValidationIssue? validateHermesConnectionForm(
     return HermesConnectionValidationIssue.invalidUrl;
   }
   final draft = buildHermesConnectionDraft(saved, form).config;
+  if (draft.useTailscale &&
+      draft.mode == HermesBackendMode.desktopGateway &&
+      draft.desktopAuthKind == HermesDesktopAuthKind.dashboardCookie) {
+    return HermesConnectionValidationIssue.dashboardRequiresDeviceNetwork;
+  }
   if (draft.mode == HermesBackendMode.responsesApi &&
       (draft.apiKey?.trim().isEmpty ?? true)) {
     return HermesConnectionValidationIssue.credentialsReentryRequired;

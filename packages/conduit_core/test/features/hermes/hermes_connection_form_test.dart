@@ -100,6 +100,23 @@ void main() {
       );
     });
 
+    test('a dashboard cookie requires the device network', () {
+      for (final route in [false, true]) {
+        final form = HermesConnectionForm(
+          url: 'https://orchard.test',
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+          useTailscale: route,
+        );
+        expect(
+          validateHermesConnectionForm(saved, form),
+          route
+              ? HermesConnectionValidationIssue.dashboardRequiresDeviceNetwork
+              : null,
+        );
+      }
+    });
+
     test('a Desktop Gateway needs no key', () {
       expect(
         validateHermesConnectionForm(

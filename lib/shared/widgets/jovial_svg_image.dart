@@ -115,16 +115,23 @@ class JovialSvgImage extends StatefulWidget {
             warnF: _warnF(),
           );
         }
-        final response =
-            await cacheManager
-                    .getFileStream(
-                      url,
-                      key: cacheIdentity is String ? cacheIdentity : null,
-                      headers: normalizedHeaders,
-                    )
-                    .firstWhere((response) => response is FileInfo)
-                as FileInfo;
-        final bytes = await response.file.readAsBytes();
+        FileInfo? file;
+        try {
+          await for (final response in cacheManager.getFileStream(
+            url,
+            key: cacheIdentity is String ? cacheIdentity : null,
+            headers: normalizedHeaders,
+          )) {
+            if (response is! FileInfo) continue;
+            file = response;
+            if (response.validTill.isAfter(DateTime.now())) break;
+          }
+        } catch (_) {
+          // A failed refresh can still show the last scoped copy offline.
+          if (file == null) rethrow;
+        }
+        if (file == null) throw StateError('No SVG file in the cache response');
+        final bytes = await file.file.readAsBytes();
         return ScalableImage.fromSvgString(
           _decodeSvgBytes(bytes, utf8),
           warnF: _warnF(),

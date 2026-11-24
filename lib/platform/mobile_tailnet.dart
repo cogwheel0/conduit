@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:conduit_core/ports/secure_key_value_store.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -59,7 +59,7 @@ class MobileTailnet extends ChangeNotifier {
   final Future<Directory> Function() directory;
   final Future<Map<String, dynamic>> Function(Map<String, Object>) call;
   final Future<bool> Function(Uri) openLogin;
-  static const _key = 'mobile_tailnet_identity_key_v1';
+  late final _credentials = SecureCredentialStorage(instance: storage);
   static const _enrolled = 'mobile_tailnet_enrolled';
   final _lock = Lock();
   TailnetState state = TailnetState.signedOut;
@@ -80,7 +80,7 @@ class MobileTailnet extends ChangeNotifier {
   Future<void> refresh() => _lock.synchronized(() async {
     if (!_started) {
       _set(
-        await storage.read(key: _key) == null
+        await _credentials.readTailnetIdentityKey() == null
             ? TailnetState.signedOut
             : await storage.read(key: _enrolled) == '1'
             ? TailnetState.idle
@@ -125,14 +125,12 @@ class MobileTailnet extends ChangeNotifier {
       await _apply(await call({'op': 'status'}));
       return;
     }
-    var key = await storage.read(key: _key);
+    var key = await _credentials.readTailnetIdentityKey();
     if (key == null) {
       if (!enroll) {
         throw const SocketException('Sign in to Tailscale in Settings.');
       }
-      final random = Random.secure();
-      key = base64Encode(List.generate(32, (_) => random.nextInt(256)));
-      await storage.write(key: _key, value: key);
+      key = await _credentials.createTailnetIdentityKey();
     }
     final dir = await directory();
     try {
@@ -215,7 +213,7 @@ class MobileTailnet extends ChangeNotifier {
       }
       _started = false;
       // Forget locally even when the control plane or the peer is offline.
-      await storage.delete(key: _key);
+      await _credentials.deleteTailnetIdentityKey();
       await storage.delete(key: _enrolled);
       final dir = await directory();
       if (await dir.exists()) await dir.delete(recursive: true);
@@ -280,22 +278,36 @@ class MobileTailnet extends ChangeNotifier {
     }
     Socket? socket;
     var cancelled = false;
+    String? ticket;
+    Future<void> closeHandoff() async {
+      final active = ticket;
+      if (active == null) return;
+      ticket = null;
+      try {
+        await call({'op': 'cancel', 'ticket': active});
+      } catch (_) {
+        // Node shutdown already closes all handoffs.
+      }
+    }
+
     Future<Socket> dial() async {
       final response = await call({
         'op': 'dial',
         'host': uri.host,
         'port': uri.port,
       });
+      ticket = response['ticket'] as String;
       if (cancelled || epoch != _epoch) {
+        await closeHandoff();
         throw const SocketException('Connection cancelled');
       }
-      final local = await Socket.connect(
-        InternetAddress.loopbackIPv4,
-        response['port'] as int,
-        timeout: const Duration(seconds: 5),
-      );
-      socket = local;
       try {
+        final local = await Socket.connect(
+          InternetAddress.loopbackIPv4,
+          response['port'] as int,
+          timeout: const Duration(seconds: 5),
+        );
+        socket = local;
         if (cancelled || epoch != _epoch) {
           throw const SocketException('Connection cancelled');
         }
@@ -317,7 +329,8 @@ class MobileTailnet extends ChangeNotifier {
         }
         return secure;
       } catch (_) {
-        local.destroy();
+        socket?.destroy();
+        await closeHandoff();
         rethrow;
       }
     }
@@ -325,6 +338,7 @@ class MobileTailnet extends ChangeNotifier {
     return ConnectionTask.fromSocket(dial(), () {
       cancelled = true;
       socket?.destroy();
+      unawaited(closeHandoff());
     });
   }
 }

@@ -14,6 +14,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 import 'package:dio/dio.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:riverpod/riverpod.dart';
@@ -23,6 +24,40 @@ import 'package:test/test.dart';
 /// into an editor, why connecting to it failed, and saving it once checked.
 void main() {
   group('an address typed into an editor', () {
+    test(
+      'a scheme-less private peer upgrades HTTPS over its own route',
+      () async {
+        final peer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => peer.close(force: true));
+        addTearDown(() => ServerTlsHttpClientFactory.tailnetConnect = null);
+        final requests = <HttpRequest>[];
+        peer.listen((request) async {
+          requests.add(request);
+          request.response.statusCode = HttpStatus.movedPermanently;
+          request.response.headers.set(
+            'location',
+            'https://orchard.test/health',
+          );
+          await request.response.close();
+        });
+        final routes = <Uri>[];
+        ServerTlsHttpClientFactory.tailnetConnect = (uri, context, trust) {
+          routes.add(uri);
+          return Socket.startConnect(InternetAddress.loopbackIPv4, peer.port);
+        };
+        check(
+          await upgradeSchemeLessServerUrl(
+            'http://orchard.test',
+            useTailscale: true,
+          ),
+        ).equals('https://orchard.test');
+        check(routes.single.host).equals('orchard.test');
+        check(requests.single.uri.path).equals('/health');
+        check(requests.single.headers.value('authorization')).isNull();
+        check(requests.single.headers.value('cookie')).isNull();
+      },
+    );
+
     test('is given a scheme and loses its trailing slash', () {
       check(formatServerAddressInput(' chat.example/ '))
           .equals('http://chat.example');

@@ -483,6 +483,8 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final urlError = switch (controller.validationIssue) {
       HermesConnectionValidationIssue.invalidUrl =>
         l10n.directConnectionUrlInvalid,
+      HermesConnectionValidationIssue.dashboardRequiresDeviceNetwork =>
+        l10n.tailscaleBrowserSignInUnavailable,
       HermesConnectionValidationIssue.credentialsReentryRequired =>
         l10n.directConnectionCredentialsReentryRequired,
       null => null,

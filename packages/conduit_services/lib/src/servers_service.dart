@@ -326,7 +326,10 @@ final class ServersService {
     // to: resolved first (the probe carries no header), so a saved address
     // reached again by its host alone keeps its values.
     if (formatted != null && !core.hasExplicitHttpScheme(form.url)) {
-      formatted = await core.upgradeSchemeLessServerUrl(formatted);
+      formatted = await core.upgradeSchemeLessServerUrl(
+        formatted,
+        useTailscale: saved?.useTailscale ?? false,
+      );
     }
     final draft = _draftFor(saved, resolvedUrl: formatted);
     draft
@@ -335,6 +338,7 @@ final class ServersService {
       // which the core would resolve again (a second probe can answer
       // otherwise, and send those values over plain http).
       ..url = formatted ?? form.url
+      ..useTailscale = saved?.useTailscale ?? false
       ..label = form.label
       ..allowSelfSigned = form.allowSelfSignedCertificates;
 
