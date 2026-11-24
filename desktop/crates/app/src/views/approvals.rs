@@ -33,6 +33,7 @@ use conduit_components::views::approval::{
     ALLOW_KEYS, ApprovalAction, ApprovalCard, ApprovalKind, DENY_KEYS, SelectOption,
 };
 use conduit_protocol::UiRequest;
+use gpui_kit::Focusable as _;
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -67,9 +68,9 @@ pub struct ApprovalsView {
     compose_invalid: bool,
     /// Sends of an edit refused here, so the reason is heard again.
     compose_attempts: u64,
-    /// Focus goes back to the composer on the next frame (a field in the
-    /// card held it, and the card closed it or is answered).
-    refocus_composer: bool,
+    /// Focus was sent from the closed editor to the composer; once per
+    /// opening of the editor.
+    refocused: bool,
     /// A Hermes form's answers so far, by question id, and each open
     /// question's own-words field.
     clarify: HashMap<String, ClarifyDraft>,
@@ -152,7 +153,7 @@ impl ApprovalsView {
             compose_text,
             compose_invalid: false,
             compose_attempts: 0,
-            refocus_composer: false,
+            refocused: false,
             clarify: HashMap::new(),
             clarify_inputs: HashMap::new(),
             _clarify_subscriptions: vec![],
@@ -224,11 +225,9 @@ impl ApprovalsView {
         self.clarify.clear();
         self.clarify_inputs.clear();
         self._clarify_subscriptions.clear();
-        // A field of the card that went held focus: the next card's own
-        // field takes it, or the composer does.
-        if self.compose.take().is_some() {
-            self.refocus_composer = true;
-        }
+        // The editor of the card that went closes; where focus goes is
+        // [`Self::refocus`]'s rule.
+        self.compose = None;
         self.compose_invalid = false;
         match card(top) {
             Card::HermesClarify { questions, .. } => {
@@ -671,10 +670,20 @@ impl ApprovalsView {
         true
     }
 
-    /// Focus back on the composer, once a field of the card that held it
-    /// is closed or gone.
+    /// Focus back on the composer when an editor is closed, or its card is
+    /// answered, taken back, hidden by another chat or replaced, and focus
+    /// is still on the hidden editor. A field the next card focused (its
+    /// own prompt, the editor opened again) keeps it.
     fn refocus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if std::mem::take(&mut self.refocus_composer) && self.compose.is_none() {
+        if self.compose.is_none()
+            && !self.refocused
+            && self
+                .compose_text
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window)
+        {
+            self.refocused = true;
             window.defer(cx, |window, cx| {
                 window.dispatch_action(Box::new(crate::actions::FocusComposer), cx)
             });
@@ -692,7 +701,7 @@ impl ApprovalsView {
     ) {
         self.compose = Some(decision);
         self.compose_invalid = false;
-        self.refocus_composer = false;
+        self.refocused = false;
         self.compose_text.update(cx, |t, cx| {
             t.set_value(text, window, cx);
             t.focus(window, cx);
@@ -700,11 +709,11 @@ impl ApprovalsView {
         cx.notify();
     }
 
-    /// Closes the card's Edit or Respond, focus back on the composer.
+    /// Closes the card's Edit or Respond (focus goes back to the composer,
+    /// [`Self::refocus`]).
     fn close_compose(&mut self, cx: &mut Context<Self>) {
         self.compose = None;
         self.compose_invalid = false;
-        self.refocus_composer = true;
         cx.notify();
     }
 
@@ -769,9 +778,6 @@ impl ApprovalsView {
             }
             Some(_) => return false,
         };
-        if compose.is_some() {
-            self.refocus_composer = true;
-        }
         self.answer(id, answer, false, cx);
         true
     }
@@ -2603,6 +2609,129 @@ mod librechat_tests {
         b.view.read_with(vcx, |v, _| assert_eq!(v.compose, None));
         b.view.update(vcx, |v, cx| assert!(v.allow(cx)));
         assert_eq!(sent(&b, vcx), [("approve".to_string(), None)]);
+    }
+
+    /// How many times focus is sent to the composer from now on.
+    fn composer_focus_count(vcx: &mut VisualTestContext) -> std::rc::Rc<std::cell::Cell<usize>> {
+        let sent = std::rc::Rc::new(std::cell::Cell::new(0));
+        let seen = sent.clone();
+        vcx.update(|_, cx| {
+            cx.on_action(move |_: &crate::actions::FocusComposer, _| seen.set(seen.get() + 1));
+        });
+        sent
+    }
+
+    /// Opens Edit on a new call `id` in chat A; focus is in its field.
+    fn edit_open(b: &Bench, id: &str, vcx: &mut VisualTestContext) {
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_request(
+                tool_call(id, &["approve", "edit", "respond"], json!({})),
+                cx,
+            )
+        });
+        open(b, "chat-a", vcx);
+        compose(b, id, LibreChatDecision::Edit, vcx);
+        vcx.update(|window, cx| {
+            b.view.read_with(cx, |v, cx| {
+                assert!(v.compose_text.read(cx).focus_handle(cx).is_focused(window))
+            })
+        });
+    }
+
+    fn draw(vcx: &mut VisualTestContext) {
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+    }
+
+    /// Where focus goes when the card an open editor belongs to closes,
+    /// goes, or gives way to another: back to the composer while it is still
+    /// on the hidden editor; never away from a field the next card focused.
+    #[gpui_kit::test]
+    fn focus_leaves_a_closed_editor_for_the_composer_only(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        let to_composer = composer_focus_count(vcx);
+        // Answered in another window (or taken back: the turn stopped, the
+        // account changed; each arrives as `ui.settled`).
+        edit_open(&b, "p1", vcx);
+        b.stores
+            .ui_requests
+            .update(vcx, |u, cx| u.on_settled("p1", cx));
+        draw(vcx);
+        assert_eq!(to_composer.get(), 1, "settled elsewhere");
+
+        // Another chat opened.
+        edit_open(&b, "p2", vcx);
+        open(&b, "chat-b", vcx);
+        draw(vcx);
+        assert_eq!(to_composer.get(), 2, "another chat");
+        b.stores
+            .ui_requests
+            .update(vcx, |u, cx| u.on_settled("p2", cx));
+
+        // Put again with a refusal: the editor opens again, focused.
+        edit_open(&b, "p3", vcx);
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_settled("p3", cx);
+            u.on_request(
+                tool_call(
+                    "p4",
+                    &["approve", "edit"],
+                    json!({"refusal": "invalidArguments", "typed": "[2]"}),
+                ),
+                cx,
+            )
+        });
+        open(&b, "chat-a", vcx);
+        draw(vcx);
+        assert_eq!(to_composer.get(), 2, "the refused edit lost its field");
+
+        // The reopened editor's card goes too.
+        b.stores
+            .ui_requests
+            .update(vcx, |u, cx| u.on_settled("p4", cx));
+        draw(vcx);
+        assert_eq!(to_composer.get(), 3, "the reopened editor's card went");
+
+        // Cancel.
+        edit_open(&b, "p5", vcx);
+        b.view.update(vcx, |v, cx| assert!(v.deny(cx)));
+        draw(vcx);
+        assert_eq!(to_composer.get(), 4, "cancelled");
+    }
+
+    /// An open editor whose card gives way to a prompt that focuses its own
+    /// field leaves focus in that field.
+    #[gpui_kit::test]
+    fn a_prompt_replacing_an_open_editor_keeps_its_focus(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        let to_composer = composer_focus_count(vcx);
+        edit_open(&b, "p4", vcx);
+        // Given way to a prompt that focuses its own field.
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_settled("p4", cx);
+            u.on_request(
+                UiRequest {
+                    request_id: "t".into(),
+                    kind: UiRequestKind::InputPrompt,
+                    message_code: "server.prompt".into(),
+                    message_args: BTreeMap::from([("title".to_string(), "Name?".to_string())]),
+                    detail: json!({}),
+                    timeout_ms: None,
+                    default_choice: "cancel".into(),
+                    input_type: None,
+                    options: None,
+                },
+                cx,
+            )
+        });
+        draw(vcx);
+        draw(vcx);
+        assert_eq!(to_composer.get(), 0, "the prompt's field lost focus");
+        vcx.update(|window, cx| {
+            b.view.read_with(cx, |v, cx| {
+                assert!(v.input.read(cx).focus_handle(cx).is_focused(window))
+            })
+        });
     }
 
     /// Respond takes words and cannot be sent empty; Cancel closes it,
