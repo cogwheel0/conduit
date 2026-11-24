@@ -373,6 +373,12 @@ final class InProcessSession {
 
   int _unacknowledged = 0;
   bool _closed = false;
+  final Completer<void> _ended = Completer<void>();
+
+  /// Completes when the session has ended, however it ended: closed here,
+  /// by the host stopping, or because its transport failed. The binding
+  /// tells the client then.
+  Future<void> get closed => _ended.future;
 
   bool get _behind => _unacknowledged >= _limit;
 
@@ -390,25 +396,41 @@ final class InProcessSession {
     // The client's side ends too: the session's peer finishes only then.
     await _channel.foreign.sink.close();
     await _rpc.close();
+    if (!_ended.isCompleted) _ended.complete();
   }
 
+  /// Hands [message] to the transport. One it fails to take ends the
+  /// session there: the client would otherwise read the next as if nothing
+  /// were missing (an event, or a call's reply), so it is told the session
+  /// ended, reconnects, and a new session catches up. A send that throws
+  /// ends it before anything else is sent; one that fails later can only end
+  /// it then.
   void _forward(String message) {
+    if (_closed) return;
+    final Future<void> sent;
+    try {
+      sent = _send(message);
+    } on Object catch (error, stack) {
+      _failed(error, stack);
+      return;
+    }
     _unacknowledged++;
     unawaited(
-      Future<void>.sync(() => _send(message))
-          .catchError((Object error, StackTrace stack) {
-            DebugLogger.error(
-              'protocol-send-failed',
-              scope: 'protocol/host',
-              error: error,
-              stackTrace: stack,
-            );
-          })
-          .whenComplete(() {
-            _unacknowledged--;
-            if (!_closed && !_behind) _held.release(null);
-          }),
+      sent.then((_) {
+        _unacknowledged--;
+        if (!_closed && !_behind) _held.release(null);
+      }, onError: _failed),
     );
+  }
+
+  void _failed(Object error, StackTrace stack) {
+    DebugLogger.error(
+      'protocol-send-failed',
+      scope: 'protocol/host',
+      error: error,
+      stackTrace: stack,
+    );
+    unawaited(close());
   }
 }
 

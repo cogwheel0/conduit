@@ -430,6 +430,39 @@ void main() {
       check(last.payload['n']).equals(10);
     });
 
+    test('a session whose transport fails a send is closed: nothing more '
+        'goes on it, a call waiting on it settles, what was held is dropped, '
+        'and a new session serves', () async {
+      phone.holdAcknowledgements();
+      for (var n = 1; n <= 10; n++) {
+        await publish(ConduitEvents.turnDelta, 'chat-a', 'main', n);
+      }
+      // The reply to this call is the message that fails.
+      phone.failNextSend = true;
+      await check(phone.ask(ConduitMethods.chatsList)).throws<Object>();
+      await phone.session.closed;
+      phone.releaseAcknowledgements();
+      await publish(ConduitEvents.turnDelta, 'chat-a', 'main', 11);
+      check(phone.sentAfterFailure).equals(0);
+      check(events.lastSeqFor('phone')).equals(0);
+
+      final again = connect(host, 'phone-again');
+      await again.handshake();
+      await again.ask(
+        ConduitMethods.eventsSubscribe,
+        const EventSubscription(scopes: <String>['chat-a']).toJson(),
+      );
+      await again.delivered(
+        events,
+        () => events.publish(
+          ConduitEvents.turnDelta,
+          scope: 'chat-a',
+          payload: <String, dynamic>{'messageId': 'main', 'n': 12},
+        ),
+      );
+      check(again.events.map((e) => e.payload['n'])).deepEquals(<Object>[12]);
+    });
+
     test('a session closed with frames held sends nothing more', () async {
       phone.holdAcknowledgements();
       for (var n = 1; n <= 10; n++) {
@@ -624,6 +657,33 @@ void main() {
       );
     });
 
+    test(
+      'a byte frame the client cannot take ends that stream alone',
+      () async {
+        await startApp();
+        final (_, bytes) = await startHost(media: media);
+        bytes.failFirst(1, ByteFrameKind.chunk);
+        final first = await bytes.request(
+          1,
+          'GET',
+          '/media/image',
+          query: pictureQuery(),
+        );
+        final second = await bytes.request(
+          2,
+          'GET',
+          '/media/image',
+          query: pictureQuery(),
+        );
+        await second.done;
+        // Answered once the host has let go of the stream, ended or not.
+        await bytes.cancel(1);
+        check(second.body).deepEquals(picture);
+        check(first.chunks).isEmpty();
+        check(first.ended).isFalse();
+      },
+    );
+
     test('every tunnel is refused: this host carries no socket', () async {
       await startApp();
       final (_, bytes) = await startHost();
@@ -785,11 +845,19 @@ final class _Client {
     session = host.open(
       id,
       send: (message) {
+        if (failNextSend) {
+          failNextSend = false;
+          failed = true;
+          throw StateError('the transport dropped a message');
+        }
+        if (failed) sentAfterFailure++;
         pipe.foreign.sink.add(message);
         return _acknowledged?.future ?? Future<void>.value();
       },
     );
     pipe.foreign.stream.listen(session.receive);
+    // The binding tells the client its session is gone: its side ends.
+    unawaited(session.closed.then((_) => pipe.foreign.sink.close()));
     peer = json_rpc.Peer(pipe.local);
     registerEventSink(
       peer,
@@ -811,6 +879,11 @@ final class _Client {
   final StreamController<EventEnvelope> _heard =
       StreamController<EventEnvelope>.broadcast(sync: true);
   Completer<void>? _acknowledged;
+
+  /// The next message the host hands over fails to send.
+  bool failNextSend = false;
+  bool failed = false;
+  int sentAfterFailure = 0;
 
   /// Runs [publish] on [events], and waits until the client has what it was
   /// sent: nothing, when every event was held back.
@@ -888,6 +961,12 @@ final class _BytePeer {
 
   _Answer answerFor(int stream) => _answers.putIfAbsent(stream, _Answer.new);
 
+  ({int stream, ByteFrameKind kind})? _fail;
+
+  /// The first [kind] frame of [stream] fails to send.
+  void failFirst(int stream, ByteFrameKind kind) =>
+      _fail = (stream: stream, kind: kind);
+
   /// Completes once a [kind] frame of [stream] arrives, which the client
   /// then does not answer until [release].
   Future<void> holdAfter(int stream, ByteFrameKind kind) {
@@ -904,6 +983,13 @@ final class _BytePeer {
 
   Future<void> take(Uint8List bytes) async {
     final frame = ByteFrame.decode(bytes);
+    final fail = _fail;
+    if (fail != null &&
+        fail.stream == frame.stream &&
+        fail.kind == frame.kind) {
+      _fail = null;
+      throw StateError('the transport dropped a frame');
+    }
     final answer = answerFor(frame.stream)..frames.add(frame);
     switch (frame.kind) {
       case ByteFrameKind.responseHead:
