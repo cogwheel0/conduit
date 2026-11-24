@@ -1,4 +1,5 @@
 import 'package:conduit_core/ports/paths_port.dart';
+import 'package:conduit_protocol/conduit_protocol.dart' show HostNamespace;
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:stream_channel/stream_channel.dart';
@@ -68,6 +69,7 @@ final class ProtocolHostPorts {
     this.paths,
     this.localTranscriber,
     this.chatScopeOverrides,
+    this.sharesAppContainer = false,
   });
 
   /// The ports the windows answer; the container must hold the overrides
@@ -90,7 +92,19 @@ final class ProtocolHostPorts {
   /// `composerTextInsertionProvider`):
   /// Riverpod refuses a provider overridden twice in one container.
   final List<Override> Function()? chatScopeOverrides;
+
+  /// The services run over a container an app's own interface also uses
+  /// (the phone). The app keeps its read-aloud, calls, Apple models and
+  /// location, so none of their window bridges is built, nothing the app
+  /// installed process-wide is replaced, and [sharedContainerNotOffered]
+  /// answer `rpc.unsupported`. The host applies no [WindowPorts.overrides]
+  /// to that container either.
+  final bool sharesAppContainer;
 }
+
+/// What a host that shares an app's container does not serve: the app does
+/// these itself ([ProtocolHostPorts.sharesAppContainer]).
+const List<HostNamespace> sharedContainerNotOffered = HostNamespace.values;
 
 /// The protocol's services over one container: built, wired to each other
 /// and to the host's ports, and stopped in the order they depend on.
@@ -105,6 +119,7 @@ final class ProtocolServices {
     required ProtocolHostPorts ports,
   }) : _ports = ports;
 
+  /// What these services tell the windows; [dispose] closes it.
   final EventBus events;
   final SystemService system;
   final ProtocolHostPorts _ports;
@@ -125,6 +140,7 @@ final class ProtocolServices {
     }
     if (_servers != null) throw StateError('the services are already built');
     final ports = _ports;
+    final shared = ports.sharesAppContainer;
     _servers = ServersService(container, events: events);
     _auth = AuthService(container, events: events);
     _settings = SettingsService(container);
@@ -193,7 +209,12 @@ final class ProtocolServices {
     ports.window.handoff.attach(handoff);
     _drafts = DraftsService(container, temporary: temporary);
     _mcpApps = McpAppsService(container, events, uiRequests: uiRequests);
-    _accounts = AccountsService(container, events: events, turns: turns);
+    _accounts = AccountsService(
+      container,
+      events: events,
+      turns: turns,
+      sharesAppContainer: shared,
+    );
     _models = ModelsService(container, events: events);
     _composer = ComposerService(container);
     _prompts = PromptsService(container);
@@ -201,7 +222,11 @@ final class ProtocolServices {
     _mcp = McpService(container);
     _webSearch = WebSearchService(container);
     _notes = NotesService(container, events: events, paths: ports.paths);
-    _channels = ChannelsService(container, events: events);
+    _channels = ChannelsService(
+      container,
+      events: events,
+      keepsChannelList: !shared,
+    );
     _workspace = WorkspaceService(container, events: events);
     _terminals = TerminalsService(
       container,
@@ -243,24 +268,27 @@ final class ProtocolServices {
     _valves = ValvesService(container);
     _access = AccessService(container, workspace: workspace);
     _folderSettings = FolderSettingsService(container, events: events);
-    _speech = SpeechService(
-      container,
-      events: events,
-      voice: voice,
-      answerFor: chats.answerFor,
-    );
-    _calls = CallsService(
-      container,
-      events: events,
-      turns: turns,
-      ports: ports.window.calls,
-      speech: speech,
-    );
-    // Apple's on-device model: the chat runs here, the model in the window.
-    ports.window.apple.bind(events);
-    // `{{USER_LOCATION}}`: the window asks the device's location services.
-    ports.window.location.bind(events);
-    _apple = AppleModelsService(container, bridge: ports.window.apple);
+    if (!shared) {
+      _speech = SpeechService(
+        container,
+        events: events,
+        voice: voice,
+        answerFor: chats.answerFor,
+      );
+      _calls = CallsService(
+        container,
+        events: events,
+        turns: turns,
+        ports: ports.window.calls,
+        speech: speech,
+      );
+      // Apple's on-device model: the chat runs here, the model in the
+      // window.
+      ports.window.apple.bind(events);
+      // `{{USER_LOCATION}}`: the window asks the device's location services.
+      ports.window.location.bind(events);
+      _apple = AppleModelsService(container, bridge: ports.window.apple);
+    }
     voice.speechOfChat = (chatId) async =>
         SpeechService.speechForModel(container, await chats.modelOf(chatId));
     // What the active account can use: answered by `system.capabilities`
@@ -268,6 +296,9 @@ final class ProtocolServices {
     _capabilities = CapabilitiesService(
       container,
       events: events,
+      notOffered: shared
+          ? sharedContainerNotOffered
+          : const <HostNamespace>[],
       // Not from inside the constructor: a host that refuses the first
       // answer must find the watcher already held, so [dispose] stops it.
       onChange: (capabilities) {
@@ -382,6 +413,8 @@ final class ProtocolServices {
   TerminalsService? _terminals;
   ComputerRpcService? _computer;
   bool _transportsClosed = false;
+  bool _speechStopped = false;
+  bool _callsStopped = false;
   bool _disposed = false;
 
   /// Null once [closeTransports] has begun.
@@ -436,9 +469,11 @@ final class ProtocolServices {
     access: _access,
     folderSettings: _folderSettings,
     speech: transports ? _speech : null,
+    speechReports: _speechStopped ? null : _speech,
+    callsReports: _callsStopped ? null : _calls,
     calls: transports ? _calls : null,
     apple: _apple,
-    location: _ports.window.location,
+    location: _ports.sharesAppContainer ? null : _ports.window.location,
     handoff: _handoff,
     calendar: _calendar,
     automations: _automations,
@@ -472,8 +507,20 @@ final class ProtocolServices {
     // cannot start again what is being closed.
     _transportsClosed = true;
     if (_attached && !_disposed) _core = _buildCore(transports: false);
-    await _calls?.dispose();
-    await _speech?.dispose();
+    // The reading lets go before anything here waits (a call's stop can take
+    // seconds), so a sentence ending meanwhile starts no next one. Its stop
+    // asks the window, whose answer reaches it until the stop is done.
+    final speechStopping = _speech?.dispose();
+    try {
+      // A call still starting finishes its start, on the window's answer,
+      // before it stops.
+      await _calls?.dispose();
+    } finally {
+      _callsStopped = true;
+      await speechStopping;
+    }
+    _speechStopped = true;
+    if (_attached && !_disposed) _core = _buildCore(transports: false);
     await _terminals?.dispose();
     await _computer?.dispose();
     await _data?.dispose();
@@ -498,9 +545,14 @@ final class ProtocolServices {
     _hermesCards?.dispose();
     _hermesRooms?.dispose();
     _hermesAdmin?.dispose();
+    // After the services built on it: its connection and watches.
+    _hermes?.dispose();
     _ports.window.uiRequests.hermesChatOf = null;
     if (_uiRequests != null) _ports.window.uiRequests.detach();
     _chats?.dispose();
+    _models?.dispose();
+    _channels?.dispose();
+    _coreSettings?.dispose();
     _ports.window.handoff.detach();
     // The window ports the host keeps reach none of this aggregate's
     // windows once it is gone.
@@ -519,5 +571,8 @@ final class ProtocolServices {
     // Waits for the recordings' writers: nothing writes once the database
     // closes.
     await _notes?.close();
+    // Last, so what the services said while stopping still reached the
+    // windows; work still in flight after this says nothing.
+    events.close();
   }
 }

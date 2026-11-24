@@ -40,6 +40,7 @@ use gpui_kit::{
 };
 
 use crate::actions::CalendarMenu;
+use crate::keymap::AreaKey;
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::shell::sheet::SheetSpec;
 use crate::stores::Stores;
@@ -76,6 +77,12 @@ pub fn agenda_rows(agenda: &CalendarAgenda) -> Vec<AgendaRow> {
         }
     }
     rows
+}
+
+/// An area key's chord as this OS writes it (`⌘T` on the Mac, `Ctrl+T`
+/// elsewhere), from the key table the pane's keys follow.
+fn area_keys(key: AreaKey) -> String {
+    crate::keymap::describe(&crate::keymap::area_stroke(key), cfg!(target_os = "macos"))
 }
 
 pub struct CalendarPane {
@@ -613,7 +620,7 @@ impl CalendarPane {
                 )
                 .size(28., 15.)
                 .round()
-                .shortcut(Some("⌘←".into()))
+                .shortcut(Some(area_keys(AreaKey::CalendarEarlier).into()))
                 .disabled(agenda.is_none())
                 .on_click(Rc::new(move |_, _, cx| {
                     let _ = prev_e.update(cx, |p, cx| p.previous(cx));
@@ -627,7 +634,7 @@ impl CalendarPane {
                 )
                 .size(28., 15.)
                 .round()
-                .shortcut(Some("⌘→".into()))
+                .shortcut(Some(area_keys(AreaKey::CalendarLater).into()))
                 .disabled(agenda.is_none())
                 .on_click(Rc::new(move |_, _, cx| {
                     let _ = next_e.update(cx, |p, cx| p.next(cx));
@@ -673,7 +680,7 @@ impl CalendarPane {
             )
             .child(
                 Button::new("calendar-today", l.calendar_today())
-                    .shortcut("⌘T")
+                    .shortcut(area_keys(AreaKey::CalendarToday))
                     .disabled(agenda.is_none() || starts_today)
                     .on_click(Rc::new(move |_, _, cx| {
                         let _ = today_e.update(cx, |p, cx| p.today(cx));

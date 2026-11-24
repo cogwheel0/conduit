@@ -166,7 +166,9 @@ needs no prompt.
 DMG (Apple Silicon, macOS 14+), with Sparkle 2 for updates; `smoke.sh`
 checks a bundle; `appcast.sh` and `publish-appcast.sh` maintain the update
 feed; `.github/workflows/release-desktop.yml` runs it all on `desktop-v*`
-tags and leaves a draft release to publish. Building and signing are in
+tags, with the Windows installer and the Linux packages, and leaves one
+draft release to publish once `packaging/release_gate.sh` passes. Building
+and signing are in
 [docs/BUILDING-DESKTOP.md](../docs/BUILDING-DESKTOP.md); releasing (secrets,
 notarization, the Sparkle key, rehearsals, dSYMs) is in
 [docs/RELEASING-DESKTOP.md](../docs/RELEASING-DESKTOP.md).

@@ -20,6 +20,9 @@ final class TemporaryChats {
 
   bool contains(String chatId) => _transcripts.containsKey(chatId);
 
+  /// The temporary chats kept now.
+  List<String> get ids => List<String>.of(_transcripts.keys);
+
   /// The conversation so far, oldest first. Empty for an unknown id.
   List<ChatMessage> transcript(String chatId) =>
       List<ChatMessage>.unmodifiable(_transcripts[chatId] ?? const []);

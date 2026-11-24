@@ -109,6 +109,7 @@
   "capabilitiesHermesOnly": "Capabilities",
   "capabilitiesNone": "Capabilities",
   "capabilitiesOpenWebUi": "Capabilities",
+  "capabilitiesSharedContainer": "Capabilities",
   "changedFile": "ChangedFileDto",
   "channelAppAction": "ChannelAppAction",
   "channelAppActionDto": "ChannelAppActionDto",

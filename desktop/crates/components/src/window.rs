@@ -36,6 +36,13 @@ pub fn trailing_room(sidebar_shown: bool, cx: &App) -> f32 {
     crate::chrome::active(cx).map_or(0., |chrome| chrome.rooms(sidebar_shown).end)
 }
 
+/// Whether a window without chrome of the app's own (Settings, the setup
+/// window) draws under a transparent title bar: on the Mac, where AppKit's
+/// traffic lights sit over its content. Elsewhere the OS draws the title
+/// bar, with its caption buttons and drag (Windows draws none for a
+/// transparent one; the X11 window manager frames it either way).
+pub const OS_TITLE_BAR_TRANSPARENT: bool = cfg!(target_os = "macos");
+
 /// The main window's default and minimum size.
 pub const MAIN_WINDOW_SIZE: (f32, f32) = (1280., 860.);
 pub const MAIN_WINDOW_MIN: (f32, f32) = (720., 480.);

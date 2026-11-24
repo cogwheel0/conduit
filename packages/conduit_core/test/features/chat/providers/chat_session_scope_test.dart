@@ -290,22 +290,40 @@ void main() {
     }
   });
 
-  // Leaving the account cuts off every chat's reply, not only the root's.
-  test('a reply in a scope holds an account change back, and leaving '
-      'anyway stops it', () async {
+  // Leaving the account cuts off the reply of every chat it owns, not only
+  // the root's; a chat kept on this device stays open, its reply with it.
+  test('a reply in a scope whose chat the account owns holds an account '
+      'change back, and leaving anyway stops it; one in a chat kept on this '
+      'device does neither', () async {
     final parent = root();
-    final a = open(parent);
-    a.container.read(activeConversationProvider.notifier).set(_chat('chat-a'));
-    a.container
+    final owned = open(parent);
+    owned.container
+        .read(activeConversationProvider.notifier)
+        .set(
+          withChatStorageProvenance(
+            _openWebUiChat('chat-owned'),
+            ChatStorageKind.openWebUi,
+          ),
+        );
+    owned.container
         .read(chatMessagesProvider.notifier)
-        .addMessage(_streaming('answer-a'));
+        .addMessage(_streaming('answer-owned'));
+    final kept = open(parent);
+    kept.container
+        .read(activeConversationProvider.notifier)
+        .set(_chat('chat-kept'));
+    kept.container
+        .read(chatMessagesProvider.notifier)
+        .addMessage(_streaming('answer-kept'));
     check(parent.read(isChatStreamingProvider)).isFalse();
 
     check(parent.read(accountChangeReplyGuardProvider)()).isTrue();
     parent.read(accountChangeStopRepliesProvider)();
     await pumpEventQueue();
 
-    check(a.container.read(isChatStreamingProvider)).isFalse();
+    check(owned.container.read(isChatStreamingProvider)).isFalse();
+    check(kept.container.read(isChatStreamingProvider)).isTrue();
+    // The kept chat's reply alone holds nothing back.
     check(parent.read(accountChangeReplyGuardProvider)()).isFalse();
   });
 

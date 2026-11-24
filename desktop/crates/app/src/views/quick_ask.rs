@@ -554,11 +554,21 @@ impl QuickAskView {
             cx.subscribe_in(
                 &store,
                 window,
-                |this, _, event: &ChatStoreEvent, window, cx| {
-                    if let ChatStoreEvent::InsertText { text } = event {
+                |this, _, event: &ChatStoreEvent, window, cx| match event {
+                    ChatStoreEvent::InsertText { text } => {
                         this.composer
                             .update(cx, |c, cx| c.give_text(text, window, cx));
                     }
+                    // Heard as well as drawn, as in the main window.
+                    ChatStoreEvent::AnswerFailed { error } => {
+                        let text = crate::views::chat::blocks::error_text(error, cx.l10n());
+                        conduit_components::announce::announce(
+                            text,
+                            conduit_components::announce::Priority::High,
+                            cx,
+                        );
+                    }
+                    _ => {}
                 },
             ),
         ];

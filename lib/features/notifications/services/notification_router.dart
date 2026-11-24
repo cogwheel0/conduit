@@ -162,13 +162,15 @@ class NotificationRouter {
     // 1. Master toggle: the switch of the account the notification belongs
     // to, not the active account's. Hermes and Direct follow the
     // device-level switch (see notificationsEnabledForScope).
-    final enabled =
-        _scopeNotificationsEnabled?.call(notification.scope) ??
-        settings.notificationsEnabled;
-    if (!enabled) return NotificationSurface.suppressed;
-
     // 2. Per-kind toggle.
-    if (!notificationKindEnabled(notification.kind, settings)) {
+    // Both silence alerts only. As in Open WebUI, a channel message still
+    // counts as unread: it goes on through the counting steps below and
+    // stops before anything alerts.
+    final alerts =
+        (_scopeNotificationsEnabled?.call(notification.scope) ??
+            settings.notificationsEnabled) &&
+        notificationKindEnabled(notification.kind, settings);
+    if (!alerts && notification.kind != NotificationKind.channelMessage) {
       return NotificationSurface.suppressed;
     }
 
@@ -247,8 +249,15 @@ class NotificationRouter {
     if (notification.kind == NotificationKind.channelMessage &&
         !alreadyCounted) {
       _onChannelUnread(notification);
+      // A push for the same message may still come in the foreground, as
+      // in step 3's background.
+      if (!alreadyClaimed &&
+          !notification.sharesPushDedupKey &&
+          _pushCovers(notification)) {
+        _countedByFrame.record(notification);
+      }
     }
-    if (!alert) return NotificationSurface.suppressed;
+    if (!alert || !alerts) return NotificationSurface.suppressed;
     if (settings.notificationSound && settings.notificationSoundAlways) {
       await _sound.play();
       if (signedOutSince()) return NotificationSurface.suppressed;

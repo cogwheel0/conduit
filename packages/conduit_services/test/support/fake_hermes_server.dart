@@ -7,7 +7,9 @@ import 'dart:io';
 ///
 /// Sessions, jobs, skills and toolsets are held in memory. A run answers
 /// `Echo: <input>` a word at a time; an input that mentions "approve"
-/// first asks for approval and answers with what the approval was.
+/// first asks for approval and answers with what the approval was; one that
+/// mentions "slow" answers a word every 200 ms for about half a minute (for
+/// a real-app pass that changes accounts mid-reply).
 ///
 /// As Hermes v0.22.1+, it says the API server owns its sessions
 /// (`run_unknown_resolution`) and refuses a run into a session another
@@ -46,6 +48,27 @@ final class FakeHermesServer {
 
   /// Runs waiting on an approval, by run id.
   final Map<String, Completer<bool>> _waiting = {};
+
+  /// Runs whose input starts `hold:<key>` stream their first word, then
+  /// wait for [release] of `<key>`. [runHeld] completes as one reaches the
+  /// wait; [heldDone] with true once it streamed to the end, false once the
+  /// client went away first.
+  final Map<String, Completer<void>> _holds = {};
+  final Map<String, Completer<void>> _heldReached = {};
+  final Map<String, Completer<bool>> _heldDone = {};
+  Future<void> runHeld(String key) =>
+      _heldReached.putIfAbsent(key, Completer<void>.new).future;
+  Future<bool> heldDone(String key) =>
+      _heldDone.putIfAbsent(key, Completer<bool>.new).future;
+  void release(String key) {
+    final hold = _holds.putIfAbsent(key, Completer<void>.new);
+    if (!hold.isCompleted) hold.complete();
+  }
+
+  void _settleHeld(String key, bool finished) {
+    final done = _heldDone.putIfAbsent(key, Completer<bool>.new);
+    if (!done.isCompleted) done.complete(finished);
+  }
   final Map<String, Map<String, dynamic>> _runs = {};
   var _next = 0;
 
@@ -62,7 +85,12 @@ final class FakeHermesServer {
     return fake;
   }
 
-  Future<void> close() => _server.close(force: true);
+  Future<void> close() {
+    for (final hold in _holds.values) {
+      if (!hold.isCompleted) hold.complete();
+    }
+    return _server.close(force: true);
+  }
 
   /// A session another Hermes app ([source]) started, with [turns] as its
   /// questions and answers; answers with its id.
@@ -344,15 +372,51 @@ final class FakeHermesServer {
       await response.flush();
       answer = await decided.future ? 'Approved and done.' : 'Not approved.';
     }
-    final words = answer.split(' ');
-    for (final (index, word) in words.indexed) {
-      final delta = index == words.length - 1 ? word : '$word ';
-      send(<String, dynamic>{'event': 'message.delta', 'delta': delta});
-      await response.flush();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+    final slow = input.toLowerCase().contains('slow');
+    if (slow) {
+      answer = List<String>.filled(
+        15,
+        'The tide turns past the harbour wall.',
+      ).join(' ');
     }
-    send(<String, dynamic>{'event': 'run.completed', 'output': answer});
-    await response.close();
+    String? hold;
+    if (input.startsWith('hold:')) {
+      final space = input.indexOf(' ');
+      hold = space < 0 ? input.substring(5) : input.substring(5, space);
+      answer = space < 0 ? hold : input.substring(space + 1);
+    }
+    final words = answer.split(' ');
+    try {
+      for (final (index, word) in words.indexed) {
+        final delta = index == words.length - 1 ? word : '$word ';
+        send(<String, dynamic>{'event': 'message.delta', 'delta': delta});
+        await response.flush();
+        if (index == 0 && hold != null) {
+          final reached = _heldReached.putIfAbsent(hold, Completer<void>.new);
+          if (!reached.isCompleted) reached.complete();
+          // The client going away ends the hold too, as a cut-off reply.
+          final gone = response.done.then<bool>(
+            (_) => true,
+            onError: (Object _) => true,
+          );
+          final released = _holds
+              .putIfAbsent(hold, Completer<void>.new)
+              .future
+              .then((_) => false);
+          if (await Future.any(<Future<bool>>[released, gone])) {
+            _settleHeld(hold, false);
+            return;
+          }
+        }
+        await Future<void>.delayed(Duration(milliseconds: slow ? 200 : 20));
+      }
+      send(<String, dynamic>{'event': 'run.completed', 'output': answer});
+      await response.close();
+      if (hold != null) _settleHeld(hold, true);
+    } on Object {
+      if (hold != null) _settleHeld(hold, false);
+      return;
+    }
 
     final sessionId = run['session_id'] as String?;
     if (sessionId != null && messages.containsKey(sessionId)) {

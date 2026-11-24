@@ -253,7 +253,7 @@ final class ModelsService {
   /// A chat's id moved (`route.remap`): its pick moves with it, unless a
   /// newer one was already made under the new id.
   void _followRemaps(EventBus events) {
-    events.tap((event, _, payload) {
+    _untap = events.tap((event, _, payload) {
       if (event != ConduitEvents.routeRemap) return;
       final remap = RouteRemap.fromJson(payload);
       _moved[remap.fromId] = remap.toId;
@@ -344,8 +344,24 @@ final class ModelsService {
   /// so the listeners its changes fire stay quiet.
   bool _picking = false;
 
+  /// What [_announceChanges] holds, and the remap tap.
+  final List<ProviderSubscription<Object?>> _watches =
+      <ProviderSubscription<Object?>>[];
+  void Function()? _untap;
+  bool _disposed = false;
+
+  void dispose() {
+    _disposed = true;
+    for (final watch in _watches) {
+      watch.close();
+    }
+    _watches.clear();
+    _untap?.call();
+    _untap = null;
+  }
+
   void _announce() {
-    if (_picking) return;
+    if (_picking || _disposed) return;
     _events?.emit(ConduitEventSpecs.modelsChanged, null);
   }
 
@@ -359,36 +375,44 @@ final class ModelsService {
   /// (the core's `defaultModelSettingSelectionProvider`, kept alive here as
   /// mobile keeps it), and the composers show it.
   void _announceChanges(EventBus events) {
-    _container.listen<void>(defaultModelSettingSelectionProvider, (_, _) {});
-    // As mobile keeps them: a coding agent goes when its terminal is turned
-    // off, and a control's pick the model no longer offers is cleared.
-    _container.listen<void>(terminalAgentSelectionGuardProvider, (_, _) {});
-    _container.listen<AsyncValue<ModelControlChoices>>(
-      modelControlChoicesProvider,
-      (_, _) {},
-    );
-    _container.listen<core.Model?>(selectedModelProvider, (previous, next) {
-      if (previous?.id == next?.id) return;
-      _announce();
-    });
-    // The coding agents on offer are the selected terminal's: another
-    // terminal changes the list even when the model stays.
-    _container.listen<String?>(selectedTerminalIdProvider, (previous, next) {
-      if (previous == next) return;
-      _announce();
-    });
-    // A Tether device changed what it offers, its models read again.
-    _container.listen<int>(tetherDevicesProvider, (_, _) => _announce());
+    _watches.addAll(<ProviderSubscription<Object?>>[
+      _container.listen<void>(defaultModelSettingSelectionProvider, (_, _) {}),
+      // As mobile keeps them: a coding agent goes when its terminal is
+      // turned off, and a control's pick the model no longer offers is
+      // cleared.
+      _container.listen<void>(terminalAgentSelectionGuardProvider, (_, _) {}),
+      _container.listen<AsyncValue<ModelControlChoices>>(
+        modelControlChoicesProvider,
+        (_, _) {},
+      ),
+      _container.listen<core.Model?>(selectedModelProvider, (previous, next) {
+        if (previous?.id == next?.id) return;
+        _announce();
+      }),
+      // The coding agents on offer are the selected terminal's: another
+      // terminal changes the list even when the model stays.
+      _container.listen<String?>(selectedTerminalIdProvider, (previous, next) {
+        if (previous == next) return;
+        _announce();
+      }),
+      // A Tether device changed what it offers, its models read again.
+      _container.listen<int>(tetherDevicesProvider, (_, _) => _announce()),
+    ]);
     List<String>? last;
-    _container.listen<AsyncValue<List<core.Model>>>(modelsProvider, (_, next) {
-      final models = next.value;
-      if (models == null) return;
-      final ids = models.map((model) => model.id).toList(growable: false);
-      final previous = last;
-      last = ids;
-      if (previous == null || _sameIds(previous, ids)) return;
-      _announce();
-    });
+    _watches.add(
+      _container.listen<AsyncValue<List<core.Model>>>(modelsProvider, (
+        _,
+        next,
+      ) {
+        final models = next.value;
+        if (models == null) return;
+        final ids = models.map((model) => model.id).toList(growable: false);
+        final previous = last;
+        last = ids;
+        if (previous == null || _sameIds(previous, ids)) return;
+        _announce();
+      }),
+    );
   }
 
   static bool _sameIds(List<String> a, List<String> b) {

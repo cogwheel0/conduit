@@ -18,7 +18,10 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_br
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/account_change_reset.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show accountChangeStopRepliesProvider;
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
@@ -257,5 +260,55 @@ void main() {
         .throws<DirectChatInputException>();
 
     check(container.read(activeConversationProvider)?.title).equals('scan.png');
+  });
+
+  // The phone keeps a chat no account owns open across an Open WebUI
+  // account change (the shared reset), its reply with it.
+  group('a Direct reply in a chat kept on this device, across an Open WebUI '
+      'account change', () {
+    test('runs to the end and is stored when the change asks '
+        'nothing', () async {
+      final adapter = _WaitingAdapter();
+      final container = _directContainer(adapter);
+      final send = durableSend(container, 'Tell me about currents', null);
+      await adapter.asked.future;
+      adapter.events.add(const DirectContentDelta('First half'));
+      await pumpEventQueue();
+      final chat = container.read(activeConversationProvider)!;
+
+      resetOpenWebUiAccountState(container);
+      check(container.read(activeConversationProvider)?.id).equals(chat.id);
+
+      adapter.events
+        ..add(const DirectContentDelta(' and the rest'))
+        ..add(const DirectStreamDone());
+      await adapter.finish();
+      await send;
+      final shown = container.read(chatMessagesProvider).last;
+      check(shown.content).equals('First half and the rest');
+      check(shown.isStreaming).isFalse();
+    });
+
+    test('Switch stops reply stops it, keeping the words that came, and the '
+        'chat stays open', () async {
+      final adapter = _WaitingAdapter();
+      final container = _directContainer(adapter);
+      final send = durableSend(container, 'Tell me about tides', null);
+      await adapter.asked.future;
+      adapter.events.add(const DirectContentDelta('Words that came'));
+      await pumpEventQueue();
+      final chat = container.read(activeConversationProvider)!;
+
+      // What the phone does once the user agrees to switch.
+      container.read(accountChangeStopRepliesProvider)();
+      await send;
+      resetOpenWebUiAccountState(container);
+
+      check(container.read(activeConversationProvider)?.id).equals(chat.id);
+      final shown = container.read(chatMessagesProvider).last;
+      check(shown.content).equals('Words that came');
+      check(shown.isStreaming).isFalse();
+      await adapter.finish();
+    });
   });
 }

@@ -32,11 +32,12 @@ release workflow publishes what it writes.
       over a running app with them).
 
   winlinux_feed.py check --os windows|linux --feed FILE [--old FILE]
-                         --version V [--installer FILE] [--url U]
+                         --version V [--installer FILE] [--url U] [--link P]
       Fails, saying why, unless FILE keeps every item of OLD as it was, has
       exactly one item for V (its build number, lib.sh build_number) that is newer
-      than every other and on no channel, ends in one signature block, and
-      (Windows) its enclosure is URL, as long as the installer, and signed.
+      than every other and on no channel, names P as its release page (when
+      given), ends in one signature block, and (Windows) its enclosure is
+      URL, as long as the installer, and signed.
       The signatures themselves are lib.sh's to check: verify_feed for the
       feed, verify_enclosure for the installer.
 
@@ -402,6 +403,8 @@ def check(args):
         return f"build {build} is on channel {item['channel']!r}"
     if not item["link"].startswith("https://"):
         return f"build {build} links to {item['link']!r}, not an https page"
+    if args.link and item["link"] != args.link:
+        return f"build {build} names {item['link']!r} as its release page, not {args.link!r}"
     if args.os == "linux":
         if item["url"]:
             return f"the Linux item has an enclosure ({item['url']}): the notice installs nothing"
@@ -447,6 +450,7 @@ def main(argv):
     p.add_argument("--version", required=True)
     p.add_argument("--installer")
     p.add_argument("--url")
+    p.add_argument("--link")
     args = ap.parse_args(argv)
     try:
         if args.command == "url":

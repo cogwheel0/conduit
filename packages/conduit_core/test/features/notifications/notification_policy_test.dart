@@ -26,19 +26,37 @@ void main() {
     direct: direct,
   );
 
-  test('the master toggle and the kind toggles come first', () {
+  test('the master toggle and the kind toggles come first, and silence '
+      'alerts only: a channel message still counts as unread', () {
     expect(decide(const AppSettings()), NotificationDecision.suppressed);
     expect(
       decide(on.copyWith(notificationChatEnabled: false)),
       NotificationDecision.suppressed,
     );
-    expect(
-      decide(
-        on.copyWith(notificationChannelEnabled: false),
-        kind: NotificationKind.channelMessage,
-      ),
-      NotificationDecision.suppressed,
+    const counted = NotificationDecision(
+      surface: NotificationSurface.suppressed,
+      countsUnread: true,
     );
+    for (final off in [
+      const AppSettings(),
+      on.copyWith(notificationChannelEnabled: false),
+    ]) {
+      expect(decide(off, kind: NotificationKind.channelMessage), counted);
+      expect(
+        decide(off, kind: NotificationKind.channelMessage, foreground: true),
+        counted,
+      );
+      // On screen in front, it is read as it arrives.
+      expect(
+        decide(
+          off,
+          kind: NotificationKind.channelMessage,
+          foreground: true,
+          viewing: true,
+        ),
+        NotificationDecision.suppressed,
+      );
+    }
   });
 
   test('a failed reply follows the chat toggle, a scheduled task its own, '

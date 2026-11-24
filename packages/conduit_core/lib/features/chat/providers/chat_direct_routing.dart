@@ -89,7 +89,12 @@ final class _DirectTurnStartDatabaseUnavailable extends StateError {
 }
 
 final class _DirectOpenWebUiAuthSessionChanged implements Exception {
-  const _DirectOpenWebUiAuthSessionChanged();
+  const _DirectOpenWebUiAuthSessionChanged({this.partial});
+
+  /// The answer as far as the provider had written it, when the change came
+  /// after the reply started; [_settleDirectAssistantAfterAuthSessionChange]
+  /// keeps its words.
+  final ChatMessage? partial;
 }
 
 typedef _DirectStreamMove = ({

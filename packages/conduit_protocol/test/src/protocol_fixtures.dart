@@ -57,6 +57,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     bulkSelection: true,
   ),
   'capabilitiesHermesOnly': const Capabilities(hermes: true, hermesOnly: true),
+  'capabilitiesSharedContainer': const Capabilities(
+    notes: true,
+    notOffered: HostNamespace.values,
+  ),
   'rpcErrorMinimal': const RpcError(code: ConduitErrorCodes.offline),
   'rpcErrorFull': const RpcError(
     code: ConduitErrorCodes.serverError,
@@ -4983,6 +4987,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'capabilitiesNone': Capabilities.fromJson,
       'capabilitiesOpenWebUi': Capabilities.fromJson,
       'capabilitiesHermesOnly': Capabilities.fromJson,
+      'capabilitiesSharedContainer': Capabilities.fromJson,
       'rpcErrorMinimal': RpcError.fromJson,
       'rpcErrorFull': RpcError.fromJson,
       'eventEnvelope': EventEnvelope.fromJson,

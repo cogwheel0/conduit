@@ -814,6 +814,7 @@ Future<void> _sendMessageInternal(
               owner: authChangedOwner,
               assistantMessageId: assistantMessageId,
               isCurrentGeneration: () => registry.isLatest(reservation),
+              partial: error.partial,
             );
           } catch (settlementError, stackTrace) {
             DebugLogger.error(

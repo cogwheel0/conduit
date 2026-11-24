@@ -1,30 +1,50 @@
 name: Release Desktop
 
-# Conduit Desktop for macOS: Apple silicon only, macOS 14 Sonoma or later,
-# one stable update channel. docs/RELEASING-DESKTOP.md is the runbook.
+# Conduit Desktop for macOS (Apple silicon only, macOS 14 Sonoma or later),
+# Windows (x64) and Linux (x86_64): one tag releases every OS, each with one
+# stable update channel. docs/RELEASING-DESKTOP.md is the runbook.
 #
-# - Push a tag `desktop-v<X.Y.Z>` (never `-beta.N`: refused). The `build`
-#   job builds Conduit.app with no secret in reach, signs it inside out
-#   with the Developer ID certificate from a temporary keychain, notarizes
-#   and staples the app and the DMG, verifies and smoke-tests them, signs
-#   the Sparkle appcast, and creates a DRAFT GitHub release carrying the
-#   DMG, the dSYMs, the signed appcast.xml and SHA256SUMS.txt. Nothing
-#   reaches installed copies yet.
-# - Publish the draft (a person, after checking it). The `feed` job then
-#   checks its appcast.xml, its signature included, and puts it on the fixed
-#   `desktop-appcast` release, the URL every installed copy reads
-#   (SUFeedURL), and they offer the update.
+# - Push a tag `desktop-v<X.Y.Z>` (never `-beta.N`: refused).
+#   - `winlinux-config` checks the Windows and Linux keys first; every build
+#     waits for it, the Mac's too, so a missing secret stops the run in a
+#     minute. `draft` then starts the tag's DRAFT release, its notes saying
+#     it is still being built.
+#   - The `build` job builds Conduit.app with no secret in reach, signs it
+#     inside out with the Developer ID certificate from a temporary
+#     keychain, notarizes and staples the app and the DMG, verifies and
+#     smoke-tests them, signs the Sparkle appcast, and puts the DMG, the
+#     dSYMs, the signed appcast.xml and SHA256SUMS.txt on the draft.
+#   - `build-windows` and `build-linux` build the installer, the .deb and
+#     the .rpm with no secret in reach; `winlinux-feeds` adds the version to
+#     each OS's own feed, signed with its own key; `smoke-windows` and
+#     `smoke-linux` install them on fresh runners.
+#   - `release` puts the Windows and Linux files on the draft, then runs the
+#     publish gate (packaging/release_gate.sh) on every file the draft
+#     carries, and only then writes its release notes. Nothing reaches
+#     installed copies yet.
+# - Publish the draft (a person, after checking it). The `feed` job runs
+#   the publish gate again: a release that lacks any OS's files or feed, or
+#   whose files don't verify, goes back to a draft and no feed changes.
+#   Then each feed is checked against the live one, and all three go on the
+#   fixed `desktop-appcast` release, the URLs installed copies read
+#   (SUFeedURL, and each OS's beside it), and they offer the update.
 # - A key rotation's bridge release (docs/RELEASING-DESKTOP.md, "Rotating the
 #   Sparkle key") is a tag that the variables SPARKLE_KEY_ROTATION_TAG and
 #   SPARKLE_NEXT_PUBLIC_ED_KEY name together: signed with the current key,
-#   its app carries the next one.
-# - Run the workflow by hand (workflow_dispatch) for a dry run: the same
-#   build as a rehearsal on a test bundle id, signed ad hoc, with a
-#   throwaway Sparkle key; no secret is read and nothing is published.
+#   its app carries the next one. Windows and Linux rotate the same way
+#   with their own variables ("Rotating the Windows or Linux key").
+# - Run the workflow by hand (workflow_dispatch) for a dry run: every OS's
+#   build as a rehearsal, the Mac's on a test bundle id signed ad hoc, with
+#   throwaway keys and feeds on 127.0.0.1 that the install smokes read, then
+#   the publish gate on what they made: it must pass, and refuse each file
+#   in turn when that file is missing. No secret is read, and no release or
+#   tag is made or changed.
 #
 # Secrets and variables: docs/RELEASING-DESKTOP.md, "Secrets and variables".
-# Each secret is handed only to the step that needs it, and the build
-# (cargo, dart, cmake) runs before any of them is read.
+# Each secret is handed only to the step that needs it, and the builds
+# (cargo, dart, cmake) run before any of them is read, apart from the
+# configuration checks, which read the private keys only to check that each
+# belongs to its public key.
 on:
   push:
     tags:
@@ -43,9 +63,169 @@ permissions:
   contents: read
 
 jobs:
+  # The Windows and Linux release configuration, checked before anything
+  # builds. Each OS's private key is set and belongs to its public key; the
+  # rotation variables make sense for this tag (lib.sh release_app_key);
+  # and the published feed is signed with a key this release can check it
+  # with (lib.sh winlinux_feed_state, feed_signing_key), so a retired key
+  # missing or left over stops here, not after an hour of building. Its
+  # outputs: the version and the public key each app carries (a bridge
+  # release's is the next key). A dry run makes a throwaway key pair per OS
+  # instead; their private halves go to the feeds job only.
+  winlinux-config:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Windows and Linux keys (dry run, throwaway)' || 'Windows and Linux release configuration' }}
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+    outputs:
+      version: ${{ steps.config.outputs.version || steps.throwaway.outputs.version }}
+      windows-key: ${{ steps.config.outputs.windows-key || steps.throwaway.outputs.windows-key }}
+      linux-key: ${{ steps.config.outputs.linux-key || steps.throwaway.outputs.linux-key }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check the Windows and Linux keys, and pick each app's
+        id: config
+        if: env.DRY_RUN != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_ED_PRIVATE_KEY: ${{ secrets.WINDOWS_ED_PRIVATE_KEY }}
+          LINUX_ED_PRIVATE_KEY: ${{ secrets.LINUX_ED_PRIVATE_KEY }}
+          WINDOWS_PUBLIC_ED_KEY: ${{ vars.WINDOWS_PUBLIC_ED_KEY }}
+          LINUX_PUBLIC_ED_KEY: ${{ vars.LINUX_PUBLIC_ED_KEY }}
+          WINDOWS_NEXT_PUBLIC_ED_KEY: ${{ vars.WINDOWS_NEXT_PUBLIC_ED_KEY }}
+          LINUX_NEXT_PUBLIC_ED_KEY: ${{ vars.LINUX_NEXT_PUBLIC_ED_KEY }}
+          WINDOWS_KEY_ROTATION_TAG: ${{ vars.WINDOWS_KEY_ROTATION_TAG }}
+          LINUX_KEY_ROTATION_TAG: ${{ vars.LINUX_KEY_ROTATION_TAG }}
+          WINDOWS_RETIRED_PUBLIC_ED_KEY: ${{ vars.WINDOWS_RETIRED_PUBLIC_ED_KEY }}
+          LINUX_RETIRED_PUBLIC_ED_KEY: ${{ vars.LINUX_RETIRED_PUBLIC_ED_KEY }}
+        run: |
+          . desktop/packaging/macos/lib.sh
+          version="${GITHUB_REF_NAME#desktop-v}"
+          check_version "$version"
+          refuse_beta_release "$version"
+          if [ "$GITHUB_REPOSITORY" != "$RELEASE_REPO" ]; then
+            echo "::error::this repository is $GITHUB_REPOSITORY; release.env publishes to $RELEASE_REPO"
+            exit 1
+          fi
+          missing=""
+          for OS in WINDOWS LINUX; do
+            private="${OS}_ED_PRIVATE_KEY" public="${OS}_PUBLIC_ED_KEY"
+            [ -n "${!private}" ] || missing="$missing $private;"
+            [ -n "${!public}" ] || missing="$missing variable $public;"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing release configuration:$missing see docs/RELEASING-DESKTOP.md, \"Windows and Linux updates\""
+            exit 1
+          fi
+          for os in windows linux; do
+            OS="$(printf '%s' "$os" | tr a-z A-Z)"
+            private="${OS}_ED_PRIVATE_KEY" public="${OS}_PUBLIC_ED_KEY" next="${OS}_NEXT_PUBLIC_ED_KEY"
+            rotation="${OS}_KEY_ROTATION_TAG" retired="${OS}_RETIRED_PUBLIC_ED_KEY"
+            derived="$(printf '%s' "${!private}" | sparkle_public_key)"
+            if [ "$derived" != "${!public}" ]; then
+              echo "::error::$private does not belong to $public: installed copies would refuse the update"
+              exit 1
+            fi
+            app_key="$(release_app_key "$GITHUB_REF_NAME" "${!public}" "${!next}" "${!rotation}" "$OS")" || {
+              echo "::error::the $OS rotation variables do not make $GITHUB_REF_NAME a bridge release (the log says why; docs/RELEASING-DESKTOP.md, \"Rotating the Windows or Linux key\")"
+              exit 1
+            }
+            if [ "$app_key" != "${!public}" ]; then
+              echo "::warning::$os key rotation: $GITHUB_REF_NAME is the bridge release. Its $os item and feed are signed with $private; its app carries $next"
+            fi
+            state="$(winlinux_feed_state "$os")" ||
+              { echo "::error::could not tell whether $os has a published feed (the log says why)"; exit 1; }
+            if [ "$state" = live ]; then
+              live="$RUNNER_TEMP/live-$os.xml"
+              curl -fsSL --retry 3 -o "$live" "$(python3 -I desktop/packaging/winlinux_feed.py url "$os")" ||
+                { echo "::error::could not fetch the published $os feed"; exit 1; }
+              feed_signing_key "$live" "$os" "${!public}" "${!retired}" >/dev/null ||
+                { echo "::error::the published $os feed is not signed with a key this release can check it with (the log says why)"; exit 1; }
+            elif [ -n "${!retired}" ]; then
+              echo "::error::$retired is set, but $os has no published feed to check with it: delete it"
+              exit 1
+            else
+              echo "::notice::$os has no published feed yet: this is its first release, and its feed starts here"
+            fi
+            echo "$os-key=$app_key" >>"$GITHUB_OUTPUT"
+          done
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+      - name: Throwaway keys (dry run)
+        id: throwaway
+        if: env.DRY_RUN == 'true'
+        shell: bash
+        run: |
+          keys="$RUNNER_TEMP/throwaway-keys"
+          mkdir -m 700 "$keys"
+          for os in windows linux; do
+            openssl genpkey -algorithm ed25519 -outform DER -out "$keys/$os.der"
+            public="$(openssl pkey -inform DER -in "$keys/$os.der" -pubout -outform DER | tail -c 32 | base64 -w0)"
+            echo "$os-key=$public" >>"$GITHUB_OUTPUT"
+            tail -c 32 "$keys/$os.der" | base64 -w0 >"$keys/$os-private-key.txt"
+          done
+          echo "version=0.0.0" >>"$GITHUB_OUTPUT"
+      # The feeds job signs the dry run's feeds with them; nothing they sign
+      # is ever published.
+      - name: Keep the throwaway private keys for the feeds job (dry run)
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-dry-run-throwaway-keys
+          path: ${{ runner.temp }}/throwaway-keys/*-private-key.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  # The tag's draft release, started before the builds finish so each OS's
+  # job adds to the same one (the Mac's through its own "existing draft"
+  # path), its notes saying it is still being built: `release` writes the
+  # real notes only once the publish gate passes. A release already
+  # published under this tag is never changed.
+  draft:
+    name: Start the draft release
+    needs: winlinux-config
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: release-desktop-draft-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.winlinux-config.outputs.version }}
+    steps:
+      - name: Create the draft, or take over the one this tag has
+        shell: bash
+        run: |
+          notes="Conduit Desktop $VERSION is still being built. The release workflow writes the release notes here once every OS's files are on this draft and its publish gate passes. Don't publish it before then: publishing an incomplete release puts it back to a draft."
+          if draft="$(gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>&1)"; then
+            if [ "$draft" != true ]; then
+              echo "::error::$GITHUB_REF_NAME is already published: its files and feeds stay as they are"
+              exit 1
+            fi
+            gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --notes "$notes"
+            echo "Took over the existing draft $GITHUB_REF_NAME: each OS's job replaces its files"
+          else
+            case "$draft" in
+              *"release not found"*) ;;
+              *) echo "::error::could not look up the release $GITHUB_REF_NAME: $draft"; exit 1 ;;
+            esac
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false \
+              --title "Conduit Desktop $VERSION" --notes "$notes"
+          fi
+
   build:
     name: ${{ github.event_name == 'workflow_dispatch' && 'Dry run (ad hoc, nothing published)' || 'Build, sign, notarize, draft release' }}
     if: github.event_name != 'release'
+    # One tag releases every OS: a Windows or Linux configuration that would
+    # stop the release stops this build before it starts.
+    needs: winlinux-config
     # Apple silicon with Xcode 26 or later (FoundationModels needs the
     # macOS 26 SDK; the app still runs from macOS 14). The repository
     # variable DESKTOP_MACOS_RUNNER overrides the image.
@@ -421,17 +601,551 @@ jobs:
             ${{ env.OUT }}/SHA256SUMS.txt
             ${{ env.OUT }}/Conduit-*-dSYMs.zip
 
+      # Dry runs only: the publish gate's rehearsal (job `release`) checks
+      # these with the Windows and Linux files, the throwaway key's public
+      # half included. A release's files are on its draft instead.
+      - name: Keep the DMG and its feed for the gate rehearsal (dry run)
+        if: env.DRY_RUN == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="$RUNNER_TEMP/mac-dry-run"
+          mkdir -p "$files"
+          cp "$OUT/Conduit-$VERSION.dmg" "$OUT/Conduit-$VERSION-dSYMs.zip" "$OUT/appcast/appcast.xml" \
+            "$OUT/SHA256SUMS.txt" "$files/"
+          printf '%s\n' "$SPARKLE_PUBLIC_ED_KEY" >"$files/sparkle-public-key.txt"
+      - name: Keep them (dry run)
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-dry-run-mac-files
+          path: ${{ runner.temp }}/mac-dry-run
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Remove the signing keychain
         if: always()
         run: |
           if [ -n "${SIGNING_KEYCHAIN:-}" ]; then security delete-keychain "$SIGNING_KEYCHAIN" || true; fi
 
-  # Publishing a desktop draft makes its appcast live. Checked first: the
-  # feed is this release's (its newest item is this version, at this
-  # release's DMG, which now downloads), its checksum is the one the build
-  # recorded, it keeps every item the live feed has (a release published
-  # since this draft was built would otherwise drop out), and it is signed
-  # with the key installed copies have.
+  # The third-party notices the Windows and Linux packages carry, made for
+  # each target (packaging/notices/notices.sh --target), and attached to the
+  # release beside them.
+  notices:
+    name: Third-party notices (Windows, Linux)
+    needs: winlinux-config
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Install cargo-about
+        run: cargo install cargo-about --locked --features cli --version 0.9.3
+      - name: Make the notices and check the licence sets
+        run: |
+          desktop/packaging/notices/notices.sh --target x86_64-pc-windows-msvc \
+            --out notices/windows/THIRD_PARTY_NOTICES.md
+          desktop/packaging/notices/notices.sh --target x86_64-unknown-linux-gnu \
+            --out notices/linux/THIRD_PARTY_NOTICES.md
+      - name: Keep the notices
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-notices
+          path: notices
+          if-no-files-found: error
+          retention-days: 5
+
+  # The Windows installer, built with no secret in reach (build.ps1: the
+  # app without the test harness, conduitd, the install folder checked,
+  # Inno Setup), unsigned (BUILDING-DESKTOP.md, "Unsigned installers"). Its
+  # updater trusts the key `winlinux-config` picked and reads the published
+  # Windows feed; a dry run's reads a feed on 127.0.0.1 that its install
+  # smoke serves. No cache, as the Mac's build.
+  build-windows:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Windows installer (dry run)' || 'Windows installer' }}
+    needs: [winlinux-config, notices]
+    if: github.event_name != 'release'
+    runs-on: windows-2025
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+      VERSION: ${{ needs.winlinux-config.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Generate Dart code
+        shell: bash
+        run: |
+          for dir in packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-notices
+          path: notices
+      - name: Build the installer
+        shell: pwsh
+        env:
+          UPDATE_KEY: ${{ needs.winlinux-config.outputs.windows-key }}
+        run: |
+          $feed = @{}
+          if ($env:DRY_RUN -eq 'true') { $feed.UpdateFeedUrl = 'http://127.0.0.1:8471/appcast-windows.xml' }
+          ./desktop/packaging/windows/build.ps1 -Version $env:VERSION `
+            -Notices notices/windows/THIRD_PARTY_NOTICES.md -UpdatePublicKey $env:UPDATE_KEY @feed
+      - name: Keep the installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-windows-installer
+          path: desktop/target/windows/Conduit-${{ env.VERSION }}/Conduit-${{ env.VERSION }}-windows-x64-setup.exe
+          if-no-files-found: error
+          retention-days: 5
+
+  # The .deb and the .rpm, built with no secret in reach on Ubuntu 22.04,
+  # the oldest the packages support (glibc 2.35), as desktop.yml's
+  # rehearsal. Their update notice trusts the key `winlinux-config` picked
+  # and reads the published Linux feed; a dry run's reads one on 127.0.0.1.
+  build-linux:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Linux packages (dry run)' || 'Linux packages' }}
+    needs: [winlinux-config, notices]
+    if: github.event_name != 'release'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+      VERSION: ${{ needs.winlinux-config.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install the build and packaging tools
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            libwayland-dev libfontconfig-dev libfreetype-dev \
+            dpkg-dev desktop-file-utils rpm
+          df -h / | tail -1
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Generate Dart code
+        run: |
+          for dir in packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-notices
+          path: notices
+      - name: Build the .deb and the .rpm
+        env:
+          UPDATE_KEY: ${{ needs.winlinux-config.outputs.linux-key }}
+        run: |
+          feed=()
+          if [ "$DRY_RUN" = true ]; then feed=(--update-feed-url http://127.0.0.1:8471/appcast-linux.xml); fi
+          desktop/packaging/linux/package.sh --version "$VERSION" \
+            --notices notices/linux/THIRD_PARTY_NOTICES.md --update-public-key "$UPDATE_KEY" ${feed[@]+"${feed[@]}"}
+      - name: Keep the packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-linux-packages
+          path: |
+            desktop/target/linux/Conduit-${{ env.VERSION }}/*.deb
+            desktop/target/linux/Conduit-${{ env.VERSION }}/*.rpm
+          if-no-files-found: error
+          retention-days: 5
+
+  # Adds this version to the Windows and Linux feeds (winlinux-appcast.sh),
+  # each signed with its OS's private key, read here only. An OS's first
+  # release starts its feed (--allow-new: only when the feed release has
+  # neither its feed nor a half-finished publication of it, lib.sh
+  # winlinux_feed_state). Otherwise the published feed is fetched and added
+  # to, once it verifies with the key that signed it (lib.sh
+  # feed_signing_key: the current key, or the retired one on the first
+  # release after a key swap). A bridge release's app trusts the next key
+  # (--next-public-key). Then the OSes' files and their checksum files.
+  winlinux-feeds:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Windows and Linux feeds (dry run, throwaway keys)' || 'Sign the Windows and Linux feeds' }}
+    needs: [winlinux-config, notices, build-windows, build-linux]
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+      VERSION: ${{ needs.winlinux-config.outputs.version }}
+      WINDOWS_APP_KEY: ${{ needs.winlinux-config.outputs.windows-key }}
+      LINUX_APP_KEY: ${{ needs.winlinux-config.outputs.linux-key }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-windows-installer
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-linux-packages
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-notices
+          path: notices
+      - name: Add this version to the Windows and Linux feeds
+        if: env.DRY_RUN != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_ED_PRIVATE_KEY: ${{ secrets.WINDOWS_ED_PRIVATE_KEY }}
+          LINUX_ED_PRIVATE_KEY: ${{ secrets.LINUX_ED_PRIVATE_KEY }}
+          WINDOWS_PUBLIC_ED_KEY: ${{ vars.WINDOWS_PUBLIC_ED_KEY }}
+          LINUX_PUBLIC_ED_KEY: ${{ vars.LINUX_PUBLIC_ED_KEY }}
+          WINDOWS_RETIRED_PUBLIC_ED_KEY: ${{ vars.WINDOWS_RETIRED_PUBLIC_ED_KEY }}
+          LINUX_RETIRED_PUBLIC_ED_KEY: ${{ vars.LINUX_RETIRED_PUBLIC_ED_KEY }}
+        run: |
+          . desktop/packaging/macos/lib.sh
+          for os in windows linux; do
+            OS="$(printf '%s' "$os" | tr a-z A-Z)"
+            public="${OS}_PUBLIC_ED_KEY" retired="${OS}_RETIRED_PUBLIC_ED_KEY" app="${OS}_APP_KEY"
+            args=(--os "$os" --version "$VERSION" --work "$RUNNER_TEMP/feed-$os")
+            [ "$os" = linux ] || args+=(--installer "dist/Conduit-$VERSION-windows-x64-setup.exe")
+            state="$(winlinux_feed_state "$os")"
+            if [ "$state" = live ]; then
+              live="$RUNNER_TEMP/live-$os.xml"
+              curl -fsSL --retry 3 -o "$live" "$(python3 -I desktop/packaging/winlinux_feed.py url "$os")"
+              key="$(feed_signing_key "$live" "$os" "${!public}" "${!retired}")"
+              args+=(--existing "$live")
+              [ "$key" = "${!public}" ] || args+=(--feed-public-key "$key")
+            else
+              args+=(--allow-new)
+            fi
+            [ "${!app}" = "${!public}" ] || args+=(--next-public-key "${!app}")
+            desktop/packaging/winlinux-appcast.sh "${args[@]}"
+          done
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: env.DRY_RUN == 'true'
+        with:
+          name: desktop-dry-run-throwaway-keys
+          path: ${{ runner.temp }}/throwaway-keys
+      # New feeds for 0.0.0, at the Mac dry run's download URLs: the install
+      # smokes serve them, and the gate rehearsal checks them.
+      - name: New Windows and Linux feeds (dry run, throwaway keys)
+        if: env.DRY_RUN == 'true'
+        shell: bash
+        run: |
+          for os in windows linux; do
+            OS="$(printf '%s' "$os" | tr a-z A-Z)"
+            app="${OS}_APP_KEY"
+            args=(--os "$os" --version "$VERSION" --fresh --work "$RUNNER_TEMP/feed-$os")
+            if [ "$os" = windows ]; then
+              args+=(--installer "dist/Conduit-$VERSION-windows-x64-setup.exe" --download-url-prefix https://example.invalid/dry-run/)
+            fi
+            (
+              export "${OS}_ED_PRIVATE_KEY=$(cat "$RUNNER_TEMP/throwaway-keys/$os-private-key.txt")" "${OS}_PUBLIC_ED_KEY=${!app}"
+              desktop/packaging/winlinux-appcast.sh "${args[@]}"
+            )
+          done
+      - name: The Windows and Linux release files, with their checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=release-files
+          mkdir "$out"
+          cp "dist/Conduit-$VERSION-windows-x64-setup.exe" "$RUNNER_TEMP/feed-windows/appcast-windows.xml" "$out/"
+          cp notices/windows/THIRD_PARTY_NOTICES.md "$out/THIRD_PARTY_NOTICES-windows.md"
+          cp "dist/conduit-desktop_$VERSION-1_amd64.deb" "dist/conduit-desktop-$VERSION-1.x86_64.rpm" \
+            "$RUNNER_TEMP/feed-linux/appcast-linux.xml" "$out/"
+          cp notices/linux/THIRD_PARTY_NOTICES.md "$out/THIRD_PARTY_NOTICES-linux.md"
+          desktop/packaging/release_gate.sh sums --os windows --version "$VERSION" --dir "$out"
+          desktop/packaging/release_gate.sh sums --os linux --version "$VERSION" --dir "$out"
+          cat "$out"/SHA256SUMS-windows.txt "$out"/SHA256SUMS-linux.txt
+      - name: Keep them
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-winlinux-release
+          path: release-files
+          if-no-files-found: error
+          retention-days: 5
+
+  # On fresh runners, as a user meets them: install, the installed app's
+  # smoke pass, removal (packaging/windows/smoke.ps1, packaging/linux/
+  # smoke.sh), as desktop.yml's install smokes. The release's packages read
+  # the live feed (an outcome the smoke reports and never fails on); a dry
+  # run's read its own feed, served on 127.0.0.1, and must find nothing
+  # newer.
+  smoke-windows:
+    name: Windows install smoke
+    needs: [winlinux-config, winlinux-feeds]
+    if: github.event_name != 'release'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+      VERSION: ${{ needs.winlinux-config.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-winlinux-release
+          path: release-files
+      - name: Install, smoke-test and uninstall
+        shell: pwsh
+        run: |
+          $feed = @{}
+          if ($env:DRY_RUN -eq 'true') {
+            New-Item -ItemType Directory -Force -Path feeds/windows | Out-Null
+            Copy-Item -LiteralPath release-files/appcast-windows.xml -Destination feeds/windows/
+            $feed = @{ UpdateFeed = 'feeds/windows'; UpdateFeedPort = 8471 }
+          }
+          ./desktop/packaging/windows/smoke.ps1 -Installer "release-files/Conduit-$($env:VERSION)-windows-x64-setup.exe" `
+            -Work "$env:RUNNER_TEMP/conduit-smoke" @feed
+      - name: Keep the smoke's logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-windows-smoke
+          path: ${{ runner.temp }}/conduit-smoke
+          retention-days: 5
+
+  smoke-linux:
+    name: Linux install smoke
+    needs: [winlinux-config, winlinux-feeds]
+    if: github.event_name != 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+      VERSION: ${{ needs.winlinux-config.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-winlinux-release
+          path: release-files
+      - name: Install Xvfb, Mesa, GNOME Keyring, secret-tool and desktop-file-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xauth dbus mesa-vulkan-drivers libegl1 libgl1-mesa-dri \
+            gnome-keyring libsecret-tools desktop-file-utils
+      - name: Install, smoke-test and remove the .deb
+        run: |
+          feed=()
+          if [ "$DRY_RUN" = true ]; then
+            mkdir -p feeds/linux
+            cp release-files/appcast-linux.xml feeds/linux/
+            feed=(--update-feed feeds/linux --update-feed-port 8471)
+          fi
+          desktop/packaging/linux/smoke.sh ${feed[@]+"${feed[@]}"} \
+            "release-files/conduit-desktop_${VERSION}-1_amd64.deb" "$RUNNER_TEMP/conduit-smoke"
+      - name: The .deb in clean Ubuntu 22.04 and Debian 12
+        run: |
+          for image in ubuntu:22.04 debian:12; do
+            echo "::group::$image"
+            docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" "$image" \
+              bash /src/desktop/packaging/linux/smoke.sh --container "/src/release-files/conduit-desktop_${VERSION}-1_amd64.deb"
+            echo "::endgroup::"
+          done
+      - name: The .rpm in a clean Fedora
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" fedora:latest \
+            bash /src/desktop/packaging/linux/smoke.sh --container "/src/release-files/conduit-desktop-${VERSION}-1.x86_64.rpm"
+      - name: Keep the smoke's logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-linux-smoke
+          path: ${{ runner.temp }}/conduit-smoke
+          retention-days: 5
+
+  # A tag: puts the Windows and Linux files on the draft (looked up again
+  # before each, as the Mac's job does: a published release is never
+  # changed), then the publish gate (packaging/release_gate.sh) on every
+  # file the draft carries, as GitHub serves them: each OS's files, each
+  # matching its checksum file, and the three feeds signed with the keys
+  # installed copies have, with this version on top. Only then does the
+  # draft get its release notes (packaging/release-notes.md), so a draft
+  # still saying it is being built is not ready to publish.
+  # A dry run: the same gate on the dry run's files, which must pass, and
+  # must refuse each file in turn when it is missing. Nothing is published.
+  release:
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Publish gate (rehearsal, nothing published)' || 'Complete the draft, publish gate' }}
+    needs: [winlinux-config, draft, build, winlinux-feeds, smoke-windows, smoke-linux]
+    if: >-
+      ${{ !cancelled() && github.event_name != 'release' &&
+      needs.build.result == 'success' && needs.winlinux-feeds.result == 'success' &&
+      needs.smoke-windows.result == 'success' && needs.smoke-linux.result == 'success' &&
+      (needs.draft.result == 'success' ||
+      (github.event_name == 'workflow_dispatch' && needs.draft.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: release-desktop-complete-${{ github.event_name == 'workflow_dispatch' && 'dry-run' || github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+      VERSION: ${{ needs.winlinux-config.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-winlinux-release
+          path: release-files
+      - name: Put the Windows and Linux files on the draft
+        if: env.DRY_RUN != 'true'
+        shell: bash
+        run: |
+          still_draft() {
+            local draft
+            draft="$(gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" &&
+              [ "$draft" = true ]
+          }
+          for asset in release-files/*; do
+            if ! still_draft; then
+              echo "::error::$GITHUB_REF_NAME is no longer a draft (or could not be looked up): its files stay as they are"
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber "$asset"
+          done
+      - name: Publish gate, then the release notes
+        if: env.DRY_RUN != 'true'
+        shell: bash
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+          WINDOWS_PUBLIC_ED_KEY: ${{ vars.WINDOWS_PUBLIC_ED_KEY }}
+          LINUX_PUBLIC_ED_KEY: ${{ vars.LINUX_PUBLIC_ED_KEY }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/draft"
+          mkdir -p "$dir"
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" -D "$dir"
+          desktop/packaging/release_gate.sh check --version "$VERSION" --dir "$dir"
+          sed "s/@VERSION@/$VERSION/g" desktop/packaging/release-notes.md >"$RUNNER_TEMP/notes.md"
+          draft="$(gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [ "$draft" != true ]; then
+            echo "::error::$GITHUB_REF_NAME was published during this run: its notes stay as they are"
+            exit 1
+          fi
+          gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+          {
+            echo "## The draft $GITHUB_REF_NAME is complete"
+            echo
+            echo "Every OS's files are on it and the publish gate passes. Check it, then publish it (never as Latest)."
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: env.DRY_RUN == 'true'
+        with:
+          name: desktop-dry-run-mac-files
+          path: mac-files
+      - name: Publish gate rehearsal (dry run)
+        if: env.DRY_RUN == 'true'
+        shell: bash
+        env:
+          WINDOWS_PUBLIC_ED_KEY: ${{ needs.winlinux-config.outputs.windows-key }}
+          LINUX_PUBLIC_ED_KEY: ${{ needs.winlinux-config.outputs.linux-key }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/dry-run-release"
+          aside="$RUNNER_TEMP/aside"
+          mkdir -p "$dir" "$aside"
+          cp release-files/* "$dir/"
+          cp "mac-files/Conduit-$VERSION.dmg" "mac-files/Conduit-$VERSION-dSYMs.zip" mac-files/appcast.xml \
+            mac-files/SHA256SUMS.txt "$dir/"
+          SPARKLE_PUBLIC_ED_KEY="$(cat mac-files/sparkle-public-key.txt)"
+          export SPARKLE_PUBLIC_ED_KEY
+          gate=(desktop/packaging/release_gate.sh check --version "$VERSION" --dir "$dir"
+            --download-url-prefix https://example.invalid/dry-run/)
+          "${gate[@]}"
+          for os in mac windows linux; do
+            for f in $(desktop/packaging/release_gate.sh assets --os "$os" --version "$VERSION"); do
+              mv "$dir/$f" "$aside/"
+              rc=0
+              "${gate[@]}" >"$RUNNER_TEMP/gate.log" 2>&1 || rc=$?
+              mv "$aside/$f" "$dir/"
+              if [ "$rc" != 1 ] || ! grep -qF "missing: $f" "$RUNNER_TEMP/gate.log"; then
+                cat "$RUNNER_TEMP/gate.log"
+                echo "::error::the publish gate did not refuse a release without $f (exit $rc)"
+                exit 1
+              fi
+              echo "the publish gate refuses a release without $f"
+            done
+          done
+          "${gate[@]}"
+          {
+            echo "## Publish gate rehearsal: passed"
+            echo
+            echo "Every OS's dry-run files pass the gate, and it refuses each one when that file is missing. The release notes a tag would get:"
+            echo
+            sed "s/@VERSION@/$VERSION/g" desktop/packaging/release-notes.md
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  # Publishing a desktop draft makes its three feeds live. It runs once the
+  # release is public (GitHub lets no workflow stop a publication).
+  # Checked first, before anything changes: the publish gate (every OS's
+  # files and feeds, as `release` checked the draft; a release it refuses
+  # goes back to a draft). Then the Mac's appcast as before: it is this
+  # release's (its newest item is this version, at this release's DMG,
+  # which now downloads), its checksum is the one the build recorded, it
+  # keeps every item the live feed has (a release published since this
+  # draft was built would otherwise drop out), and it is signed with the
+  # key installed copies have. Then the Windows and Linux feeds by the same
+  # rules. Only then is each published, the Mac's first. GitHub has no way
+  # to swap three files at once: when one publication fails after another
+  # went live, re-run this job. A feed already live is left as it is
+  # (publish-appcast.sh), and the rest go live.
   feed:
     name: Publish the update feed
     if: >-
@@ -453,6 +1167,8 @@ jobs:
       TAG: ${{ github.event.release.tag_name }}
       GH_TOKEN: ${{ github.token }}
       SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+      WINDOWS_PUBLIC_ED_KEY: ${{ vars.WINDOWS_PUBLIC_ED_KEY }}
+      LINUX_PUBLIC_ED_KEY: ${{ vars.LINUX_PUBLIC_ED_KEY }}
     steps:
       # The release event's own commit (GITHUB_SHA), never a ref name a
       # branch could share with the tag.
@@ -460,6 +1176,43 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      # Nothing goes live unless the release carries every OS's files and
+      # the three feeds, each matching its checksum file and signed with the
+      # key installed copies have (packaging/release_gate.sh). A release the
+      # gate refuses goes back to a draft, so no OS's files stay public
+      # without the others; a gate that could not run (a lookup or a
+      # download failed) changes nothing: re-run the job.
+      - name: Publish gate (every OS's files and feeds)
+        shell: bash
+        run: |
+          . desktop/packaging/macos/lib.sh
+          [ "$GITHUB_REPOSITORY" = "$RELEASE_REPO" ] || { echo "::error::not $RELEASE_REPO"; exit 1; }
+          version="${TAG#desktop-v}"
+          check_version "$version"
+          refuse_beta_release "$version"
+          dir="$RUNNER_TEMP/gate"
+          mkdir -p "$dir"
+          names="$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')" ||
+            { echo "::error::could not list the files of $TAG: nothing changed; re-run the job"; exit 1; }
+          if [ -n "$names" ]; then
+            gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D "$dir" ||
+              { echo "::error::could not download the files of $TAG: nothing changed; re-run the job"; exit 1; }
+          fi
+          rc=0
+          desktop/packaging/release_gate.sh check --version "$version" --dir "$dir" || rc=$?
+          case "$rc" in
+            0) echo "GATE_DIR=$dir" >>"$GITHUB_ENV" ;;
+            1)
+              echo "::error::the publish gate refuses $TAG (the log says why): it goes back to a draft, and no feed changes (docs/RELEASING-DESKTOP.md, \"The publish gate refuses a release\")"
+              gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=true ||
+                echo "::error::$TAG could not be put back to a draft: do it by hand (gh release edit $TAG --draft=true)"
+              exit 1
+              ;;
+            *)
+              echo "::error::the publish gate could not run (exit $rc; the log says why): nothing changed; re-run the job"
+              exit 1
+              ;;
+          esac
       - name: Fetch the release's appcast
         shell: bash
         run: |
@@ -522,9 +1275,54 @@ jobs:
           EOF
           command -v xmllint >/dev/null || sudo apt-get install -y libxml2-utils
           echo "APPCAST=$dir/appcast.xml" >> "$GITHUB_ENV"
+      # Each OS's feed as the Mac's: the gate checked that it is this
+      # release's, signed, with this version on top. Here: it keeps every
+      # item the OS's live feed has (none on that OS's first release), and
+      # what installed copies download is what the gate checked: the
+      # installer at the URL its item names (WinSparkle's download), and the
+      # .deb and the .rpm on the release page.
+      - name: Check the Windows and Linux feeds against the live ones
+        shell: bash
+        run: |
+          . desktop/packaging/macos/lib.sh
+          version="${TAG#desktop-v}"
+          base="https://github.com/$RELEASE_REPO/releases/download/$TAG"
+          public="$RUNNER_TEMP/public"
+          mkdir -p "$public"
+          for f in "Conduit-$version-windows-x64-setup.exe" "conduit-desktop_$version-1_amd64.deb" \
+            "conduit-desktop-$version-1.x86_64.rpm"; do
+            curl -fsSL --retry 3 -o "$public/$f" "$base/$f" ||
+              { echo "::error::$base/$f does not download (is the release public?)"; exit 1; }
+            cmp -s "$public/$f" "$GATE_DIR/$f" ||
+              { echo "::error::$base/$f is not the file the publish gate checked"; exit 1; }
+          done
+          for os in windows linux; do
+            checks=(check --os "$os" --feed "$GATE_DIR/appcast-$os.xml" --version "$version")
+            state="$(winlinux_feed_state "$os")"
+            if [ "$state" = live ]; then
+              curl -fsSL --retry 3 -o "$RUNNER_TEMP/live-$os.xml" "$(python3 -I desktop/packaging/winlinux_feed.py url "$os")" ||
+                { echo "::error::could not fetch the live $os feed"; exit 1; }
+              checks+=(--old "$RUNNER_TEMP/live-$os.xml")
+            else
+              echo "no $os feed was ever published: this is its first release"
+            fi
+            if [ "$os" = windows ]; then
+              checks+=(--installer "$public/Conduit-$version-windows-x64-setup.exe"
+                --url "$base/Conduit-$version-windows-x64-setup.exe")
+            fi
+            python3 -I desktop/packaging/winlinux_feed.py "${checks[@]}" ||
+              { echo "::error::the $os feed of $TAG is not safe to publish over the live one (the log says why; docs/RELEASING-DESKTOP.md, \"A stale or missing appcast\")"; exit 1; }
+          done
       # publish-appcast.sh checks the feed's own signature with
       # SPARKLE_PUBLIC_ED_KEY, the key installed copies have, before it
       # uploads anything: a feed swapped on the draft together with
       # SHA256SUMS.txt, or signed with another key, never goes live.
       - name: Publish the appcast
         run: desktop/packaging/macos/publish-appcast.sh "$APPCAST" --push
+      # The same for each OS's feed, with its own public key, beside the
+      # Mac's appcast.xml on the feed release (which the step above makes on
+      # the first desktop release).
+      - name: Publish the Windows and Linux feeds
+        run: |
+          desktop/packaging/macos/publish-appcast.sh "$GATE_DIR/appcast-windows.xml" --push --os windows
+          desktop/packaging/macos/publish-appcast.sh "$GATE_DIR/appcast-linux.xml" --push --os linux

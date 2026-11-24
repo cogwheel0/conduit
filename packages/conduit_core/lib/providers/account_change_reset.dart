@@ -11,6 +11,7 @@ import 'package:conduit_core/features/prompts/providers/prompts_providers.dart'
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/providers/account_change_chats.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:riverpod/misc.dart' show ProviderOrFamily;
 
@@ -31,7 +32,11 @@ void resetOpenWebUiAccountState(dynamic ref) {
           isHermesModel(selectedModel));
   for (final ProviderOrFamily provider in <ProviderOrFamily>[
     conversationsProvider,
-    if (active == null || conversationUsesOpenWebUiStorage(active))
+    if (active == null ||
+        accountChangeEndsChat(
+          AccountChange.openWebUiSession,
+          chatOwnerOf(active),
+        ))
       activeConversationProvider,
     foldersProvider,
     modelsProvider,

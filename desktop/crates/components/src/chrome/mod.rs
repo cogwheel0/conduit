@@ -15,6 +15,7 @@
 //! theirs. The main window describes its chrome each frame ([`Chrome`]),
 //! before its content draws, and the shared views read it.
 
+pub mod activation;
 pub mod controls;
 pub mod keys;
 pub mod layout;
@@ -26,6 +27,7 @@ use gpui_kit::{AnyElement, App, Decorations, Entity, Global, div, px};
 
 use crate::window::TOOLBAR_HEIGHT;
 
+pub use activation::activate;
 pub use controls::{ClientFrame, ControlLabels, OnClose, WindowControls, header_drag};
 pub use layout::{ButtonLayout, Corners, Edge, Header, Placement, Rooms, Slot, WindowButton};
 pub use main_menu::{MainMenu, MainMenuButton, MenuItems};

@@ -1054,6 +1054,48 @@ fn install_menu_observers(cx: &mut App) {
     .detach();
 }
 
+/// Close Window (⌘W, Ctrl+W) for `w`, when nothing in it took the key.
+fn close_window(w: AnyWindowHandle, cx: &mut App) {
+    // A window with Add Account's sheet down: ⌘W cancels the sheet.
+    if let Some((handle, view)) = cx
+        .try_global::<AppState>()
+        .and_then(|s| s.settings_window.clone())
+        && let Some(sheet) = view.read(cx).add_sheet.clone()
+        && (handle == w || sheet.handle == w)
+    {
+        sheet.view.update(cx, |s, cx| s.cancel(cx));
+        return;
+    }
+    // The main window with "Close to menu bar" on only hides.
+    let main = cx.try_global::<AppState>().and_then(|s| s.main_window);
+    if main == Some(w) && desktop::closes_to_menu_bar(cx) {
+        log::info!("close window: hiding the main window");
+        desktop::hide_main(cx);
+        return;
+    }
+    // Quick Ask hides; its exchange stays for next time.
+    if desktop::is_quick_ask_window(w, cx) {
+        desktop::hide_quick_ask(cx);
+        return;
+    }
+    if main == Some(w) {
+        desktop::main_window_leaving(cx);
+    }
+    let _ = w.update(cx, |_, window, _| window.remove_window());
+}
+
+/// Runs `f` on the window in front once it is free: a key's binding, and a
+/// row of ☰, run inside that window's own update, where it can't be
+/// updated again.
+fn with_active_window(cx: &mut App, f: impl FnOnce(&mut gpui_kit::Window) + 'static) {
+    let Some(w) = cx.active_window() else {
+        return;
+    };
+    cx.defer(move |cx| {
+        let _ = w.update(cx, |_, window, _| f(window));
+    });
+}
+
 fn register_actions(cx: &mut App) {
     views::chat::remote_image::register(cx);
     cx.on_action(|_: &Quit, cx| crate::views::sheet::quit(cx));
@@ -1068,50 +1110,17 @@ fn register_actions(cx: &mut App) {
             log::info!("close window: no active window");
             return;
         };
-        // A window with Add Account's sheet down: ⌘W cancels the sheet.
-        if let Some((handle, view)) = cx
-            .try_global::<AppState>()
-            .and_then(|s| s.settings_window.clone())
-            && let Some(sheet) = view.read(cx).add_sheet.clone()
-            && (handle == w || sheet.handle == w)
-        {
-            sheet.view.update(cx, |s, cx| s.cancel(cx));
-            return;
-        }
-        // The main window with "Close to menu bar" on only hides.
-        let main = cx.try_global::<AppState>().and_then(|s| s.main_window);
-        if main == Some(w) && desktop::closes_to_menu_bar(cx) {
-            log::info!("close window: hiding the main window");
-            desktop::hide_main(cx);
-            return;
-        }
-        // Quick Ask hides; its exchange stays for next time.
-        if desktop::is_quick_ask_window(w, cx) {
-            desktop::hide_quick_ask(cx);
-            return;
-        }
-        if main == Some(w) {
-            desktop::main_window_leaving(cx);
-        }
-        let _ = w.update(cx, |_, window, _| window.remove_window());
+        cx.defer(move |cx| close_window(w, cx));
     });
     cx.on_action(|_: &ToggleQuickAsk, cx| {
         cx.defer(desktop::toggle_quick_ask);
     });
     cx.on_action(|_: &Minimize, cx| {
-        if let Some(w) = cx.active_window() {
-            let _ = w.update(cx, |_, window, _| window.minimize_window());
-        }
+        with_active_window(cx, |window| window.minimize_window());
     });
-    cx.on_action(|_: &Zoom, cx| {
-        if let Some(w) = cx.active_window() {
-            let _ = w.update(cx, |_, window, _| window.zoom_window());
-        }
-    });
+    cx.on_action(|_: &Zoom, cx| with_active_window(cx, |window| window.zoom_window()));
     cx.on_action(|_: &ToggleFullScreen, cx| {
-        if let Some(w) = cx.active_window() {
-            let _ = w.update(cx, |_, window, _| window.toggle_fullscreen());
-        }
+        with_active_window(cx, |window| window.toggle_fullscreen());
     });
     cx.on_action(|_: &BringAllToFront, _| {
         #[cfg(target_os = "macos")]
@@ -1250,7 +1259,9 @@ pub fn open_main_window(cx: &mut App) {
 pub(crate) fn open_main(cx: &mut App) {
     if main_window_alive(cx) {
         if let Some(h) = cx.global::<AppState>().main_window {
-            let _ = h.update(cx, |_, window, _| window.activate_window());
+            let _ = h.update(cx, |_, window, cx| {
+                conduit_components::chrome::activate(window, cx)
+            });
         }
         return;
     }
@@ -1306,7 +1317,7 @@ pub(crate) fn with_main_view(
         return;
     };
     let _ = handle.update(cx, |_, window, cx| {
-        window.activate_window();
+        conduit_components::chrome::activate(window, cx);
         view.update(cx, |v, cx| f(v, window, cx));
     });
 }
@@ -1323,7 +1334,7 @@ pub fn start_adding_account(cx: &mut App) {
         return;
     };
     let _ = handle.update(cx, |_, window, cx| {
-        window.activate_window();
+        conduit_components::chrome::activate(window, cx);
         view.update(cx, |v, cx| v.open_add_sheet(window, cx));
     });
 }
@@ -1331,7 +1342,9 @@ pub fn start_adding_account(cx: &mut App) {
 /// Brings the main window to the front.
 pub fn activate_main_window(cx: &mut App) {
     if let Some(handle) = cx.try_global::<AppState>().and_then(|s| s.main_window) {
-        let _ = handle.update(cx, |_, window, _| window.activate_window());
+        let _ = handle.update(cx, |_, window, cx| {
+            conduit_components::chrome::activate(window, cx)
+        });
     }
 }
 
@@ -1409,7 +1422,9 @@ pub(crate) fn install_component_strings(cx: &mut App) {
 pub fn open_settings(tab: Option<Tab>, cx: &mut App) {
     if let Some((handle, view)) = cx.global::<AppState>().settings_window.clone()
         && handle
-            .update(cx, |_, window, _| window.activate_window())
+            .update(cx, |_, window, cx| {
+                conduit_components::chrome::activate(window, cx)
+            })
             .is_ok()
     {
         if let Some(tab) = tab {
@@ -1421,7 +1436,10 @@ pub fn open_settings(tab: Option<Tab>, cx: &mut App) {
     let (settings, stores) = (state.settings.clone(), state.stores.clone());
     let title = cx.l10n().desktop_settings_title();
     let bounds = Bounds::centered(None, size(px(SETTINGS_SIZE.0), px(SETTINGS_SIZE.1)), cx);
-    let options = cw::window_options(&title, bounds, true, true);
+    let mut options = cw::window_options(&title, bounds, true, true);
+    if let Some(titlebar) = options.titlebar.as_mut() {
+        titlebar.appears_transparent = cw::OS_TITLE_BAR_TRANSPARENT;
+    }
     let tab = tab.unwrap_or(Tab::FIRST);
     match cw::open_window_clear_root(options, cx, |window, cx| {
         cx.new(|cx| SettingsView::new(settings, stores, tab, window, cx))
@@ -1441,6 +1459,74 @@ pub fn open_settings(tab: Option<Tab>, cx: &mut App) {
             });
         }
         Err(e) => log::error!("could not open Settings: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod window_action_tests {
+    use super::*;
+    use gpui_kit::prelude::*;
+    use gpui_kit::{FocusHandle, KeyBinding, TestAppContext, VisualTestContext, div};
+
+    /// A window whose view answers none of the window commands itself (as
+    /// Settings): they reach the app's handlers.
+    struct Plain(FocusHandle);
+
+    impl gpui_kit::Render for Plain {
+        fn render(
+            &mut self,
+            _: &mut gpui_kit::Window,
+            _: &mut gpui_kit::Context<Self>,
+        ) -> impl IntoElement {
+            div().track_focus(&self.0).size_full()
+        }
+    }
+
+    fn plain_window(cx: &mut TestAppContext) -> (AnyWindowHandle, &mut VisualTestContext) {
+        cx.update(|cx| {
+            register_actions(cx);
+            cx.bind_keys([
+                KeyBinding::new("f11", ToggleFullScreen, None),
+                KeyBinding::new("ctrl-w", CloseWindow, None),
+            ]);
+        });
+        let (_, vcx) = cx.add_window_view(|window, cx| {
+            let focus = cx.focus_handle();
+            window.focus(&focus, cx);
+            Plain(focus)
+        });
+        let handle = vcx.update(|window, _| {
+            window.activate_window();
+            window.window_handle()
+        });
+        (handle, vcx)
+    }
+
+    /// A key's binding runs inside the window's own update, where that
+    /// window can't be updated again: F11 (View › Enter Full Screen off the
+    /// Mac, and ☰'s row) still reaches it.
+    #[gpui_kit::test]
+    fn full_screen_from_a_key_reaches_the_window(cx: &mut TestAppContext) {
+        let (_, vcx) = plain_window(cx);
+        vcx.simulate_keystrokes("f11");
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|window, _| window.is_fullscreen()),
+            "F11 left the window as it was"
+        );
+    }
+
+    /// Ctrl+W in a window that doesn't answer Close Window itself (Settings
+    /// off the Mac) closes it.
+    #[gpui_kit::test]
+    fn close_window_from_a_key_closes_the_window(cx: &mut TestAppContext) {
+        let (handle, vcx) = plain_window(cx);
+        vcx.simulate_keystrokes("ctrl-w");
+        vcx.run_until_parked();
+        assert!(
+            vcx.cx.update(|cx| handle.update(cx, |_, _, _| ()).is_err()),
+            "Ctrl+W left the window open"
+        );
     }
 }
 

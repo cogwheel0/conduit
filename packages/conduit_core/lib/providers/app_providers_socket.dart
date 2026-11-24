@@ -5,6 +5,7 @@ typedef SocketServiceFactory = SocketService Function({
   required String authToken,
   required bool websocketOnly,
   required bool allowWebsocketUpgrade,
+  required bool allowPolling,
 });
 
 final socketServiceFactoryProvider = Provider<SocketServiceFactory>((ref) {
@@ -13,12 +14,14 @@ final socketServiceFactoryProvider = Provider<SocketServiceFactory>((ref) {
     required authToken,
     required websocketOnly,
     required allowWebsocketUpgrade,
+    required allowPolling,
   }) => SocketService(
     lifecycle: ref.read(appLifecycleProvider),
     serverConfig: serverConfig,
     authToken: authToken,
     websocketOnly: websocketOnly,
     allowWebsocketUpgrade: allowWebsocketUpgrade,
+    allowPolling: allowPolling,
   );
 });
 
@@ -94,6 +97,7 @@ class SocketServiceManager extends _$SocketServiceManager {
     final websocketOnly = transportMode == 'ws';
     final transportAvailability = ref.watch(socketTransportOptionsProvider);
     final allowWebsocketUpgrade = transportAvailability.allowWebsocketOnly;
+    final allowPolling = transportAvailability.allowPolling;
 
     final requiresNewService =
         _service == null ||
@@ -103,13 +107,18 @@ class SocketServiceManager extends _$SocketServiceManager {
         _service!.serverConfig != server ||
         _service!.websocketOnly != websocketOnly ||
         _service!.allowWebsocketUpgrade != allowWebsocketUpgrade;
-    if (requiresNewService) {
+    if (!requiresNewService) {
+      // Often learnt just after the socket was made (a first sign-in): it
+      // keeps the connection that is up.
+      _service!.allowPolling = allowPolling;
+    } else {
       _disposeService();
       final service = _service = ref.read(socketServiceFactoryProvider)(
         serverConfig: server,
         authToken: token,
         websocketOnly: websocketOnly,
         allowWebsocketUpgrade: allowWebsocketUpgrade,
+        allowPolling: allowPolling,
       );
       // Open WebUI asks the session that sent a chat request to run its direct
       // tools. Each call is performed for the account that owns this service.

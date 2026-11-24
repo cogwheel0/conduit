@@ -12,7 +12,7 @@ import 'package:clock/clock.dart';
 /// background loads find an empty account rather than an error.
 ///
 /// With [models] set it also takes the core's Open WebUI sends, as
-/// [FakeOwuiChats] describes: a polling socket, chats made and saved, and
+/// [FakeOwuiChats] describes: a socket, chats made and saved, and
 /// each answer run as a task whose words arrive on the socket, with a hold
 /// at admission and one on the stream.
 final class FakeOwuiAuthServer {
@@ -148,6 +148,11 @@ final class FakeOwuiAuthServer {
     }
 
     final path = request.uri.path;
+    if (models.isNotEmpty &&
+        path.startsWith('/ws/socket.io') &&
+        request.uri.queryParameters['sid'] == null) {
+      chats._handshake(request.uri.queryParameters['transport'] ?? '');
+    }
     if (chats._stopped) {
       // The server process is gone: the connection drops unanswered.
       final socket = await response.detachSocket(writeHeaders: false);
@@ -228,7 +233,7 @@ final class FakeOwuiAuthServer {
           'enable_api_key': true,
           'enable_signup': false,
           'enable_login_form': true,
-          'enable_websocket': models.isNotEmpty,
+          'enable_websocket': models.isNotEmpty && !chats.servesPolling,
         },
       });
     }
@@ -496,6 +501,27 @@ final class FakeOwuiChats {
     row['updated_at'] = now > last ? now : last + 1;
   }
 
+  /// Whether the socket is served over long-polling, as Open WebUI with its
+  /// WebSocket support off serves it (and says in its config), instead of
+  /// over a websocket. Off, as Open WebUI's default is: a websocket alone,
+  /// and every polling handshake answered 400 "Invalid transport".
+  bool servesPolling = false;
+
+  /// The transport of every Engine.IO handshake asked for, in order
+  /// (`websocket` or `polling`), the ones a stopped server drops included.
+  final List<String> socketHandshakes = <String>[];
+  final StreamController<String> _handshakes =
+      StreamController<String>.broadcast(sync: true);
+
+  /// The transports of the next [count] Engine.IO handshakes to arrive.
+  Future<List<String>> nextSocketHandshakes(int count) =>
+      _handshakes.stream.take(count).toList();
+
+  void _handshake(String transport) {
+    socketHandshakes.add(transport);
+    if (!_handshakes.isClosed) _handshakes.add(transport);
+  }
+
   // The socket: one Engine.IO session at a time, over a websocket or by
   // long-polling (its packets for the client's next poll, and that poll
   // while it waits).
@@ -576,6 +602,7 @@ final class FakeOwuiChats {
 
   void _close() {
     _closed = true;
+    unawaited(_handshakes.close());
     _push('1');
     unawaited(_webSocket?.close());
     for (final hold in <Completer<void>?>[
@@ -646,6 +673,9 @@ final class FakeOwuiChats {
 
     if (_refusing) return reply(HttpStatus.badRequest, 'Transport not allowed');
     if (WebSocketTransformer.isUpgradeRequest(request)) {
+      if (servesPolling) {
+        return reply(HttpStatus.badRequest, '"Invalid transport"');
+      }
       final socket = await WebSocketTransformer.upgrade(request);
       if (_refusing) {
         await socket.close();
@@ -678,6 +708,9 @@ final class FakeOwuiChats {
         onError: (Object _) {},
       );
       return;
+    }
+    if (!servesPolling) {
+      return reply(HttpStatus.badRequest, '"Invalid transport"');
     }
     final sid = request.uri.queryParameters['sid'];
     if (sid == null) {

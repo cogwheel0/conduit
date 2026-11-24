@@ -78,9 +78,16 @@ impl RenderOnce for ShortcutField {
         // A step above the group it sits in (the dark ramp's step 2).
         let bg = crate::views::kit::field_fill(&t);
         if self.fixed {
+            // UIA and AT-SPI name a label by its value (AccessKit's
+            // `label_comes_from_value`), not its label: without it Narrator,
+            // NVDA and Orca meet an unnamed text. The Mac's adapter reads
+            // the label.
             return div()
                 .id(self.id)
                 .role(Role::Label)
+                .when(!cfg!(target_os = "macos"), |d| {
+                    d.aria_value(self.label.clone())
+                })
                 .aria_label(self.label)
                 .aria_description(self.keys.clone())
                 .w(px(SHORTCUT_FIELD_WIDTH))

@@ -367,12 +367,14 @@ final class _SocketManagerHarness {
           required authToken,
           required websocketOnly,
           required allowWebsocketUpgrade,
+          required allowPolling,
         }) {
           final service = _TestSocketService(
             serverConfig: serverConfig,
             authToken: authToken,
             websocketOnly: websocketOnly,
             allowWebsocketUpgrade: allowWebsocketUpgrade,
+            allowPolling: allowPolling,
           );
           services.add(service);
           return service;
@@ -418,6 +420,7 @@ final class _TestSocketService implements SocketService {
     required this.authToken,
     required this.websocketOnly,
     required this.allowWebsocketUpgrade,
+    required this.allowPolling,
   });
 
   @override
@@ -428,6 +431,8 @@ final class _TestSocketService implements SocketService {
   final bool websocketOnly;
   @override
   final bool allowWebsocketUpgrade;
+  @override
+  bool allowPolling;
 
   int connectCalls = 0;
   int disposeCalls = 0;

@@ -47,38 +47,81 @@ import 'settled.dart';
 ///   rule), for the window to notify with;
 /// * `channels.changed` when the list changes.
 final class ChannelsService {
-  ChannelsService(this._container, {EventBus? events}) : _events = events {
+  ChannelsService(
+    this._container, {
+    EventBus? events,
+    this.keepsChannelList = true,
+  }) : _events = events {
     if (events == null) return;
-    _container.listen<AsyncValue<List<Channel>>>(channelsListProvider, (
-      _,
-      next,
-    ) {
-      if (next.hasValue) events.emit(ConduitEventSpecs.channelsChanged, null);
-    });
-    _container.listen<Map<String, String>>(channelTypingUsersProvider, (
-      _,
-      typing,
-    ) {
-      final channelId = _open;
-      if (channelId == null) return;
-      events.emit(
-        ConduitEventSpecs.channelsTyping,
-        ChannelTypingUsers(
-          channelId: channelId,
-          names: typing.values.toList(growable: false),
-        ),
-        scope: scopeFor(channelId),
-      );
-    });
+    _watches.addAll(<ProviderSubscription<Object?>>[
+      _container.listen<AsyncValue<List<Channel>>>(channelsListProvider, (
+        _,
+        next,
+      ) {
+        if (next.hasValue) {
+          events.emit(ConduitEventSpecs.channelsChanged, null);
+        }
+      }),
+      _container.listen<Map<String, String>>(channelTypingUsersProvider, (
+        _,
+        typing,
+      ) {
+        final channelId = _open;
+        if (channelId == null) return;
+        events.emit(
+          ConduitEventSpecs.channelsTyping,
+          ChannelTypingUsers(
+            channelId: channelId,
+            names: typing.values.toList(growable: false),
+          ),
+          scope: scopeFor(channelId),
+        );
+      }),
+    ]);
     _bindSocket(_container.read(socketServiceProvider));
-    _container.listen<SocketService?>(
-      socketServiceProvider,
-      (_, next) => _bindSocket(next),
+    _watches.add(
+      _container.listen<SocketService?>(
+        socketServiceProvider,
+        (_, next) => _bindSocket(next),
+      ),
     );
+  }
+
+  /// What the constructor holds; [dispose] lets go of it, of the lists and
+  /// members watched, and of the socket's handlers.
+  final List<ProviderSubscription<Object?>> _watches =
+      <ProviderSubscription<Object?>>[];
+  ProviderSubscription<Object?>? _managementWatch;
+
+  /// Set by [dispose]: work still waiting on the server then announces,
+  /// watches and writes nothing ([_sameAccount]).
+  bool _disposed = false;
+
+  void dispose() {
+    _disposed = true;
+    for (final watch in _watches) {
+      watch.close();
+    }
+    _watches.clear();
+    for (final watch in _watched.values) {
+      watch.close();
+    }
+    _watched.clear();
+    _membersWatch?.close();
+    _membersWatch = null;
+    _managementWatch?.close();
+    _managementWatch = null;
+    _bindSocket(null);
   }
 
   final ProviderContainer _container;
   final EventBus? _events;
+
+  /// Whether this service keeps the channel list in step with the socket:
+  /// unread counts, mutes, and the reload after a reconnect. False over a
+  /// container an app shares, whose own listener already does, and would
+  /// count each message twice with this one.
+  final bool keepsChannelList;
 
   static const _classifier = NotificationEventClassifier();
 
@@ -120,8 +163,14 @@ final class ChannelsService {
 
   /// Refuses an answer read under [session] once another account is in
   /// use: one account's channel is never applied to, read under or shown
-  /// for the next.
+  /// for the next. Nor for anyone, once the service is disposed.
   void _sameAccount(Object session) {
+    if (_disposed) {
+      throw const RpcError(
+        code: ConduitErrorCodes.shuttingDown,
+        debugMessage: 'the channels service is stopping',
+      );
+    }
     if (!identical(session, _session())) {
       throw const RpcError(
         code: ConduitErrorCodes.sessionExpired,
@@ -577,7 +626,11 @@ final class ChannelsService {
       cm.channelMembersControllerProvider(owner),
       (_, _) {},
     );
-    _container.listen(cm.channelMemberManagementProvider(owner), (_, _) {});
+    _managementWatch?.close();
+    _managementWatch = _container.listen(
+      cm.channelMemberManagementProvider(owner),
+      (_, _) {},
+    );
     return owner;
   }
 
@@ -812,10 +865,11 @@ final class ChannelsService {
       // Unread counts drift while disconnected, and Socket.IO replays no
       // channel history: read the list again, and every list a window
       // shows from its newest page.
-      unawaited(_container.read(channelsListProvider.notifier).refresh());
       for (final key in _watched.keys) {
         _reloaded.add(key);
       }
+      if (!keepsChannelList) return;
+      unawaited(_container.read(channelsListProvider.notifier).refresh());
       _container.invalidate(channelMessagesProvider);
       _container.invalidate(threadMessagesProvider);
     });
@@ -834,9 +888,11 @@ final class ChannelsService {
     try {
       // A mute set here or in another session reaches the list.
       if (parseChannelMuteEvent(event) case final mute?) {
-        _container
-            .read(channelsListProvider.notifier)
-            .setMuted(mute.channelId, mute.isChannelMuted);
+        if (keepsChannelList) {
+          _container
+              .read(channelsListProvider.notifier)
+              .setMuted(mute.channelId, mute.isChannelMuted);
+        }
         return;
       }
       final envelope = event['data'];
@@ -869,7 +925,7 @@ final class ChannelsService {
       }
       if (_listed(channelId) == null) {
         unawaited(_container.read(channelsListProvider.notifier).refresh());
-      } else {
+      } else if (keepsChannelList) {
         _container.read(channelsListProvider.notifier).bumpUnread(channelId);
       }
       final data = envelope is Map ? envelope['data'] : null;
@@ -910,7 +966,7 @@ final class ChannelsService {
       }
     }
     // Read under another account: its notice is not the next one's.
-    if (_me != me || !identical(session, _session())) return;
+    if (_disposed || _me != me || !identical(session, _session())) return;
     final summary = _summarize(channel);
     _events?.emit(
       ConduitEventSpecs.channelsPosted,
@@ -948,6 +1004,7 @@ final class ChannelsService {
     ProviderListenable<AsyncValue<List<ChannelMessage>>> provider,
     bool Function() hasOlder,
   ) {
+    if (_disposed) return;
     final key = parentId == null ? channelId : '$channelId/$parentId';
     _watched.putIfAbsent(
       key,

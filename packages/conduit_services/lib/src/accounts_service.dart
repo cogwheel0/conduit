@@ -40,8 +40,12 @@ import 'turns_service.dart';
 /// leaves, errors leave as codes -- and the daemon's own running answers to
 /// the controller's question "is a reply still being written".
 final class AccountsService {
-  AccountsService(this._container, {required EventBus events, this.turns})
-    : _events = events {
+  AccountsService(
+    this._container, {
+    required EventBus events,
+    this.turns,
+    this.sharesAppContainer = false,
+  }) : _events = events {
     _watches = <ProviderSubscription<Object?>>[
       // Which account is active, after a switch, an addition or a sign-in
       // through any window or path.
@@ -49,7 +53,9 @@ final class AccountsService {
         previous,
         next,
       ) {
-        if (previous != null && previous != next) _resetUserScoped();
+        if (previous != null && previous != next && !sharesAppContainer) {
+          _resetUserScoped();
+        }
         _announceSoon();
       }),
       // A sign-in finishing, or a session ending, changes whether an account
@@ -119,14 +125,24 @@ final class AccountsService {
 
   static const Uuid _uuid = Uuid();
 
+  /// Whether the services share an app's container. Its own listeners then
+  /// reset the departing account's state, in the order the app needs,
+  /// however the switch started: a second reset here would drop what they
+  /// set for the next account.
+  final bool sharesAppContainer;
+
   OpenWebUiAccountsController get _controller =>
       _container.read(openWebUiAccountsControllerProvider);
 
   void dispose() {
+    _disposed = true;
     for (final watch in _watches) {
       watch.close();
     }
   }
+
+  /// Set by [dispose]: an announcement already on its way says nothing.
+  bool _disposed = false;
 
   /// What the departing account owned goes when the active account changes,
   /// through the reset the phone uses too.
@@ -697,12 +713,13 @@ final class AccountsService {
     return remove(AccountRef(accountId: activeId, force: request.force));
   }
 
-  /// Whether the active account may be left now: no answer is being written
-  /// there, or [force] was given, in which case the daemon's own answers are
-  /// stopped first. The controller asks the same of the root's own chat and
-  /// of the direct and Hermes runs this process holds.
+  /// Whether the active account may be left now: no answer the change would
+  /// end is being written, or [force] was given, in which case those of the
+  /// daemon's are stopped first, their words kept. An answer in a chat kept
+  /// on this device runs on through the change and is not asked about. The
+  /// controller asks the same of the root's own chat and of the chat scopes.
   Future<bool> _mayLeave({required bool force}) async {
-    final running = turns?.activeChatIds.isNotEmpty ?? false;
+    final running = turns?.answersAnAccountChangeEnds ?? false;
     if (!force) {
       if (running) return false;
       try {
@@ -711,7 +728,7 @@ final class AccountsService {
         return true;
       }
     }
-    await turns?.stopAll();
+    await turns?.stopAnswersAnAccountChangeEnds();
     return true;
   }
 
@@ -819,6 +836,7 @@ final class AccountsService {
   /// Tells every window, once per distinct state, so a change seen through
   /// two paths (the call and the listener) is announced once.
   void _announce(AccountList accounts) {
+    if (_disposed) return;
     final signature = <String>[
       accounts.activeAccountId ?? '',
       '${accounts.addingAccount}',

@@ -319,6 +319,70 @@ void main() {
     });
     await expectLater(listing, expired);
   });
+
+  test('channel work waiting on the server when the service is disposed '
+      'neither announces nor watches', () async {
+    final api = _Api();
+    final socket = _Socket();
+    final container = ProviderContainer(
+      overrides: [
+        socketServiceProvider.overrideWithValue(socket),
+        apiServiceProvider.overrideWithValue(api),
+        settledActiveAccountIdProvider.overrideWith(_SettledAccount.new),
+        openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+        currentUserProvider2.overrideWithValue(
+          const User(
+            id: 'me',
+            username: 'robin',
+            email: 'robin@example.com',
+            name: 'Robin',
+            role: 'user',
+          ),
+        ),
+        channelsListProvider.overrideWith(_Listed.new),
+        userPermissionsProvider.overrideWith(
+          (ref) async => <String, dynamic>{
+            'features': <String, dynamic>{'channels': true},
+          },
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final events = EventBus();
+    final heard = <String>[];
+    events.tap((event, _, _) => heard.add(event));
+    final channels = ChannelsService(container, events: events);
+    await container.read(channelsListProvider.future);
+    const seedSwap = <String, dynamic>{
+      'id': 'c9',
+      'name': 'seed-swap',
+      'type': 'group',
+      'user_id': 'u2',
+    };
+
+    // A post in a channel the list doesn't hold yet, and the members of
+    // one not open, both still being read from the server.
+    socket.channel(message('c9', 'm8'));
+    final paging = channels.memberPage(
+      const ChannelMemberQuery(channelId: 'c9'),
+    );
+    channels.dispose();
+    heard.clear();
+    api.channel.complete(seedSwap);
+
+    await expectLater(
+      paging,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.shuttingDown,
+        ),
+      ),
+    );
+    expect(container.read(activeChannelProvider), isNull);
+    expect(heard, isEmpty);
+  });
 }
 
 

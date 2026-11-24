@@ -115,11 +115,25 @@ pub fn open_sheet(sources: Vec<ChatSourceDto>, window: &mut Window, cx: &mut App
     if sources.is_empty() || crate::views::sheet::refuse_another(cx) {
         return;
     }
-    let opened = conduit_components::window::open_window_clear_root(
-        crate::views::add_account::window_options(),
-        cx,
-        move |window, cx| cx.new(|cx| SourcesSheet::new(sources, window, cx)),
+    use crate::views::sheet::{Hang, dialog_room};
+    let over = window.bounds();
+    let room = (Hang::NATIVE == Hang::Dialog).then(|| dialog_room(over));
+    let title = cx.l10n().desktop_sources_count(sources.len() as i64);
+    let options = crate::views::sheet::window_options(
+        Hang::NATIVE,
+        crate::views::add_account::SHEET_WIDTH,
+        crate::views::add_account::FIRST_HEIGHT,
+        &title,
+        over,
     );
+    let opened =
+        conduit_components::window::open_window_clear_root(options, cx, move |window, cx| {
+            cx.new(|cx| {
+                let mut sheet = SourcesSheet::new(sources, window, cx);
+                sheet.room = room;
+                sheet
+            })
+        });
     let (handle, view) = match opened {
         Ok(opened) => opened,
         Err(e) => {
@@ -135,6 +149,9 @@ pub struct SourcesSheet {
     sources: Vec<ChatSourceDto>,
     focus: FocusHandle,
     requested: Rc<Cell<Option<f32>>>,
+    /// How tall the sheet may grow off the Mac
+    /// ([`crate::views::sheet::dialog_room`]).
+    room: Option<f32>,
 }
 
 impl SourcesSheet {
@@ -145,6 +162,7 @@ impl SourcesSheet {
             sources,
             focus,
             requested: Rc::new(Cell::new(None)),
+            room: None,
         }
     }
 
@@ -172,6 +190,7 @@ impl Render for SourcesSheet {
         let l10n = cx.l10n().clone();
         let (page, _) = grouped_tones(&t);
         let requested = self.requested.clone();
+        let room = self.room;
         // The sheet fits its rows, up to the window it hangs from.
         let probe = gpui_kit::canvas(
             |bounds: Bounds<Pixels>, _, _| f32::from(bounds.size.height),
@@ -194,7 +213,17 @@ impl Render for SourcesSheet {
                             .detach();
                     }
                     #[cfg(not(target_os = "macos"))]
-                    let _ = (window, cx);
+                    {
+                        let handle = window.window_handle();
+                        let height = crate::views::sheet::fitted_height(height, room);
+                        let fitted = gpui_kit::size(window.viewport_size().width, px(height));
+                        cx.spawn(async move |cx| {
+                            let _ = handle.update(cx, |_, window, _| window.resize(fitted));
+                        })
+                        .detach();
+                    }
+                    #[cfg(target_os = "macos")]
+                    let _ = room;
                 }
             },
         )
@@ -319,6 +348,14 @@ impl Render for SourcesSheet {
             .aria_label(SharedString::from(title.clone()))
             .key_context("ConduitSheet")
             .track_focus(&self.focus)
+            // Esc: the app's (Stop Generating, bound with no context) would
+            // take the key first; the capture phase reaches the sheet first.
+            .capture_action(
+                cx.listener(|this, _: &crate::actions::StopGenerating, window, cx| {
+                    this.done(window, cx);
+                    cx.stop_propagation();
+                }),
+            )
             .size_full()
             .overflow_y_scroll()
             .font_family(ui_font())

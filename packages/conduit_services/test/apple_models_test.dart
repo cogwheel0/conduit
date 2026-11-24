@@ -9,6 +9,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_connectio
 import 'package:conduit_core/features/direct_connections/providers/apple_pcc_providers.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
@@ -555,6 +556,53 @@ void main() {
       isEmpty,
     );
     expect(events.whereType<DirectContentDelta>(), hasLength(1));
+  });
+
+  test('services that stop let go of the windows: a run ends, a question '
+      'waiting for an answer gets one now, and the next services find no '
+      'engine', () async {
+    window.ready(supported: true);
+    window.reply = const <String>['Half '];
+    window.holdOpen = true;
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Keep going.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(() => events.whereType<DirectContentDelta>().isNotEmpty);
+    // A status the window never answers.
+    final hold = window.holdStatus = Completer<void>();
+    addTearDown(() {
+      if (!hold.isCompleted) hold.complete();
+    });
+    PlatformPccStatus? status;
+    unawaited(
+      bridge
+          .getStatus(PlatformAppleModel.onDevice)
+          .then((answer) => status = answer),
+    );
+    await window.until(() => window.statusAsked == 1);
+
+    bridge.unbind();
+    await pumpEventQueue();
+
+    expect(
+      status?.availability,
+      PlatformPccAvailability.unavailable,
+      reason: 'answered now, not at its timeout',
+    );
+    expect(
+      events.whereType<DirectStreamError>().single.message,
+      'Apple On-Device request failed.',
+    );
+    await done;
+    // Bound again, as the next services bind it: no window has said
+    // `ready` to them.
+    bridge.bind(bus);
+    expect(bridge.supported, isNull);
   });
 
   test('the only engine going takes the model out of the offer', () async {

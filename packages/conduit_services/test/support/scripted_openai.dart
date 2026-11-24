@@ -19,6 +19,25 @@ final class ScriptedOpenAi {
   final List<List<Map<String, dynamic>>> requests =
       <List<Map<String, dynamic>>>[];
   final Map<String, Completer<void>> _holds = <String, Completer<void>>{};
+
+  /// Held answers by key: true once streamed to the end, false once the
+  /// client went away first.
+  final Map<String, bool> heldOutcome = <String, bool>{};
+
+  /// What each held answer got to, in order.
+  final List<String> steps = <String>[];
+
+  /// Completes once the held answer [key] has an outcome.
+  Future<bool> heldDone(String key) =>
+      _heldDone.putIfAbsent(key, Completer<bool>.new).future;
+  final Map<String, Completer<bool>> _heldDone = <String, Completer<bool>>{};
+
+  void _settleHeld(String? key, bool finished) {
+    if (key == null || heldOutcome.containsKey(key)) return;
+    heldOutcome[key] = finished;
+    final done = _heldDone.putIfAbsent(key, Completer<bool>.new);
+    if (!done.isCompleted) done.complete(finished);
+  }
   final List<(String, Completer<Map<String, dynamic>>)> _asked =
       <(String, Completer<Map<String, dynamic>>)>[];
 
@@ -118,8 +137,17 @@ final class ScriptedOpenAi {
       answer = space < 0 ? hold : question.substring(space + 1);
     }
     final words = answer.split(' ');
+    if (hold != null) {
+      unawaited(
+        response.done.then(
+          (_) {},
+          onError: (Object _) => _settleHeld(hold, false),
+        ),
+      );
+    }
     try {
       for (final (index, word) in words.indexed) {
+        if (hold != null) steps.add('$hold word $index');
         chunk(<String, dynamic>{
           if (index == 0) 'role': 'assistant',
           'content': index == words.length - 1 ? word : '$word ',
@@ -128,13 +156,20 @@ final class ScriptedOpenAi {
         await Future<void>.delayed(const Duration(milliseconds: 15));
       }
       if (hold != null) {
+        steps.add('$hold holding');
         await _holds.putIfAbsent(hold, Completer<void>.new).future;
+        steps.add('$hold released');
       }
       chunk(<String, dynamic>{}, finish: 'stop');
       response.write('data: [DONE]\n\n');
+      if (hold != null) steps.add('$hold closing');
       await response.close();
-    } on Object {
+      if (hold != null) steps.add('$hold closed');
+      _settleHeld(hold, true);
+    } on Object catch (error) {
       // The client went away: a stopped turn.
+      if (hold != null) steps.add('$hold error $error');
+      _settleHeld(hold, false);
     }
   }
 

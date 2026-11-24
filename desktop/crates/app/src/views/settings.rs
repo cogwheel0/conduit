@@ -389,6 +389,35 @@ fn fixed_keys(command: FixedCommand, keys: String, label: String) -> ShortcutFie
     .fixed(true)
 }
 
+/// Clear Local Data's message: "this Mac" on the Mac, "this computer"
+/// elsewhere.
+fn clear_local_data_body(l10n: &L10n) -> String {
+    if cfg!(target_os = "macos") {
+        l10n.desktop_clear_local_data_confirm_body()
+    } else {
+        l10n.desktop_clear_local_data_confirm_body_pc()
+    }
+}
+
+/// What Clear Local Data removes, from this Mac or this computer.
+fn clear_local_data_hint(l10n: &L10n) -> String {
+    if cfg!(target_os = "macos") {
+        l10n.desktop_clear_local_data_hint()
+    } else {
+        l10n.desktop_clear_local_data_hint_pc()
+    }
+}
+
+/// Where the diagnostic report is shown: Finder, File Explorer, or its
+/// folder in the Linux desktop's file manager.
+fn export_diagnostics_hint(l10n: &L10n) -> String {
+    match crate::keymap::KeyOs::CURRENT {
+        crate::keymap::KeyOs::Mac => l10n.desktop_export_diagnostics_hint(),
+        crate::keymap::KeyOs::Windows => l10n.desktop_export_diagnostics_hint_windows(),
+        crate::keymap::KeyOs::Linux => l10n.desktop_export_diagnostics_hint_linux(),
+    }
+}
+
 /// A palette's localized name.
 fn palette_label(id: &str, l10n: &L10n) -> String {
     match id {
@@ -620,15 +649,27 @@ impl SettingsView {
             // Already down: it keeps the keyboard.
             let handle = sheet.handle;
             cx.defer(move |cx| {
-                let _ = handle.update(cx, |_, window, _| window.activate_window());
+                let _ = handle.update(cx, |_, window, cx| {
+                    conduit_components::chrome::activate(window, cx)
+                });
             });
             return;
         }
         let stores = self.stores.clone();
+        let over = window.bounds();
+        let room = (crate::views::sheet::Hang::NATIVE == crate::views::sheet::Hang::Dialog)
+            .then(|| crate::views::sheet::dialog_room(over));
+        let title = cx.l10n().desktop_add_account();
         let opened = conduit_components::window::open_window_clear_root(
-            add_account::window_options(),
+            add_account::window_options(&title, over),
             cx,
-            |window, cx| cx.new(|cx| AddAccountSheet::new(stores, window, cx)),
+            move |window, cx| {
+                cx.new(|cx| {
+                    let mut sheet = AddAccountSheet::new(stores, window, cx);
+                    sheet.room = room;
+                    sheet
+                })
+            },
         );
         let (handle, view) = match opened {
             Ok(v) => v,
@@ -637,27 +678,45 @@ impl SettingsView {
                 return;
             }
         };
+        // The window manager's close (×, Alt+F4) is Cancel, as Esc.
+        let cancel = view.downgrade();
+        let _ = handle.update(cx, |_, window, cx| {
+            window.on_window_should_close(cx, move |_, cx| {
+                let Some(view) = cancel.upgrade() else {
+                    return true;
+                };
+                cx.defer(move |cx| view.update(cx, |s, cx| s.cancel(cx)));
+                false
+            })
+        });
         self._add_sheet = Some(cx.subscribe_in(
             &view,
             window,
             |this, _, event: &ServerFormEvent, window, cx| {
                 this.close_add_sheet(window, cx);
                 // A Hermes connection or a provider: its editor, once the
-                // sheet has gone (AppKit hangs one sheet at a time).
+                // sheet's window has gone (AppKit hangs one sheet at a time,
+                // and a Windows dialog is owned by the window in front).
                 match event {
                     ServerFormEvent::AddHermes => {
                         this.show_tab(Tab::Hermes, cx);
                         let stores = this.stores.clone();
-                        cx.defer_in(window, move |_, window, cx| {
-                            crate::views::hermes_connection::open(&stores, None, window, cx)
+                        let settings_window = window.window_handle();
+                        crate::views::sheet::once_sheet_window_gone(cx, move |cx| {
+                            let _ = settings_window.update(cx, |_, window, cx| {
+                                crate::views::hermes_connection::open(&stores, None, window, cx)
+                            });
                         });
                         return;
                     }
                     ServerFormEvent::AddDirect => {
                         this.show_tab(Tab::Direct, cx);
                         let pane = this.direct_pane(window, cx);
-                        cx.defer_in(window, move |_, window, cx| {
-                            pane.update(cx, |p, cx| p.open_editor(None, false, window, cx))
+                        let settings_window = window.window_handle();
+                        crate::views::sheet::once_sheet_window_gone(cx, move |cx| {
+                            let _ = settings_window.update(cx, |_, window, cx| {
+                                pane.update(cx, |p, cx| p.open_editor(None, false, window, cx))
+                            });
                         });
                         return;
                     }
@@ -2076,7 +2135,7 @@ impl SettingsView {
                     let l10n = cx.l10n().clone();
                     let spec = SheetSpec::new(
                         l10n.desktop_clear_local_data_confirm_title(),
-                        l10n.desktop_clear_local_data_confirm_body(),
+                        clear_local_data_body(&l10n),
                         l10n.desktop_clear_local_data_confirm(),
                         l10n.cancel(),
                     )
@@ -2100,7 +2159,7 @@ impl SettingsView {
                 vec![
                     setting_row(
                         l10n.desktop_local_data(),
-                        Some(l10n.desktop_clear_local_data_hint().into()),
+                        Some(clear_local_data_hint(&l10n).into()),
                         Button::new("clear-local-data", l10n.desktop_clear_ellipsis())
                             .danger()
                             .disabled(!can_clear)
@@ -2121,9 +2180,7 @@ impl SettingsView {
                     // The row names what is made; the button, what it does.
                     setting_row(
                         l10n.desktop_diagnostic_report(),
-                        Some(
-                            state.unwrap_or_else(|| l10n.desktop_export_diagnostics_hint().into()),
-                        ),
+                        Some(state.unwrap_or_else(|| export_diagnostics_hint(&l10n).into())),
                         Button::new("export-diagnostics", l10n.desktop_export_ellipsis())
                             .icon(IconName::Download)
                             .disabled(!connected || exporting)

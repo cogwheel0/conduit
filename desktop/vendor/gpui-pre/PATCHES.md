@@ -57,6 +57,18 @@ copied. It is excluded from the workspace, so fmt, clippy and tests skip it.
    live nodes. The desktop app's announcements off the Mac
    (`conduit-components`' `announce`) are a live node per announcement.
 
+5. `src/window.rs`, `Window::bounds_changed` and the accessibility
+   activation task in `Window::new`: call
+   `PlatformWindow::a11y_update_window_bounds` as the window moves or
+   resizes, and as a screen reader activates the tree.
+
+   gpui-pre-linux implements it (X11 hands AccessKit's AT-SPI adapter the
+   window's outer and inner bounds; Wayland exposes no position), but
+   nothing in gpui-pre called it, so the adapter kept its default bounds
+   and every AT-SPI extent was window-relative: Orca's pointer review and
+   GNOME Zoom's focus tracking looked in the wrong place. The other
+   platforms' implementation is the default no-op.
+
 To update: copy the new release's `src/`, `build.rs`, `resources/`,
 README and licence over this one, re-apply the changes above, and keep the
 manifest edits. Drop a patch once upstream carries it.

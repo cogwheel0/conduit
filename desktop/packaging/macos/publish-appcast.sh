@@ -3,6 +3,8 @@
 # so the feed URL every installed copy reads (SUFeedURL) serves it.
 #
 #   SPARKLE_PUBLIC_ED_KEY=<key> desktop/packaging/macos/publish-appcast.sh APPCAST.xml [--push]
+#   WINDOWS_PUBLIC_ED_KEY=<key> desktop/packaging/macos/publish-appcast.sh FEED.xml [--push] --os windows
+#   LINUX_PUBLIC_ED_KEY=<key> desktop/packaging/macos/publish-appcast.sh FEED.xml [--push] --os linux
 #
 # Without --push it only says what it would do. With --push it needs `gh`
 # signed in (GH_TOKEN in CI) with contents: write on RELEASE_REPO.
@@ -12,6 +14,13 @@
 # verify_feed): they refuse a feed that is not signed with it
 # (SURequireSignedFeed), so an unsigned one, one signed with another key, or
 # one changed after it was signed is never published.
+#
+# --os windows or linux publishes that OS's feed instead
+# (docs/RELEASING-DESKTOP.md, "Windows and Linux updates"): the same steps
+# with its own names (appcast-windows.xml, appcast-windows.previous.xml,
+# appcast-windows.next-….xml) beside the Mac's on the same feed release,
+# checked with its own key (WINDOWS_PUBLIC_ED_KEY, LINUX_PUBLIC_ED_KEY). It
+# never makes the feed release: the Mac's first publication does.
 #
 #   release-asset  uploads appcast.xml to the fixed release APPCAST_RELEASE_TAG
 #                  (a prerelease, so it never becomes the repository's
@@ -26,23 +35,46 @@
 # release of the whole repository, which is usually the mobile app's.
 #
 # release-desktop.yml runs this when a desktop-v* draft is published (job
-# `feed`), with the appcast the build signed and attached to the draft.
+# `feed`), with the feeds the builds signed and attached to the draft, once
+# for each OS.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$here/lib.sh"
 
+usage="usage: publish-appcast.sh APPCAST.xml [--push] [--os windows|linux]"
 xml="${1:-}"
+[ $# -gt 0 ] && shift
 push=0
-[ "${2:-}" = "--push" ] && push=1
-[ -f "$xml" ] || die "usage: publish-appcast.sh APPCAST.xml [--push]"
+os=mac
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --push) push=1 ;;
+    --os) os="${2:-}"; shift ;;
+    *) die "$usage" ;;
+  esac
+  shift
+done
+case "$os" in
+  mac) name=appcast.xml key_var=SPARKLE_PUBLIC_ED_KEY ;;
+  windows) name=appcast-windows.xml key_var=WINDOWS_PUBLIC_ED_KEY ;;
+  linux) name=appcast-linux.xml key_var=LINUX_PUBLIC_ED_KEY ;;
+  *) die "--os windows or --os linux (the Mac's appcast needs none)" ;;
+esac
+base="${name%.xml}"
+prev_name="$base.previous.xml"
+[ -f "$xml" ] || die "$usage"
 xmllint --noout "$xml"
-[ -n "${SPARKLE_PUBLIC_ED_KEY:-}" ] ||
-  die "SPARKLE_PUBLIC_ED_KEY is not set: the public key installed copies have, to check the feed's signature with"
-verify_feed "$xml" "$SPARKLE_PUBLIC_ED_KEY" ||
-  die "$xml is not signed with SPARKLE_PUBLIC_ED_KEY: installed copies would refuse it; nothing was published"
-log "the feed's signature verifies with SPARKLE_PUBLIC_ED_KEY"
-url="$(appcast_url)"
+[ -n "${!key_var:-}" ] ||
+  die "$key_var is not set: the public key installed copies have, to check the feed's signature with"
+verify_feed "$xml" "${!key_var}" ||
+  die "$xml is not signed with $key_var: installed copies would refuse it; nothing was published"
+log "the feed's signature verifies with $key_var"
+if [ "$os" = mac ]; then
+  url="$(appcast_url)"
+else
+  url="$(python3 -I "$here/../winlinux_feed.py" url "$os")"
+fi
 
 run() {
   if [ "$push" = 1 ]; then "$@"; else printf 'would run:'; printf ' %q' "$@"; printf '\n'; fi
@@ -112,36 +144,52 @@ delete_asset() {
   [ "$now" = gone ]
 }
 
-# Replaces appcast.xml on the feed release without ever losing the live
-# one, and with the fixed URL empty for as short a time as can be: the new
-# file is uploaded first under a name of its run's own (appcast.next-….xml), then the
-# live one is renamed appcast.previous.xml (replacing an older copy) and the
-# new one renamed appcast.xml, two quick renames. A rename that fails puts
-# the live one back. Every lookup that fails stops, and so does a feed
-# release whose appcast.xml is missing while appcast.previous.xml is there
-# (a publication that stopped half way: docs/RELEASING-DESKTOP.md).
-# A request whose reply is lost is judged by the file's real state
-# (rename_asset, delete_asset): a rename GitHub applied is never reported as
-# not done, nor undone by a wrong recovery.
+# Replaces appcast.xml ($name: appcast-windows.xml with --os windows, and so
+# on) on the feed release without ever losing the live one, and with the
+# fixed URL empty for as short a time as can be: the new file is uploaded
+# first under a name of its run's own (appcast.next-….xml), then the live
+# one is renamed appcast.previous.xml (replacing an older copy) and the new
+# one renamed appcast.xml, two quick renames. A rename that fails puts the
+# live one back. Every lookup that fails stops, and so does a feed release
+# whose appcast.xml is missing while appcast.previous.xml is there (a
+# publication that stopped half way: docs/RELEASING-DESKTOP.md). A request
+# whose reply is lost is judged by the file's real state (rename_asset,
+# delete_asset): a rename GitHub applied is never reported as not done, nor
+# undone by a wrong recovery. Another feed's files are never touched.
 replace_feed_asset() {
   local new="$1" staged assets current previous uploaded rc
   # Staged under a name of this run's own, and promoted by the id of what
   # this run uploaded: a publication run by hand alongside (outside CI's
   # queue) never has its file promoted by this one, nor this one's by it,
   # and neither removes the other's staged file.
-  local stage="appcast.next-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$.xml"
+  local stage="$base.next-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$.xml"
   staged="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed.XXXXXX")" && [ -d "$staged" ] ||
     die "could not make a scratch folder; nothing was changed"
-  cp "$new" "$staged/$stage" || die "could not stage the new appcast; nothing was changed"
+  cp "$new" "$staged/$stage" || die "could not stage the new $name; nothing was changed"
   assets="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \
     --jq '.assets[] | "\(.id) \(.name)"')" || die "could not list the feed release's files"
-  current="$(printf '%s\n' "$assets" | awk '$2 == "appcast.xml" {print $1}')"
-  previous="$(printf '%s\n' "$assets" | awk '$2 == "appcast.previous.xml" {print $1}')"
+  current="$(printf '%s\n' "$assets" | awk -v n="$name" '$2 == n {print $1}')"
+  previous="$(printf '%s\n' "$assets" | awk -v n="$prev_name" '$2 == n {print $1}')"
   if [ -z "$current" ] && [ -n "$previous" ]; then
-    die "the feed release has appcast.previous.xml but no appcast.xml: a publication stopped half way; rename appcast.previous.xml to appcast.xml first (docs/RELEASING-DESKTOP.md)"
+    die "the feed release has $prev_name but no $name: a publication stopped half way; rename $prev_name to $name first (docs/RELEASING-DESKTOP.md)"
+  fi
+  # A re-run after a publication that stopped part way: a feed already live
+  # stays as it is, so its last copy is kept. A live copy that cannot be
+  # read back stops the run with nothing changed: replacing it then could
+  # set an identical copy aside over the last one.
+  if [ -n "$current" ]; then
+    local live
+    live="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed-live.XXXXXX")" && [ -d "$live" ] ||
+      die "could not make a scratch folder; nothing was changed"
+    gh release download "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" -p "$name" -D "$live" >/dev/null 2>&1 ||
+      die "could not read back the live $name; nothing was changed: re-run the job"
+    if cmp -s "$new" "$live/$name"; then
+      log "$name is already live, byte for byte: left as it is"
+      return 0
+    fi
   fi
   gh release upload "$APPCAST_RELEASE_TAG" "$staged/$stage" -R "$RELEASE_REPO" ||
-    die "the new appcast did not upload; the live one is unchanged"
+    die "the new $name did not upload; the live one is unchanged"
   uploaded="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \
     --jq ".assets[] | select(.name == \"$stage\") | .id")" ||
     die "could not find the uploaded $stage; the live one is unchanged"
@@ -149,35 +197,35 @@ replace_feed_asset() {
     die "the uploaded $stage is not listed once; the live one is unchanged"
   if [ -n "$current" ]; then
     if [ -n "$previous" ]; then
-      delete_asset "$previous" || die "could not remove the older appcast.previous.xml; the live one is unchanged"
+      delete_asset "$previous" || die "could not remove the older $prev_name; the live one is unchanged"
     fi
     rc=0
-    rename_asset "$current" appcast.previous.xml || rc=$?
+    rename_asset "$current" "$prev_name" || rc=$?
     case "$rc" in
       0) ;;
-      1) die "could not keep the live appcast.xml aside; the live one is unchanged" ;;
-      *) die "could not tell whether the live appcast.xml was renamed: check the feed release (appcast.xml must be there; docs/RELEASING-DESKTOP.md)" ;;
+      1) die "could not keep the live $name aside; the live one is unchanged" ;;
+      *) die "could not tell whether the live $name was renamed: check the feed release ($name must be there; docs/RELEASING-DESKTOP.md)" ;;
     esac
   fi
   rc=0
-  rename_asset "$uploaded" appcast.xml || rc=$?
+  rename_asset "$uploaded" "$name" || rc=$?
   case "$rc" in
     0) ;;
     1)
       if [ -n "$current" ]; then
         rc=0
-        rename_asset "$current" appcast.xml || rc=$?
+        rename_asset "$current" "$name" || rc=$?
         case "$rc" in
           0) ;;
-          1) die "the new appcast could not take the live name and appcast.previous.xml could not be renamed back: rename it to appcast.xml" ;;
-          *) die "the new appcast could not take the live name, and whether appcast.previous.xml was renamed back cannot be read: check the feed release (appcast.xml must be there)" ;;
+          1) die "the new $name could not take the live name and $prev_name could not be renamed back: rename it to $name" ;;
+          *) die "the new $name could not take the live name, and whether $prev_name was renamed back cannot be read: check the feed release ($name must be there)" ;;
         esac
       fi
-      die "the new appcast could not take the live name; the live one is unchanged"
+      die "the new $name could not take the live name; the live one is unchanged"
       ;;
-    *) die "could not tell whether the new appcast took the live name: check the feed release (appcast.xml must be there; docs/RELEASING-DESKTOP.md)" ;;
+    *) die "could not tell whether the new $name took the live name: check the feed release ($name must be there; docs/RELEASING-DESKTOP.md)" ;;
   esac
-  log "appcast.xml replaced (the last one is kept as appcast.previous.xml)"
+  log "$name replaced (the last one is kept as $prev_name)"
 }
 
 # The feed release's state: published (live), draft (a first publication
@@ -228,19 +276,26 @@ first_feed_release() {
 
 case "$APPCAST_HOSTING" in
   release-asset)
-    if [ "$push" = 0 ]; then
+    if [ "$push" = 0 ] && [ "$os" = mac ]; then
       printf 'would publish %s on the feed release %s of %s: the first time as a draft first (published once its appcast.xml is checked), later by swapping it in\n' \
         "$xml" "$APPCAST_RELEASE_TAG" "$RELEASE_REPO"
+    elif [ "$push" = 0 ]; then
+      printf 'would publish %s as %s on the published feed release %s of %s, by swapping it in\n' \
+        "$xml" "$name" "$APPCAST_RELEASE_TAG" "$RELEASE_REPO"
     else
       state="$(feed_release_state)"
       case "$state" in
         published) replace_feed_asset "$xml" ;;
-        *) first_feed_release "$xml" "$state" ;;
+        *)
+          [ "$os" = mac ] ||
+            die "the feed release $APPCAST_RELEASE_TAG is not published ($state): publish the Mac's appcast.xml first, which makes it; nothing was changed"
+          first_feed_release "$xml" "$state"
+          ;;
       esac
     fi
     ;;
-  pages) commit_to_branch gh-pages desktop/appcast.xml ;;
-  branch) commit_to_branch "$APPCAST_BRANCH" appcast.xml ;;
+  pages) commit_to_branch gh-pages "desktop/$name" ;;
+  branch) commit_to_branch "$APPCAST_BRANCH" "$name" ;;
   *) die "APPCAST_HOSTING must be release-asset, pages or branch" ;;
 esac
 log "feed URL: $url"

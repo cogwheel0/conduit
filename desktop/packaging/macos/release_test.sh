@@ -22,6 +22,18 @@
 #   appcast.previous.xml.
 # * a rename or delete GitHub applied whose reply was lost is judged by the
 #   file's real state, so the publication completes or is put back.
+# * publish-appcast.sh --os windows|linux publishes that OS's feed beside
+#   the Mac's under its own names, only signed with its own key
+#   (WINDOWS_PUBLIC_ED_KEY, LINUX_PUBLIC_ED_KEY), keeps the last one as
+#   appcast-<os>.previous.xml, stops on a half-stopped publication of it,
+#   never makes the feed release, and never touches the Mac's files.
+# * a feed already live, byte for byte (a re-run after a publication that
+#   stopped part way), is left as it is, its last copy kept, for every OS.
+# * winlinux_feed_state says live or new for each OS's feed, and stops on
+#   a half-stopped publication or a lookup that fails; feed_signing_key
+#   names the key the published feed is signed with (the current one, or
+#   the retired one after a key swap), and stops on a feed neither signed
+#   and on a retired key left set once it is no longer needed.
 # * a binary built with the test harness is never signed for distribution,
 #   and a step takes only the bundle id it was asked for.
 # * no entitlements file bundle.sh signs with grants get-task-allow (a
@@ -32,7 +44,8 @@
 # * verify_enclosure accepts the DMG an item's signed enclosure describes
 #   and refuses another file, another length or another key.
 # * release_app_key gives the app the next key only for the one tag both
-#   rotation variables name, and stops on any other combination.
+#   rotation variables name, and stops on any other combination; for the
+#   Windows and Linux keys it names their own variables.
 # * verify_feed, the feed job's check, gives Sparkle's own verdict
 #   (`sign_update --verify`) on feeds sign_update signs: a good one, one
 #   changed after it was signed, one signed with another key, an unsigned
@@ -119,8 +132,8 @@ cat >"$tmp/bin/gh" <<'STUB'
 # A stub gh: STUB_LOOKUP=ok|404|500 answers release lookups; a release's
 # files live in $STUB_ASSETS (one file per asset, named "<id> <name>"); the
 # feed release's state (none, draft, published) is in $STUB_STATE (no file:
-# published). STUB_UPLOAD, STUB_PUBLISH=fail and STUB_DOWNLOAD=other make
-# those steps fail or read back other bytes.
+# published). STUB_UPLOAD, STUB_PUBLISH=fail and STUB_DOWNLOAD=other|fail
+# make those steps fail, or read back other bytes or nothing.
 echo "gh $*" >>"$STUB_LOG"
 if [ "$1" = api ] && [[ "$*" == *"/releases?per_page"* ]]; then
   [ "${STUB_LOOKUP:-ok}" = 500 ] && { echo "gh: Server Error (HTTP 500)" >&2; exit 1; }
@@ -200,6 +213,7 @@ if [ "$1 $2" = "release download" ]; then
     case "$1" in -p) pattern="$2"; shift ;; -D) dir="$2"; shift ;; esac
     shift
   done
+  [ "${STUB_DOWNLOAD:-}" = fail ] && { echo "gh: download failed" >&2; exit 1; }
   file="$(ls "$STUB_ASSETS" | awk -v n="$pattern" '$2 == n')"
   [ -n "$file" ] || { echo "no asset $pattern" >&2; exit 1; }
   if [ "${STUB_DOWNLOAD:-}" = other ]; then printf 'other bytes' >"$dir/$pattern"; else cp "$STUB_ASSETS/$file" "$dir/$pattern"; fi
@@ -300,6 +314,20 @@ app_key stop "the rotation tag without the next key stops" desktop-v1.3.0 "$key_
 app_key stop "rotation variables left set for an earlier tag stop the next release" desktop-v1.4.0 "$key_a" "$key_b" desktop-v1.3.0
 app_key stop "a next key that is the signing key's stops" desktop-v1.3.0 "$key_a" "$key_a" desktop-v1.3.0
 app_key stop "a next key that is not a key stops" desktop-v1.3.0 "$key_a" "not-a-key" desktop-v1.3.0
+# The Windows and Linux keys rotate by the same rule, under their own names.
+app_key "$key_b" "a Windows bridge release carries the next Windows key" \
+  desktop-v1.3.0 "$key_a" "$key_b" desktop-v1.3.0 WINDOWS
+app_key stop "a Windows rotation tag without the next Windows key stops" \
+  desktop-v1.3.0 "$key_a" "" desktop-v1.3.0 WINDOWS
+if grep -q 'WINDOWS_NEXT_PUBLIC_ED_KEY and WINDOWS_KEY_ROTATION_TAG' "$tmp/out.txt" && ! grep -q SPARKLE "$tmp/out.txt"; then
+  pass "and the stop names the Windows variables, not Sparkle's"
+else
+  fail "a Windows rotation's stop said: $(cat "$tmp/out.txt")"
+fi
+app_key stop "Linux rotation variables left set for an earlier tag stop the next release" \
+  desktop-v1.4.0 "$key_a" "$key_b" desktop-v1.3.0 LINUX
+grep -q 'LINUX_KEY_ROTATION_TAG names desktop-v1.3.0' "$tmp/out.txt" &&
+  pass "and the stop names LINUX_KEY_ROTATION_TAG" || fail "a Linux rotation's stop said: $(cat "$tmp/out.txt")"
 
 # ── publish-appcast.sh (release-asset) ──────────────────────────────────────
 printf '<rss/>\n' >"$tmp/live.xml"
@@ -439,6 +467,196 @@ if cmp -s "$STUB_ASSETS/$(ls "$STUB_ASSETS" | awk '$2 == "appcast.xml"')" "$tmp/
 else
   fail "beside another run's staged file the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
 fi
+
+# ── the Windows and Linux feeds on the feed release ─────────────────────────
+# Each OS's feed lives beside the Mac's appcast.xml on the same published
+# feed release, under its own names, checked with its own key; the Mac's
+# files are never touched.
+feed_release() { # files...: a published feed release holding these ("<id> <name>" each)
+  aside=$((aside + 1)) && mv "$STUB_ASSETS" "$tmp/moved/assets-r$aside" && mkdir -p "$STUB_ASSETS"
+  echo published >"$STUB_STATE"
+  local f
+  for f in "$@"; do cp "$tmp/live.xml" "$STUB_ASSETS/$f"; done
+}
+asset_named() { ls "$STUB_ASSETS" | awk -v n="$1" '$2 == n'; }
+mac_untouched() { [ "$(asset_named appcast.xml)" = "7 appcast.xml" ] && cmp -s "$STUB_ASSETS/7 appcast.xml" "$tmp/live.xml" &&
+  [ -z "$(asset_named appcast.previous.xml)" ]; }
+sign_feed "$tmp/good-unsigned.xml" "$tmp/good-key-c.xml" "$tmp/key-c.der"
+export WINDOWS_PUBLIC_ED_KEY="$key_b" LINUX_PUBLIC_ED_KEY="$key_c"
+publish_os() { # os feed [env options and assignments...]
+  local os="$1" xml="$2"
+  shift 2
+  # env takes its options (-u) before any assignment.
+  env "$@" APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$xml" --push --os "$os"
+}
+
+feed_release "7 appcast.xml"
+before="$(gh_calls)"
+expect 1 "a Windows feed signed with another key (the Mac's) is never published" publish_os windows "$tmp/good.xml"
+if grep -q 'WINDOWS_PUBLIC_ED_KEY' "$tmp/out.txt" && [ "$(gh_calls)" = "$before" ] && [ "$(ls "$STUB_ASSETS")" = "7 appcast.xml" ]; then
+  pass "it is refused for its signature by WINDOWS_PUBLIC_ED_KEY, before anything reached GitHub"
+else
+  fail "a Windows feed signed with the Mac's key: $(tail -1 "$tmp/out.txt"); gh calls $before -> $(gh_calls); files: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+before="$(gh_calls)"
+expect 1 "a Windows feed is never published without WINDOWS_PUBLIC_ED_KEY" \
+  publish_os windows "$tmp/good-other-key.xml" -u WINDOWS_PUBLIC_ED_KEY
+if grep -q 'WINDOWS_PUBLIC_ED_KEY is not set' "$tmp/out.txt" && [ "$(gh_calls)" = "$before" ]; then
+  pass "it is refused for the missing key, before anything reached GitHub"
+else
+  fail "a Windows feed without WINDOWS_PUBLIC_ED_KEY: $(tail -1 "$tmp/out.txt"); gh calls $before -> $(gh_calls)"
+fi
+expect 0 "the first Windows feed joins the published feed release" publish_os windows "$tmp/good-other-key.xml"
+if cmp -s "$STUB_ASSETS/$(asset_named appcast-windows.xml)" "$tmp/good-other-key.xml" && mac_untouched &&
+  [ -z "$(asset_named appcast-windows.previous.xml)" ] && [ "$(ls "$STUB_ASSETS" | wc -l | tr -d ' ')" = 2 ]; then
+  pass "appcast-windows.xml is live beside the Mac's appcast.xml, which is untouched"
+else
+  fail "after the first Windows feed the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+first_windows="$(asset_named appcast-windows.xml)"
+sed 's#desktop-v1.3.0#desktop-v1.3.1#' "$tmp/good-unsigned.xml" >"$tmp/next-unsigned.xml"
+sign_feed "$tmp/next-unsigned.xml" "$tmp/next-other-key.xml" "$tmp/key-b.der"
+expect 0 "the next Windows feed replaces it" publish_os windows "$tmp/next-other-key.xml"
+if [ "$(asset_named appcast-windows.previous.xml)" = "${first_windows%% *} appcast-windows.previous.xml" ] &&
+  cmp -s "$STUB_ASSETS/$(asset_named appcast-windows.xml)" "$tmp/next-other-key.xml" && mac_untouched; then
+  pass "the last Windows feed is kept as appcast-windows.previous.xml, and the Mac's files are untouched"
+else
+  fail "after the next Windows feed the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+expect 0 "a Linux feed signed with LINUX_PUBLIC_ED_KEY is published as appcast-linux.xml" \
+  publish_os linux "$tmp/good-key-c.xml"
+cmp -s "$STUB_ASSETS/$(asset_named appcast-linux.xml)" "$tmp/good-key-c.xml" && mac_untouched &&
+  pass "appcast-linux.xml is live, the Mac's untouched" ||
+  fail "after the Linux feed the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+feed_release "7 appcast.xml" "9 appcast-windows.previous.xml"
+expect 1 "appcast-windows.previous.xml without appcast-windows.xml stops publishing" \
+  publish_os windows "$tmp/good-other-key.xml"
+[ "$(ls "$STUB_ASSETS" | tr '\n' ' ')" = "7 appcast.xml 9 appcast-windows.previous.xml " ] &&
+  pass "a half-stopped Windows publication is left for a person to put back" ||
+  fail "after a half-stopped Windows publication the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+feed_release
+echo draft >"$STUB_STATE"
+expect 1 "a Windows feed never makes the feed release (the Mac's publication does)" \
+  publish_os windows "$tmp/good-other-key.xml"
+if [ "$(cat "$STUB_STATE")" = draft ] && [ -z "$(ls "$STUB_ASSETS")" ]; then
+  pass "the draft feed release stays as it was, with nothing uploaded"
+else
+  fail "a Windows feed on a draft feed release left it $(cat "$STUB_STATE") with: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+expect 1 "an unknown OS is refused" publish_os beos "$tmp/good.xml"
+feed_release "7 appcast.xml"
+before="$(gh_calls)"
+expect 0 "without --push it only says what it would do" \
+  env APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$tmp/good-other-key.xml" --os windows
+grep -q 'appcast-windows.xml' "$tmp/out.txt" && [ "$(gh_calls)" = "$before" ] &&
+  pass "and it names appcast-windows.xml, with no call to GitHub" || fail "a Windows dry publication: $(cat "$tmp/out.txt")"
+
+# A re-run of the feed job after a publication that stopped part way (the
+# Mac's feed live, Windows' not yet): a feed that is already live, byte for
+# byte, is left as it is, its last copy kept, and the rest go on.
+already_live() { # label name feed [publish-appcast.sh args...]
+  local label="$1" name="$2" xml="$3" base="${2%.xml}"
+  shift 3
+  feed_release
+  [ "$name" = appcast.xml ] || cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
+  cp "$xml" "$STUB_ASSETS/11 $name"
+  printf '<rss/>older\n' >"$STUB_ASSETS/12 $base.previous.xml"
+  local files uploads
+  files="$(ls "$STUB_ASSETS" | tr '\n' ' ')"
+  uploads="$(grep -c '^gh release upload' "$STUB_LOG")"
+  expect 0 "$label" env APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$xml" --push "$@"
+  if [ "$(ls "$STUB_ASSETS" | tr '\n' ' ')" = "$files" ] && cmp -s "$STUB_ASSETS/11 $name" "$xml" &&
+    grep -qx '<rss/>older' "$STUB_ASSETS/12 $base.previous.xml" && grep -q 'already live' "$tmp/out.txt" &&
+    [ "$(grep -c '^gh release upload' "$STUB_LOG")" = "$uploads" ]; then
+    pass "$label: nothing uploaded or renamed, the last copy kept"
+  else
+    fail "$label: files $(ls "$STUB_ASSETS" | tr '\n' ' '); $(tail -1 "$tmp/out.txt")"
+  fi
+}
+already_live "the Mac's feed already live is left as it is" appcast.xml "$tmp/good.xml"
+already_live "a Windows feed already live is left as it is" appcast-windows.xml "$tmp/good-other-key.xml" --os windows
+# A live feed that cannot be read back stops the run, nothing changed:
+# replacing it then could set an identical copy aside over the last one.
+read_back_fails() { # label name feed [publish-appcast.sh args...]
+  local label="$1" name="$2" xml="$3" base="${2%.xml}"
+  shift 3
+  feed_release
+  [ "$name" = appcast.xml ] || cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
+  cp "$xml" "$STUB_ASSETS/11 $name"
+  printf '<rss/>older\n' >"$STUB_ASSETS/12 $base.previous.xml"
+  local files uploads
+  files="$(ls "$STUB_ASSETS" | tr '\n' ' ')"
+  uploads="$(grep -c '^gh release upload' "$STUB_LOG")"
+  expect 1 "$label" env STUB_DOWNLOAD=fail APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$xml" --push "$@"
+  if [ "$(ls "$STUB_ASSETS" | tr '\n' ' ')" = "$files" ] && grep -qx '<rss/>older' "$STUB_ASSETS/12 $base.previous.xml" &&
+    grep -q "could not read back the live $name" "$tmp/out.txt" &&
+    [ "$(grep -c '^gh release upload' "$STUB_LOG")" = "$uploads" ]; then
+    pass "$label: nothing uploaded or renamed, the last copy kept"
+  else
+    fail "$label: files $(ls "$STUB_ASSETS" | tr '\n' ' '); $(tail -1 "$tmp/out.txt")"
+  fi
+}
+read_back_fails "a live Mac feed that cannot be read back stops the run" appcast.xml "$tmp/good.xml"
+read_back_fails "a live Windows feed that cannot be read back stops the run" appcast-windows.xml "$tmp/good-other-key.xml" --os windows
+
+# winlinux_feed_state: what the release workflow adds an OS's release to.
+# `live` once its feed is published, `new` for its first release; it stops
+# when it cannot tell, and on a publication that stopped half way.
+feed_state_of() { # want label os [env...]
+  local want="$1" label="$2" os="$3" got rc
+  shift 3
+  got="$(env "$@" bash -c ". '$here/lib.sh'; APPCAST_HOSTING=release-asset; winlinux_feed_state \"\$1\"" _ "$os" 2>"$tmp/out.txt")"
+  rc=$?
+  if { [ "$want" = stop ] && [ "$rc" != 0 ] && [ -z "$got" ]; } ||
+    { [ "$want" != stop ] && [ "$rc" = 0 ] && [ "$got" = "$want" ]; }; then
+    pass "$label"
+  else
+    fail "$label (got '$got', exit $rc)"
+    sed 's/^/      /' "$tmp/out.txt"
+  fi
+}
+feed_release "7 appcast.xml"
+feed_state_of new "Windows' first release: the feed release has no appcast-windows.xml yet" windows
+feed_release "7 appcast.xml" "11 appcast-windows.xml"
+feed_state_of live "a published appcast-windows.xml is Windows' live feed" windows
+feed_state_of new "Linux's first release, beside a live Windows feed" linux
+feed_release "7 appcast.xml" "12 appcast-linux.previous.xml"
+feed_state_of stop "appcast-linux.previous.xml without appcast-linux.xml is never a first release" linux
+grep -q 'appcast-linux.previous.xml' "$tmp/out.txt" && pass "and the stop says why" ||
+  fail "a half-stopped Linux feed's stop said: $(cat "$tmp/out.txt")"
+feed_state_of new "no feed release at all is a first release" windows STUB_LOOKUP=404
+feed_state_of stop "a feed release that cannot be read stops" windows STUB_LOOKUP=500
+feed_state_of stop "an OS that has no feed stops" macos
+
+# feed_signing_key: the key the published Windows or Linux feed is signed
+# with, which winlinux-appcast.sh checks it with before adding to it.
+signing_key() { # want label feed current retired
+  local want="$1" label="$2" got rc
+  shift 2
+  got="$(bash -c ". '$here/lib.sh'; feed_signing_key \"\$1\" windows \"\$2\" \"\$3\"" _ "$@" 2>"$tmp/out.txt")"
+  rc=$?
+  if { [ "$want" = stop ] && [ "$rc" != 0 ] && [ -z "$got" ]; } ||
+    { [ "$want" != stop ] && [ "$rc" = 0 ] && [ "$got" = "$want" ]; }; then
+    pass "$label"
+  else
+    fail "$label (got '$got', exit $rc)"
+    sed 's/^/      /' "$tmp/out.txt"
+  fi
+}
+signing_key "$key_a" "a feed signed with the current key is added to with it" "$tmp/good.xml" "$key_a" ""
+signing_key "$key_b" "the first release after a key swap reads the feed with the retired key" \
+  "$tmp/good-other-key.xml" "$key_a" "$key_b"
+signing_key stop "a feed the current key didn't sign, with no retired key, stops" "$tmp/good-other-key.xml" "$key_a" ""
+grep -q 'WINDOWS_RETIRED_PUBLIC_ED_KEY' "$tmp/out.txt" && pass "and the stop names WINDOWS_RETIRED_PUBLIC_ED_KEY" ||
+  fail "a feed signed with another key said: $(cat "$tmp/out.txt")"
+signing_key stop "a retired key left set once the feed is signed with the current key stops" \
+  "$tmp/good.xml" "$key_a" "$key_b"
+grep -q 'left over' "$tmp/out.txt" && pass "and the stop says it is left over" ||
+  fail "a left-over retired key said: $(cat "$tmp/out.txt")"
+signing_key stop "a feed signed with neither key stops" "$tmp/good-key-c.xml" "$key_a" "$key_b"
+signing_key stop "a retired key that is not a key stops" "$tmp/good-other-key.xml" "$key_a" "not-a-key"
+signing_key stop "a retired key that is the current key stops" "$tmp/good.xml" "$key_a" "$key_a"
+signing_key stop "an unsigned feed stops" "$tmp/good-unsigned.xml" "$key_a" "$key_b"
 
 # ── the test harness and the bundle in --out ────────────────────────────────
 # A binary built with the `harness` feature carries lib.rs's HARNESS_MARKER;

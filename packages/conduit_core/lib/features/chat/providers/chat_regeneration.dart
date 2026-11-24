@@ -561,7 +561,7 @@ Future<void> _regenerateDirectMessage(
       reasoningEffort: reasoningEffort,
       localMcpToolIds: localMcpToolIds,
     );
-  } on _DirectOpenWebUiAuthSessionChanged {
+  } on _DirectOpenWebUiAuthSessionChanged catch (error) {
     registry.discardFinalizedOutput(reservation);
     final owner = _DirectConversationOwner(
       conversationId: active.id,
@@ -581,6 +581,7 @@ Future<void> _regenerateDirectMessage(
         owner: owner,
         assistantMessageId: assistant.id,
         isCurrentGeneration: () => registry.isLatest(reservation),
+        partial: error.partial,
       );
     } catch (settlementError, stackTrace) {
       DebugLogger.error(

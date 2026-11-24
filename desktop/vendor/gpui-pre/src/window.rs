@@ -1811,7 +1811,10 @@ impl Window {
                 .spawn(async move {
                     while activation_receiver.recv().await.is_ok() {
                         handle
-                            .update(&mut async_cx, |_, window, _| window.refresh())
+                            .update(&mut async_cx, |_, window, _| {
+                                window.platform_window.a11y_update_window_bounds();
+                                window.refresh()
+                            })
                             .with_context(|| {
                                 format!(
                                     "handling accessibility activation for window {:?}",
@@ -3008,6 +3011,7 @@ impl Window {
         self.scale_factor = self.platform_window.scale_factor();
         self.viewport_size = self.platform_window.content_size();
         self.mouse_position = self.platform_window.mouse_position();
+        self.platform_window.a11y_update_window_bounds();
 
         self.refresh();
 
