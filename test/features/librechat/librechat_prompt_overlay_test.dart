@@ -99,13 +99,15 @@ void main() {
     expect(findPendingLibreChatComposerPrompt([other]), isNull);
   });
 
-  testWidgets('each tool call is decided, then all are sent together', (
-    tester,
-  ) async {
+  testWidgets('each tool call is decided, a second tap deciding nothing, '
+      'then all are sent together', (tester) async {
     final resolved = await _pump(tester, _approval);
 
     expect(find.textContaining('Allow echo to run?'), findsOneWidget);
     expect(find.textContaining('"text": "hi"'), findsOneWidget);
+    // Both taps land on the first card before the next one is shown: the
+    // second decides nothing it did not show.
+    await tester.tap(find.text('Approve'));
     await tester.tap(find.text('Approve'));
     await tester.pumpAndSettle();
     expect(resolved, isEmpty);

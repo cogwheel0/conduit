@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/widgets.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -9,8 +7,8 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart'
     show HermesDecisionKind;
 import 'package:conduit_core/features/librechat/models/librechat_tools.dart';
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
+import 'package:conduit_core/features/librechat/services/librechat_pause_controller.dart';
 import 'package:conduit_core/models/chat_message.dart';
-import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/composer_prompt_surface.dart';
@@ -62,20 +60,19 @@ final class LibreChatComposerPromptOverlay extends StatefulWidget {
 
 final class _LibreChatComposerPromptOverlayState
     extends State<LibreChatComposerPromptOverlay> {
-  final Map<String, LibreChatToolDecisionInput> _decisions = {};
-  final Map<String, String> _answers = {};
-  bool _sending = false;
-  bool _failed = false;
+  late final LibreChatPauseController _pause = LibreChatPauseController(
+    widget.action,
+    resolve: widget.onResolve,
+  );
 
   @override
   Widget build(BuildContext context) {
-    final action = widget.action;
     final l10n = AppLocalizations.of(context)!;
-    final card = action.isToolApproval
-        ? _approvalCard(action, l10n)
-        : action.isQuestion
-        ? _questionCard(action, l10n)
-        : null;
+    final card = switch (_pause.current) {
+      final LibreChatToolCard card => _approvalCard(card, l10n),
+      final LibreChatQuestionCard card => _questionCard(card, l10n),
+      null => null,
+    };
     if (card == null) return const SizedBox.shrink();
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -89,7 +86,7 @@ final class _LibreChatComposerPromptOverlayState
           ),
           child: SingleChildScrollView(child: card),
         ),
-        if (_failed)
+        if (_pause.failed)
           Padding(
             padding: const EdgeInsets.only(top: Spacing.xs),
             child: Text(
@@ -103,114 +100,58 @@ final class _LibreChatComposerPromptOverlayState
     );
   }
 
-  Widget? _approvalCard(LibreChatPendingAction action, AppLocalizations l10n) {
-    final requests = action.toolRequests;
-    final request =
-        requests
-            .where((request) => !_decisions.containsKey(request.toolCallId))
-            .firstOrNull ??
-        requests.lastOrNull;
-    if (request == null) return null;
+  /// Takes an answer through the controller, showing it going out and what
+  /// came of it.
+  Future<LibreChatPauseStep> _take(Future<LibreChatPauseStep> step) async {
+    setState(() {});
+    final result = await step;
+    if (mounted) setState(() {});
+    return result;
+  }
+
+  Widget _approvalCard(LibreChatToolCard card, AppLocalizations l10n) {
+    final request = card.request;
     final description = request.description?.trim();
     return _LibreChatApprovalCard(
-      key: ValueKey('${action.actionId}\u0000${request.toolCallId}'),
-      request: request,
+      key: ValueKey('${widget.action.actionId}\u0000${card.id}'),
+      card: card,
       question: l10n.libreChatApprovalRun(
         request.name.isEmpty ? l10n.tools : request.name,
       ),
       description: description == null || description.isEmpty
           ? null
           : description,
-      sending: _sending,
+      sending: _pause.sending,
       onDecision: (decision) {
-        if (_sending) return;
-        _decisions[request.toolCallId] = decision;
-        if (_decisions.length < requests.length) {
-          setState(() => _failed = false);
-          return;
-        }
-        _send(
-          lastKey: request.toolCallId,
-          decisions: Map.of(_decisions),
-        );
+        if (_pause.sending) return;
+        _take(_pause.decide(card.id, decision));
       },
     );
   }
 
-  Widget? _questionCard(LibreChatPendingAction action, AppLocalizations l10n) {
-    final questions = action.questions;
-    if (questions.isEmpty) return null;
-    final ids = [
-      for (var index = 0; index < questions.length; index++)
-        questions[index]['id']?.toString() ?? 'question_$index',
-    ];
-    final open = ids.indexWhere((id) => !_answers.containsKey(id));
-    final index = open < 0 ? ids.length - 1 : open;
-    final question = questions[index];
-    final id = ids[index];
-    final text = question['question']?.toString().trim() ?? '';
-    final description = question['description']?.toString().trim();
-    final batch = questions.length > 1;
-    final progress = l10n.libreChatQuestionProgress(index + 1, ids.length);
-    final multiSelect = question['multiSelect'] == true;
-    final choices = _choices(question['options']);
+  Widget _questionCard(LibreChatQuestionCard card, AppLocalizations l10n) {
+    final text = card.question;
+    final batch = card.count > 1;
+    final progress = l10n.libreChatQuestionProgress(card.index + 1, card.count);
     return HermesDecisionCard(
-      key: ValueKey('${action.actionId}\u0000$id'),
+      key: ValueKey('${widget.action.actionId}\u0000${card.id}'),
       kind: HermesDecisionKind.clarification,
       title: batch || text.isEmpty ? progress : text,
       prompt: [
         if (batch && text.isNotEmpty) text,
-        if (description != null && description.isNotEmpty) description,
+        ?card.description,
       ].join('\n\n'),
-      choices: [for (final choice in choices) choice.label],
-      multiSelect: multiSelect,
+      choices: [for (final choice in card.choices) choice.label],
+      multiSelect: card.multiSelect,
       onSubmit: (value) async {
-        if (_sending) return false;
-        _answers[id] = _answerText(
-          value,
-          multiSelect: multiSelect,
-          choices: choices,
+        if (_pause.sending) return false;
+        final step = await _take(
+          _pause.answer(card.id, card.answerFor(value)),
         );
-        if (_answers.length < ids.length) {
-          setState(() => _failed = false);
-          return true;
-        }
-        return _send(lastKey: id, answers: Map.of(_answers));
+        return step == LibreChatPauseStep.next ||
+            step == LibreChatPauseStep.sent;
       },
     );
-  }
-
-  /// Sends the run's answer. On failure the last card comes back, its
-  /// answer cleared, so it can be sent again.
-  Future<bool> _send({
-    required String lastKey,
-    Map<String, LibreChatToolDecisionInput>? decisions,
-    Map<String, String>? answers,
-  }) async {
-    setState(() {
-      _sending = true;
-      _failed = false;
-    });
-    try {
-      await widget.onResolve(decisions: decisions, answers: answers);
-      return true;
-    } catch (error) {
-      DebugLogger.warning(
-        'pending-action-answer-failed',
-        scope: 'librechat/composer',
-        data: {'error': error.runtimeType.toString()},
-      );
-      if (mounted) {
-        setState(() {
-          _decisions.remove(lastKey);
-          _answers.remove(lastKey);
-          _failed = true;
-        });
-      }
-      return false;
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
   }
 }
 
@@ -220,14 +161,14 @@ final class _LibreChatComposerPromptOverlayState
 final class _LibreChatApprovalCard extends StatefulWidget {
   const _LibreChatApprovalCard({
     super.key,
-    required this.request,
+    required this.card,
     required this.question,
     required this.description,
     required this.sending,
     required this.onDecision,
   });
 
-  final LibreChatToolRequest request;
+  final LibreChatToolCard card;
   final String question;
   final String? description;
   final bool sending;
@@ -241,7 +182,7 @@ final class _LibreChatApprovalCardState extends State<_LibreChatApprovalCard> {
   /// Edit or respond while its field is open, else null.
   LibreChatToolDecision? _composing;
   late final TextEditingController _edited = TextEditingController(
-    text: _editableArguments(widget.request.arguments),
+    text: widget.card.editableArguments,
   );
   final TextEditingController _response = TextEditingController();
   bool _editInvalid = false;
@@ -268,21 +209,15 @@ final class _LibreChatApprovalCardState extends State<_LibreChatApprovalCard> {
   }
 
   void _sendEdit() {
-    Object? parsed;
-    try {
-      parsed = jsonDecode(_edited.text);
-    } on FormatException {
-      parsed = null;
-    }
-    // LibreChat runs the tool with a JSON object only.
-    if (parsed is! Map) {
+    final edited = LibreChatPauseController.editedArguments(_edited.text);
+    if (edited == null) {
       setState(() => _editInvalid = true);
       return;
     }
     widget.onDecision(
       LibreChatToolDecisionInput(
         LibreChatToolDecision.edit,
-        editedArguments: Map<String, dynamic>.from(parsed),
+        editedArguments: edited,
       ),
     );
   }
@@ -314,8 +249,8 @@ final class _LibreChatApprovalCardState extends State<_LibreChatApprovalCard> {
     final composing = _composing;
     final arguments = composing == LibreChatToolDecision.edit
         ? null
-        : _argumentsText(widget.request.arguments);
-    final allowed = widget.request.allowed.toSet();
+        : widget.card.argumentsText;
+    final allowed = widget.card.allowed.toSet();
     return ComposerPromptSurface(
       semanticsLabel: l10n.hermesApprovalRequired,
       child: Column(
@@ -415,79 +350,4 @@ final class _LibreChatApprovalCardState extends State<_LibreChatApprovalCard> {
       ),
     ],
   );
-}
-
-/// The arguments to edit, as JSON: the tool call's own, or an empty object.
-String _editableArguments(Object? arguments) {
-  var value = arguments;
-  if (arguments is String) {
-    try {
-      value = jsonDecode(arguments);
-    } on FormatException {
-      return arguments;
-    }
-  }
-  if (value == null) return '{}';
-  try {
-    return const JsonEncoder.withIndent('  ').convert(value);
-  } catch (_) {
-    return '{}';
-  }
-}
-
-/// A tool call's arguments as the user reads them; null when there are none.
-String? _argumentsText(Object? arguments) {
-  if (arguments == null) return null;
-  if (arguments is String) {
-    final text = arguments.trim();
-    return text.isEmpty || text == '{}' ? null : text;
-  }
-  if (arguments is Map && arguments.isEmpty) return null;
-  try {
-    return const JsonEncoder.withIndent('  ').convert(arguments);
-  } catch (_) {
-    return arguments.toString();
-  }
-}
-
-/// A question's options, which LibreChat sends as labels or as
-/// `{label, description}`.
-/// A question's choices: each is shown by its label and answered with its
-/// value, as LibreChat's own client answers.
-List<({String label, String value})> _choices(Object? options) => [
-  if (options is List)
-    for (final option in options)
-      if (option is String && option.isNotEmpty)
-        (label: option, value: option)
-      else if (option is Map && option['label'] is String)
-        (
-          label: option['label'] as String,
-          value: option['value'] is String
-              ? option['value'] as String
-              : option['label'] as String,
-        ),
-];
-
-/// The answer to send for what the card picked: each chosen label becomes
-/// its choice's value. The card hands several choices over as a JSON list;
-/// LibreChat takes one answer per question, the values joined with ", ".
-/// Typed text goes as it is.
-String _answerText(
-  String value, {
-  required bool multiSelect,
-  required List<({String label, String value})> choices,
-}) {
-  String valueOf(String label) =>
-      choices.where((choice) => choice.label == label).firstOrNull?.value ??
-      label;
-  if (!multiSelect) return valueOf(value);
-  try {
-    final decoded = jsonDecode(value);
-    if (decoded is List) {
-      return decoded.map((label) => valueOf('$label')).join(', ');
-    }
-  } catch (_) {
-    // Typed text, not a list of choices.
-  }
-  return value;
 }
