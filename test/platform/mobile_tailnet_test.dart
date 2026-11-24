@@ -179,8 +179,9 @@ void main() {
         directory: () async => MemoryFileSystem().directory('/node'),
         openLogin: (_) async => false,
         call: (cmd) async {
-          if (cmd['op'] == 'dial')
+          if (cmd['op'] == 'dial') {
             return {'port': listener.port, 'ticket': ticket};
+          }
           if (cmd['op'] == 'cancel') {
             cancelled.add(cmd['ticket']);
             peer?.destroy();

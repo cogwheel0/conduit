@@ -22,6 +22,8 @@ import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -117,7 +119,7 @@ final class _Surface extends SettingsSurface {
 final class _Rig {
   _Rig(this.tester, this.container, this.surface);
 
-  final WidgetTester tester;
+  final WidgetTester? tester;
   final ProviderContainer container;
   final _Surface surface;
 
@@ -152,10 +154,15 @@ final class _Rig {
   }
 
   Future<void> _settle(Future<Object?> work) async {
+    final clock = tester;
+    if (clock == null) {
+      await work;
+      return;
+    }
     var done = false;
     unawaited(work.whenComplete(() => done = true));
     while (!done) {
-      await tester.pump(const Duration(milliseconds: 10));
+      await clock.pump(const Duration(milliseconds: 10));
     }
     await work;
   }
@@ -199,7 +206,7 @@ void main() {
   }
 
   Future<_Rig> pump(
-    WidgetTester tester, {
+    WidgetTester? tester, {
     OpenWebUiServer? server,
     bool unreadableOnce = false,
     bool replyInProgress = false,
@@ -593,38 +600,34 @@ void main() {
     });
 
     for (final useTailscale in [false, true]) {
-      testWidgets(
+      test(
         'a new address is checked and saved with Tailscale set to $useTailscale',
-        (tester) async {
+        () async {
+          final platform = debugDefaultTargetPlatformOverride;
+          debugDefaultTargetPlatformOverride = TargetPlatform.android;
+          addTearDown(() => debugDefaultTargetPlatformOverride = platform);
           final previousOverrides = HttpOverrides.current;
           HttpOverrides.global = _RealHttpOverrides();
           addTearDown(() => HttpOverrides.global = previousOverrides);
           // An Open WebUI server on this machine.
-          final port = (await tester.runAsync(() async {
-            final server = await HttpServer.bind(
-              InternetAddress.loopbackIPv4,
-              0,
-            );
-            addTearDown(() => server.close(force: true));
-            server.listen((request) {
-              final body = switch (request.uri.path) {
-                '/health' => '{"status":true}',
-                '/api/config' =>
-                  '{"status":true,"version":"0.6.0","name":"Open WebUI",'
-                      '"features":{}}',
-                _ => null,
-              };
-              request.response
-                ..statusCode = body == null
-                    ? HttpStatus.notFound
-                    : HttpStatus.ok
-                ..headers.contentType = ContentType.json
-                ..write(body ?? '{}');
-              unawaited(request.response.close());
-            });
-            return server.port;
-          }))!;
-          final rig = await pump(tester);
+          final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+          addTearDown(() => server.close(force: true));
+          server.listen((request) {
+            final body = switch (request.uri.path) {
+              '/health' => '{"status":true}',
+              '/api/config' =>
+                '{"status":true,"version":"0.6.0","name":"Open WebUI",'
+                    '"features":{}}',
+              _ => null,
+            };
+            request.response
+              ..statusCode = body == null ? HttpStatus.notFound : HttpStatus.ok
+              ..headers.contentType = ContentType.json
+              ..write(body ?? '{}');
+            unawaited(request.response.close());
+          });
+          final port = server.port;
+          final rig = await pump(null);
           rig.surface.answer = 'check';
           final editor = serverAddressPageId('home', null);
           await rig.open(editor);
@@ -646,16 +649,7 @@ void main() {
           await rig.change(row('url', null), 'http://$host:$port');
 
           await rig.module.handleChange(row('save', null), true, _l10n);
-          final saving = (rig.module as ServerAddressSettingsPages).work!;
-          var done = false;
-          unawaited(saving.whenComplete(() => done = true));
-          while (!done) {
-            // The socket uses the real event loop; the settings providers
-            // publish their updates on the widget test clock.
-            await tester.runAsync(() => Future<void>.delayed(Duration.zero));
-            await tester.pump(const Duration(milliseconds: 1));
-          }
-          await saving;
+          await (rig.module as ServerAddressSettingsPages).work!;
 
           expect(saved.last, hasLength(3));
           final endpoint = stored.singleWhere(
@@ -671,7 +665,7 @@ void main() {
           expect(rig.closed, contains(editor));
           final reopened = serverAddressPageId('home', endpoint.id);
           final restored = await pump(
-            tester,
+            null,
             server: OpenWebUiServer(
               id: _home.id,
               name: _home.name,
