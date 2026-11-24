@@ -165,7 +165,7 @@ pub fn setup_options(title: &str, cx: &App) -> WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(gpui_kit::TitlebarOptions {
             title: Some(title.to_string().into()),
-            appears_transparent: true,
+            appears_transparent: cw::OS_TITLE_BAR_TRANSPARENT,
             traffic_light_position: None,
         }),
         focus: false,
@@ -189,7 +189,7 @@ pub fn open_setup(cx: &mut App) {
             .update(cx, |_, window, cx| {
                 // Still being sized, it shows itself.
                 if view.read(cx).shown() {
-                    window.activate_window();
+                    conduit_components::chrome::activate(window, cx);
                 }
             })
             .is_ok()

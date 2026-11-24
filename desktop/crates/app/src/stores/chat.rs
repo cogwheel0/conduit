@@ -170,6 +170,14 @@ impl LiveTurn {
         self.phase == LivePhase::Streaming
     }
 
+    /// The error block a failed turn's row shows.
+    fn error_block(&self) -> Option<MessageBlockDto> {
+        self.display_blocks()
+            .into_iter()
+            .find(|b| b.kind == MessageBlockKind::Error)
+            .filter(|_| matches!(self.phase, LivePhase::Failed { .. }))
+    }
+
     /// The blocks to draw: the snapshot, plus the error when the turn
     /// failed and the snapshot does not say so.
     pub fn display_blocks(&self) -> Vec<MessageBlockDto> {
@@ -418,6 +426,9 @@ pub enum ChatStoreEvent {
     /// Words the core gives the chat's composer (`composer.insertText`):
     /// what Hermes prefills.
     InsertText { text: String },
+    /// The answer being written failed: `error` is the error block its row
+    /// shows, for screen readers to hear.
+    AnswerFailed { error: Box<MessageBlockDto> },
 }
 
 /// Where a step of an answer's version arrows landed: version `index`
@@ -512,6 +523,8 @@ pub struct ChatStore {
     /// server holds their question and answers it under new ids, so a reply
     /// that names one later starts no overlay for it.
     held_answers: std::collections::HashSet<String>,
+    /// The answers whose failure was told ([`ChatStoreEvent::AnswerFailed`]).
+    told_failed: std::collections::HashSet<String>,
     /// Bumped by every `chatPrompts.get` asked and every
     /// `chatPrompts.changed`: a reply asked before the latest is dropped.
     prompt_round: u64,
@@ -574,6 +587,7 @@ impl ChatStore {
             hermes,
             queued_busy: Default::default(),
             held_answers: Default::default(),
+            told_failed: Default::default(),
             _prompt: None,
             _fetch: None,
             _refetch: None,
@@ -1095,6 +1109,23 @@ impl ChatStore {
 
     // ── Events ──────────────────────────────────────────────────────────
 
+    /// Tells the views that answer `message_id` failed, with the error its
+    /// row shows, once per answer (a replayed failure is not news).
+    fn tell_failed(
+        &mut self,
+        message_id: &str,
+        error: Option<MessageBlockDto>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(error) = error
+            && self.told_failed.insert(message_id.to_string())
+        {
+            cx.emit(ChatStoreEvent::AnswerFailed {
+                error: Box::new(error),
+            });
+        }
+    }
+
     /// A daemon event (the window forwards every one; the store picks its
     /// own).
     pub fn on_event(&mut self, event: &Event, cx: &mut Context<Self>) {
@@ -1186,8 +1217,10 @@ impl ChatStore {
                     detail: e.args.get("detail").cloned().filter(|d| !d.is_empty()),
                     kind: e.args.get("type").cloned().filter(|d| !d.is_empty()),
                 };
+                let error = live.error_block();
                 self.fetch(cx);
                 self.rebuild(cx);
+                self.tell_failed(&e.message_id, error, cx);
             }
             // The server holds the question until another reply ends, and
             // the answer this overlay waited for is gone: the stored copy,
@@ -1224,8 +1257,10 @@ impl ChatStore {
                             kind: None,
                         }
                     };
+                    let error = live.error_block();
                     self.fetch(cx);
                     self.rebuild(cx);
+                    self.tell_failed(&e.message_id, error, cx);
                 }
             }
             Event::ChatsChanged(e)
@@ -3162,6 +3197,56 @@ mod tests {
             assert_eq!(item.blocks[1].error.as_deref(), Some("Model is overloaded"));
             assert_eq!(s.last_reply().as_deref(), Some("Partial"));
         });
+    }
+
+    /// A failed answer is told to the views with the error its row shows,
+    /// once: screen readers hear it where the row only draws it.
+    #[gpui_kit::test]
+    fn a_failed_answer_is_told_with_the_error_its_row_shows(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "hi")]));
+        let (store, _) = open(&daemon, "c1", cx);
+        let events: Rc<RefCell<Vec<ChatStoreEvent>>> = Rc::default();
+        cx.update(|cx| {
+            let events = events.clone();
+            cx.subscribe(&store, move |_, e: &ChatStoreEvent, _| {
+                events.borrow_mut().push(e.clone())
+            })
+            .detach();
+        });
+        let failed = Event::TurnFailed(TurnFailed {
+            chat_id: "c1".into(),
+            message_id: "a1".into(),
+            code: "server.error".into(),
+            args: BTreeMap::from([("detail".into(), "Synthetic model failure".into())]),
+            partial_text: String::new(),
+        });
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnStarted(TurnStarted {
+                    companion_ids: vec![],
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    model: "m".into(),
+                }),
+                cx,
+            );
+            s.on_event(&failed, cx);
+            // The same failure again (a reconnect's replay) is not news.
+            s.on_event(&failed, cx);
+        });
+        cx.run_until_parked();
+        let told: Vec<_> = events
+            .borrow()
+            .iter()
+            .filter_map(|e| match e {
+                ChatStoreEvent::AnswerFailed { error } => Some((**error).clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert_eq!(told[0].kind, MessageBlockKind::Error);
+        assert_eq!(told[0].error.as_deref(), Some("Synthetic model failure"));
     }
 
     #[gpui_kit::test]

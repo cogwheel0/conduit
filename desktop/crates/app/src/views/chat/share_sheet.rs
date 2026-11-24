@@ -43,7 +43,8 @@ pub fn open(
     } else {
         HEIGHT
     };
-    super::sheets::open(window, WIDTH, height, cx, move |window, cx| {
+    let title = cx.l10n().share_chat();
+    super::sheets::open(window, WIDTH, height, &title, cx, move |window, cx| {
         ShareSheet::new(stores, chat_id, window, cx)
     })
 }

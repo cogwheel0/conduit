@@ -620,15 +620,27 @@ impl SettingsView {
             // Already down: it keeps the keyboard.
             let handle = sheet.handle;
             cx.defer(move |cx| {
-                let _ = handle.update(cx, |_, window, _| window.activate_window());
+                let _ = handle.update(cx, |_, window, cx| {
+                    conduit_components::chrome::activate(window, cx)
+                });
             });
             return;
         }
         let stores = self.stores.clone();
+        let over = window.bounds();
+        let room = (crate::views::sheet::Hang::NATIVE == crate::views::sheet::Hang::Dialog)
+            .then(|| crate::views::sheet::dialog_room(over));
+        let title = cx.l10n().desktop_add_account();
         let opened = conduit_components::window::open_window_clear_root(
-            add_account::window_options(),
+            add_account::window_options(&title, over),
             cx,
-            |window, cx| cx.new(|cx| AddAccountSheet::new(stores, window, cx)),
+            move |window, cx| {
+                cx.new(|cx| {
+                    let mut sheet = AddAccountSheet::new(stores, window, cx);
+                    sheet.room = room;
+                    sheet
+                })
+            },
         );
         let (handle, view) = match opened {
             Ok(v) => v,
@@ -637,6 +649,17 @@ impl SettingsView {
                 return;
             }
         };
+        // The window manager's close (×, Alt+F4) is Cancel, as Esc.
+        let cancel = view.downgrade();
+        let _ = handle.update(cx, |_, window, cx| {
+            window.on_window_should_close(cx, move |_, cx| {
+                let Some(view) = cancel.upgrade() else {
+                    return true;
+                };
+                cx.defer(move |cx| view.update(cx, |s, cx| s.cancel(cx)));
+                false
+            })
+        });
         self._add_sheet = Some(cx.subscribe_in(
             &view,
             window,

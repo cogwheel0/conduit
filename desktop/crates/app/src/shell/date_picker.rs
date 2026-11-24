@@ -337,10 +337,13 @@ actions!(
 pub const PICKER_CONTEXT: &str = "ConduitPicker";
 
 /// The picker's keys, deeper than the prompt's (whose Left and Right move
-/// between its buttons).
+/// between its buttons). Esc is the prompt's Cancel here too: the app's Esc
+/// (Stop Generating, with no context) ranks as deep as the focus, so the
+/// prompt's own binding loses to it while the picker has focus.
 pub fn bindings() -> Vec<KeyBinding> {
     let c = Some(PICKER_CONTEXT);
     vec![
+        KeyBinding::new("escape", crate::shell::app_prompt::Cancel, c),
         KeyBinding::new("left", Left, c),
         KeyBinding::new("right", Right, c),
         KeyBinding::new("up", Up, c),
@@ -955,6 +958,43 @@ mod tests {
         vcx.simulate_keystrokes("right enter");
         vcx.run_until_parked();
         assert_eq!(answer.get(), Some(Some(wall(2026, 2, 1, 9, 30))));
+    }
+
+    /// Esc cancels with the hour or the minute focused, as from the
+    /// buttons: the app's Esc (Stop Generating, bound with no context and
+    /// answered app-wide) ranks as deep as the picker's focus, deeper than
+    /// the prompt's own Esc.
+    #[gpui_kit::test]
+    fn esc_cancels_with_the_hour_or_minute_focused(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(crate::views::test_globals);
+        let stops = Rc::new(Cell::new(0));
+        let seen = stops.clone();
+        cx.update(|cx| {
+            // As `menus::bind_keys` binds them: the app's first, then the
+            // prompt's and the picker's.
+            cx.bind_keys([gpui_kit::KeyBinding::new(
+                "escape",
+                crate::actions::StopGenerating,
+                None,
+            )]);
+            cx.on_action(move |_: &crate::actions::StopGenerating, _| seen.set(seen.get() + 1));
+            crate::shell::app_prompt::install(cx);
+            cx.bind_keys(crate::shell::app_prompt::bindings());
+            cx.bind_keys(bindings());
+        });
+        let (_, vcx) = cx.add_window_view(|_, _| Blank);
+        for keys in ["escape", "right escape"] {
+            let answer = ask(vcx, PickerMode::Time, wall(2026, 1, 31, 9, 30));
+            vcx.simulate_keystrokes(keys);
+            vcx.run_until_parked();
+            assert_eq!(answer.get(), Some(None), "{keys}: the picker stayed up");
+            assert!(!vcx.update(|window, _| window.has_active_prompt()));
+        }
+        assert_eq!(
+            stops.get(),
+            0,
+            "Esc reached Stop Generating behind the picker"
+        );
     }
 
     /// Without the app's prompt (the Mac, in a window with no NSWindow)
