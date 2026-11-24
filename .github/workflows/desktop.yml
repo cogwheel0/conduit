@@ -735,12 +735,15 @@ jobs:
         with:
           name: conduit-desktop-update-feeds-${{ github.sha }}
           path: feeds
-      - name: Install Xvfb, Mesa, GNOME Keyring, secret-tool and desktop-file-utils
+      # gio and shared-mime-info: the default-app check; xwininfo
+      # (x11-utils): the WM_CLASS check.
+      - name: Install Xvfb, Mesa, GNOME Keyring, secret-tool, desktop-file-utils, gio and xwininfo
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             xvfb xauth dbus mesa-vulkan-drivers libegl1 libgl1-mesa-dri \
-            gnome-keyring libsecret-tools desktop-file-utils
+            gnome-keyring libsecret-tools desktop-file-utils \
+            libglib2.0-bin shared-mime-info x11-utils
       # The update notice's check reads the rehearsal's feed, served here.
       - name: Install, smoke-test and remove the .deb
         run: >-

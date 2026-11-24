@@ -29,8 +29,9 @@
 #    <out>/conduit-desktop-<version>-1.x86_64.rpm.
 #
 # The packages install /usr/lib/conduit/, the link /usr/bin/conduit-desktop,
-# /usr/share/applications/conduit-desktop.desktop (conduit:// links, and
-# Open With for the Mac's document types: never their default app), the
+# /usr/share/applications/conduit-desktop.desktop (conduit:// links, the
+# windows' WM_CLASS, and Open With for the Mac's document types, never as
+# their default app: winlinux.py types desktop-entry), the
 # hicolor icons, the licence and the third-party notices (beside the app,
 # and in /usr/share/doc/conduit-desktop/). Nothing goes in a home folder, so
 # removing a package leaves its users' data.

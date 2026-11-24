@@ -182,6 +182,14 @@ class FeedVersions(unittest.TestCase):
         )
 
 
+def entry_mime_types():
+    line = next(
+        l for l in DESKTOP_ENTRY.read_text(encoding="utf-8").splitlines()
+        if l.startswith("MimeType=")
+    )
+    return line[len("MimeType="):].rstrip(";").split(";")
+
+
 class FileTypes(unittest.TestCase):
     """The Mac's document types (Info.plist) are the source for Windows'
     Open With registrations and the Linux desktop entry's MIME types."""
@@ -207,14 +215,32 @@ class FileTypes(unittest.TestCase):
         self.assertEqual(supported, want)
 
     def test_the_desktop_entry_lists_the_scheme_and_the_mac_types(self):
-        line = next(
-            l for l in DESKTOP_ENTRY.read_text(encoding="utf-8").splitlines()
-            if l.startswith("MimeType=")
-        )
         self.assertEqual(
-            line[len("MimeType="):].rstrip(";").split(";"),
-            ["x-scheme-handler/conduit"] + winlinux.linux_mime_types(INFO_PLIST),
+            entry_mime_types(),
+            ["x-scheme-handler/conduit"] + winlinux.desktop_entry_types(INFO_PLIST),
         )
+
+    def test_the_desktop_entry_lists_no_type_a_parent_type_reaches(self):
+        # GIO (GNOME's file manager, and xdg-open there) takes an app that
+        # lists a type itself before its parent type's default. Listed,
+        # Markdown, CSV and JSON would open in Conduit wherever only
+        # text/plain has a default (GNOME), and Word, Excel and PowerPoint
+        # files wherever no office suite is installed (application/zip's
+        # default, the Archive Manager, opens them otherwise).
+        listed = entry_mime_types()
+        for parent_reaches in [
+            "text/markdown",
+            "text/csv",
+            "application/json",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ]:
+            self.assertIn(parent_reaches, winlinux.linux_mime_types(INFO_PLIST))
+            self.assertNotIn(parent_reaches, listed)
+        # Open With still offers Conduit for them: text/plain's apps are
+        # theirs too.
+        self.assertIn("text/plain", listed)
 
 
 class InstallerIdentity(unittest.TestCase):
@@ -504,6 +530,53 @@ class Leftovers(unittest.TestCase):
         tree = Tree(self)
         (tree.root / "Conduit").mkdir()
         self.assertEqual(winlinux.leftovers([tree.root / "Conduit"]), [str(tree.root / "Conduit")])
+
+
+class ForgetHandler(unittest.TestCase):
+    """crates/app/run.sh --unregister-scheme takes the dev entry out of the
+    user's mimeapps.list, where xdg-mime made it conduit://'s default."""
+
+    LIST = (
+        "[Default Applications]\n"
+        "x-scheme-handler/conduit=conduit-dev.desktop;\n"
+        "text/plain=org.example.Editor.desktop;\n"
+        "\n"
+        "[Added Associations]\n"
+        "x-scheme-handler/conduit=conduit-dev.desktop;conduit-desktop.desktop;\n"
+        "text/plain=conduit-dev.desktop;\n"
+    )
+
+    def test_takes_out_only_that_entry_for_that_type(self):
+        self.assertEqual(
+            winlinux.forget_handler(self.LIST, "x-scheme-handler/conduit", "conduit-dev.desktop"),
+            "[Default Applications]\n"
+            "text/plain=org.example.Editor.desktop;\n"
+            "\n"
+            "[Added Associations]\n"
+            "x-scheme-handler/conduit=conduit-desktop.desktop;\n"
+            "text/plain=conduit-dev.desktop;\n",
+        )
+
+    def test_a_list_naming_other_entries_stays_as_it_is(self):
+        for entry in ("conduit-dev", "other.desktop"):
+            self.assertEqual(
+                winlinux.forget_handler(self.LIST, "x-scheme-handler/conduit", entry), self.LIST
+            )
+
+    def test_the_file_is_written_only_when_it_changes(self):
+        tree = Tree(self)
+        path = tree.root / "mimeapps.list"
+        path.write_text(self.LIST)
+        args = ["forget-handler", str(path), "x-scheme-handler/conduit"]
+        before = path.stat().st_mtime_ns
+        self.assertEqual(winlinux.main(args + ["other.desktop"]), 0)
+        self.assertEqual(path.stat().st_mtime_ns, before)
+        self.assertEqual(winlinux.main(args + ["conduit-dev.desktop"]), 0)
+        self.assertNotIn("conduit-dev.desktop;conduit", path.read_text())
+        # No list at all: nothing to take out.
+        self.assertEqual(winlinux.main(["forget-handler", str(tree.root / "none.list"),
+                                        "x-scheme-handler/conduit", "conduit-dev.desktop"]), 0)
+        self.assertFalse((tree.root / "none.list").exists())
 
 
 class Icons(unittest.TestCase):
