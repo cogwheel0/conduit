@@ -91,6 +91,11 @@ The calling contract, which a binding must follow, is on `receiveBytes` and
   stopped once it is answering; it runs on and its answer is dropped, so a
   route that never finishes keeps its number busy (a client uses a fresh one).
 - A frame the client fails to take ends that stream alone.
+- A frame the host cannot take for a stream it can name (unreadable, a chunk
+  after `end`, a second `open` on a live number) ends that stream with an
+  `error` and no answer: a body that lost data never reaches a route as
+  whole. A chunk for a stream already answered or failed is dropped, since the
+  host told the client so.
 
 **Chunk ownership.** A chunk a host hands a route is the route's: the host
 never writes to its bytes again, so a route may keep it without copying. This

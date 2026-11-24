@@ -166,6 +166,10 @@ final class InProcessProtocolHost {
   ///   never waits on a route or on a send ([sendBytes] may complete late,
   ///   even after later frames), only on taking the frame.
   /// * A stream's frames come in order: `open`, its body's chunks, `end`.
+  /// * A frame the host cannot take for a stream it can name (one it cannot
+  ///   read, a chunk after `end`, a second `open` on a live number) ends
+  ///   that stream with an `error` and no answer, so a body never reaches a
+  ///   route short.
   /// * Every stream the host serves ends with exactly one `end` (answered
   ///   whole) or `error` (failed, refused or cancelled) from the host; its
   ///   number may be used again only after that.
@@ -182,6 +186,11 @@ final class InProcessProtocolHost {
         scope: 'protocol/host',
         data: {'reason': error.message},
       );
+      // One whose stream can be named ends it: its body is never taken short.
+      if (frame.length >= 4) {
+        final id = ByteData.sublistView(frame).getUint32(0);
+        _streams[id]?.stop('a frame of this stream could not be read');
+      }
       return;
     }
     final stream = _streams[decoded.stream];
@@ -192,6 +201,11 @@ final class InProcessProtocolHost {
         if (stream == null) {
           // Answered or failed already: what it was still sending is not
           // wanted (the host said so, or ended the stream).
+          return;
+        }
+        if (stream.endedByClient) {
+          // The body the route took was short of this.
+          stream.stop('a chunk came after the body ended');
           return;
         }
         stream.push(Uint8List.fromList(decoded.payload));
@@ -216,8 +230,9 @@ final class InProcessProtocolHost {
       unawaited(_fail(id, 'the protocol host is stopping'));
       return;
     }
-    if (_streams.containsKey(id)) {
-      unawaited(_fail(id, 'stream $id is open'));
+    if (_streams[id] case final live?) {
+      // Neither request can be told apart from the other from here on.
+      live.stop('stream $id was opened twice');
       return;
     }
     final ByteRequest request;

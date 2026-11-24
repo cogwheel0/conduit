@@ -792,6 +792,105 @@ void main() {
       check(stuck.frames).isEmpty();
     });
 
+    group('a frame the host cannot take for a stream it can name', () {
+      late InProcessProtocolHost host;
+      late _BytePeer bytes;
+      late _Transcriber transcriber;
+
+      setUp(() async {
+        await startApp();
+        transcriber = _Transcriber();
+        (host, bytes) = await startHost(transcriber: transcriber);
+        final phone = connect(host, 'phone');
+        await phone.handshake();
+        await phone.ask(
+          ConduitMethods.voiceSaveSettings,
+          const VoiceSettingsEdit(localModel: 'tiny').toJson(),
+        );
+      });
+
+      Future<_Answer> open(int stream) async {
+        final answer = bytes.answerFor(stream);
+        await host.receiveBytes(
+          ByteFrame(
+            stream,
+            ByteFrameKind.open,
+            payload: _json(<String, Object?>{
+              'method': 'POST',
+              'path': ConduitHttpRoutes.transcribe,
+              'query': 'engine=local',
+              'headers': <String, String>{'content-type': 'audio/wav'},
+            }),
+          ).encode(),
+        );
+        return answer;
+      }
+
+      Future<void> chunk(int stream, int byte, [int length = 1000]) =>
+          host.receiveBytes(
+            ByteFrame(
+              stream,
+              ByteFrameKind.chunk,
+              payload: Uint8List.fromList(List<int>.filled(length, byte)),
+            ).encode(),
+          );
+
+      Future<void> end(int stream) =>
+          host.receiveBytes(ByteFrame(stream, ByteFrameKind.end).encode());
+
+      test('an oversize chunk ends its stream with an error, so its body is '
+          'never taken short, while an upload beside it completes', () async {
+        final broken = await open(1);
+        final beside = await open(2);
+        await chunk(1, 1);
+        await chunk(2, 2);
+        // A chunk over 64 KiB, as a client that ignores the limit sends it.
+        final oversize = Uint8List(
+          ByteFrame.headerLength + ByteFrame.maxChunk + 1,
+        );
+        ByteData.sublistView(oversize)
+          ..setUint32(0, 1)
+          ..setUint8(4, ByteFrameKind.chunk.index)
+          ..setUint32(8, ByteFrame.maxChunk + 1);
+        await host.receiveBytes(oversize);
+        await chunk(1, 3);
+        await end(1);
+        await end(2);
+        await broken.settled;
+        await beside.done;
+        check(broken.error).isNotNull();
+        check(broken.status).isNull();
+        check(beside.status).equals(200);
+        check(transcriber.heard).length.equals(1);
+        check(transcriber.heard.single.toSet()).deepEquals(<int>{2});
+      });
+
+      test('a second open on a number still receiving its body ends it with '
+          'an error', () async {
+        final first = await open(1);
+        await chunk(1, 1);
+        await open(1);
+        await end(1);
+        await first.settled;
+        check(first.error).isNotNull();
+        check(first.status).isNull();
+        check(transcriber.heard).isEmpty();
+      });
+
+      test('a chunk after the body ended, while the route still answers, '
+          'ends the stream with an error instead of an answer', () async {
+        final held = transcriber.hold = Completer<void>();
+        final answer = await open(1);
+        await chunk(1, 1);
+        await end(1);
+        await chunk(1, 2);
+        held.complete();
+        await answer.settled;
+        check(answer.error).isNotNull();
+        check(answer.status).isNull();
+      });
+    });
+
     test('every tunnel is refused: this host carries no socket', () async {
       await startApp();
       final (_, bytes) = await startHost();
