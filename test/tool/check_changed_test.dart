@@ -72,7 +72,7 @@ void main() {
       'Desktop daemon (macOS build and smoke test)',
       'Desktop daemon (Windows and Linux build and smoke test)',
       // conduitd is built from conduit_markdown, and the bundle carries it.
-      'Desktop workflow (cargo tests, builds and the generated Rust)',
+      'Desktop workflow (cargo tests, builds and the generated code)',
     ]);
   });
 
@@ -111,6 +111,7 @@ void main() {
       'Analyze conduit_protocol',
       'Test conduit_protocol (whole suite)',
       'Protocol Rust types',
+      'Protocol Swift types',
     ]);
     check(plan.steps[3].command).deepEquals(['dart', 'test']);
     // The generator formats with rustfmt: a checkout without Rust skips it.
@@ -118,9 +119,11 @@ void main() {
     check(plan.steps[4].needs).equals('rustfmt');
     // Probed where the generator runs it, under the pinned toolchain.
     check(plan.steps[4].needsIn).equals('desktop');
+    // The Swift generator needs Dart alone.
+    check(plan.steps[5].optional).isFalse();
     check(
       plan.leftToCi,
-    ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');
+    ).contains('Desktop workflow (cargo tests, builds and the generated code)');
   });
 
   test('an app change runs the seam and the tests beside what changed', () {
@@ -164,7 +167,7 @@ void main() {
     // The desktop app builds its strings from the same files.
     check(
       plan.leftToCi,
-    ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');
+    ).contains('Desktop workflow (cargo tests, builds and the generated code)');
   });
 
   test('changes outside Dart run only their own checks', () {
@@ -179,7 +182,16 @@ void main() {
         .deepEquals(['Protocol Rust types', 'Desktop format', 'Desktop build']);
     check(desktop.steps.every((step) => step.optional)).isTrue();
     check(desktop.leftToCi).deepEquals([
-      'Desktop workflow (cargo tests, builds and the generated Rust)',
+      'Desktop workflow (cargo tests, builds and the generated code)',
+    ]);
+
+    final swift = _plan([
+      'ios/ConduitProtocol/Sources/ConduitProtocol/Generated.swift',
+    ]);
+    check(_names(swift)).deepEquals(['Protocol Swift types']);
+    check(swift.leftToCi).deepEquals([
+      'Protocol Swift (swift test)',
+      'Desktop workflow (cargo tests, builds and the generated code)',
     ]);
 
     final docs = _plan(['README.md', 'docs/BUILDING.md']);
@@ -199,7 +211,7 @@ void main() {
     // The core's code is built into conduitd, which the bundle carries.
     check(
       _plan(['packages/conduit_core/lib/src/x.dart']).leftToCi,
-    ).contains('Desktop workflow (cargo tests, builds and the generated Rust)');
+    ).contains('Desktop workflow (cargo tests, builds and the generated code)');
   });
 
   test('host-agnostic Swift is checked against the package boundaries', () {

@@ -9,8 +9,8 @@
 // inputs changed; the analyzer for each workspace member that changed and for
 // every member that depends on one; the test files beside the changed files,
 // or the whole suite of a member whose tests sit beside no source file; the
-// protocol's generated Rust; and the format and build checks of the relay and
-// of the desktop app's Cargo workspace.
+// protocol's generated Rust and Swift; and the format and build checks of the
+// relay and of the desktop app's Cargo workspace.
 //
 // CI still runs the full test suites and the jobs listed at the end of the
 // summary. Steps run one at a time: analyzers started together race to build
@@ -30,6 +30,7 @@ const Set<String> wholeSuiteMembers = {'packages/conduit_protocol'};
 const List<String> desktopWorkflowPaths = [
   'desktop/',
   'packages/conduit_protocol/',
+  'ios/ConduitProtocol/',
   // The app's strings are generated from the ARBs, and its bundle carries
   // conduitd, built from the core and markdown packages.
   'lib/l10n/',
@@ -375,6 +376,20 @@ Plan planChecks(
     );
   }
 
+  if (any(
+    (path) =>
+        path.startsWith('packages/conduit_protocol/') ||
+        path.startsWith('ios/ConduitProtocol/'),
+  )) {
+    steps.add(
+      const Step(
+        'Protocol Swift types',
+        ['dart', 'run', 'tool/generate_swift.dart', '--check'],
+        directory: 'packages/conduit_protocol',
+      ),
+    );
+  }
+
   if (any((path) => path.startsWith('desktop/'))) {
     steps
       ..add(
@@ -436,12 +451,18 @@ Plan planChecks(
       'Push Swift core (swift test)',
     if (any(
       (path) =>
+          path.startsWith('packages/conduit_protocol/') ||
+          path.startsWith('ios/ConduitProtocol/'),
+    ))
+      'Protocol Swift (swift test)',
+    if (any(
+      (path) =>
           path.startsWith('tool/computer_viewer/') ||
           path.startsWith('assets/computer/'),
     ))
       'Computer viewer (npm test, build and the shipped bundle)',
     if (any((path) => desktopWorkflowPaths.any(path.startsWith)))
-      'Desktop workflow (cargo tests, builds and the generated Rust)',
+      'Desktop workflow (cargo tests, builds and the generated code)',
   ]);
 }
 

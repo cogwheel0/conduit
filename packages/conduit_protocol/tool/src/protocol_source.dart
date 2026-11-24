@@ -194,6 +194,23 @@ final class ProtocolSource {
   final Map<String, ClassDeclaration> _specClasses =
       <String, ClassDeclaration>{};
 
+  /// Follows a constant reference to its value: `kDefaultUiFontSize`,
+  /// `Capabilities.none`. Enum values are left alone.
+  Expression resolve(Expression node) {
+    for (var depth = 0; depth < 16; depth++) {
+      final next = switch (node) {
+        SimpleIdentifier(:final name) => topConsts[name],
+        PrefixedIdentifier(:final prefix, :final identifier)
+            when enumDef(prefix.name) == null =>
+          staticConsts['${prefix.name}.${identifier.name}'],
+        _ => null,
+      };
+      if (next == null) return node;
+      node = next;
+    }
+    throw GeneratorError('constant cycle at $node');
+  }
+
   Dto? dto(String name) => dtos.where((d) => d.name == name).firstOrNull;
   EnumDef? enumDef(String name) =>
       enums.where((e) => e.name == name).firstOrNull;
@@ -552,3 +569,21 @@ String snakeCase(String name) {
   }
   return out.toString();
 }
+
+/// The class [node] constructs with its unnamed constructor, `Foo()` or
+/// `const Foo()`; null for anything else.
+String? constructedType(Expression node) => switch (node) {
+  MethodInvocation(:final target, :final methodName) when target == null =>
+    methodName.name,
+  InstanceCreationExpression(:final constructorName)
+      when constructorName.name == null =>
+    constructorName.type.name.lexeme,
+  _ => null,
+};
+
+/// The arguments [node] constructs with; null when it constructs nothing.
+NodeList<Argument>? constructorArguments(Expression node) => switch (node) {
+  MethodInvocation(:final argumentList) => argumentList.arguments,
+  InstanceCreationExpression(:final argumentList) => argumentList.arguments,
+  _ => null,
+};

@@ -94,9 +94,10 @@ else's task.
    bindings are the exception to "ignored": `conduit_platform_apis.g.dart`,
    `ConduitPlatformApis.g.swift`, and `ConduitPlatformApis.g.kt` are tracked,
    so regenerate and commit all three when `pigeons/` changes. So are the
-   protocol's goldens and the Mac app's Rust types: when a DTO in
-   `packages/conduit_protocol` changes, run its `tool/dump_goldens.dart` and
-   `tool/generate_rust.dart` and commit what they write.
+   protocol's goldens, the Mac app's Rust types and the Swift types in
+   `ios/ConduitProtocol`: when a DTO in `packages/conduit_protocol` changes,
+   run its `tool/dump_goldens.dart`, `tool/generate_rust.dart` and
+   `tool/generate_swift.dart` and commit what they write.
 
 ## Hit every surface
 
