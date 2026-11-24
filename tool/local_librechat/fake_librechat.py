@@ -1522,8 +1522,13 @@ def resume_refusal(payload, body):
             c.get("tool_call_id"): set(c.get("allowed_decisions") or [])
             for c in payload.get("review_configs") or []
         }
+        # LibreChat checks a decision with a Set's `has`: anything but one of
+        # the call's allowed names, a list or a number included, is refused.
         disallowed = [
-            d["tool_call_id"] for d in decisions if d.get("decision") not in allowed.get(d["tool_call_id"], set())
+            d["tool_call_id"]
+            for d in decisions
+            if not isinstance(d.get("decision"), str)
+            or d.get("decision") not in allowed.get(d["tool_call_id"], set())
         ]
         if disallowed:
             return 403, {"error": "Decision not permitted for one or more tools", "disallowed": disallowed}
