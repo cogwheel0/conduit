@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:conduit_core/ports/paths_port.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -43,7 +44,7 @@ void startProtocolChannelHost(ProviderContainer container) {
 /// * `conduit/protocol/control` (standard codec), maps with an `op`:
 ///   from the client `hello` (answered with the host's `ready`), `open` and
 ///   `close` of a session; from the host `ready` when it starts (again after
-///   a restart of the Dart side) and `closed` when a session ends however it
+///   a restart of the Dart side, with a `start` of its own) and `closed` when a session ends however it
 ///   ended, so the client opens another.
 /// * `conduit/protocol/rpc` (strings): `<session>\n<JSON-RPC message>`
 ///   either way. The reply is the acknowledgement the host counts (an empty
@@ -104,9 +105,13 @@ final class ProtocolChannelHost {
   Future<InProcessProtocolHost>? _host;
   bool _disposed = false;
 
-  static final Map<String, Object> _ready = <String, Object>{
+  /// `start` names this binding, so a client tells a second `ready` from
+  /// the same one (its `hello` answered as well) from a restart of the Dart
+  /// side, whose sessions are gone.
+  late final Map<String, Object> _ready = <String, Object>{
     'op': 'ready',
     'protocolVersion': kConduitProtocolVersion,
+    'start': Random().nextInt(1 << 32).toRadixString(16),
   };
 
   void listen() {

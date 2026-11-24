@@ -139,7 +139,9 @@ out.
   host's `ready` (with the protocol version) and `closed`. Dart sends `ready`
   when it starts, again after a restart of the Dart side (a hot restart keeps
   Swift's handlers), and a client registers its handlers before it sends
-  anything.
+  anything. A `hello` sent before Dart listens waits in the engine's buffer
+  and is answered too, so a client may hear `ready` twice: its `start` names
+  the binding, and a client opens once per start.
   An `open` is answered once the host has started, which may take a while
   the first time. Until then the session takes no messages, a `close` cancels
   the open (it is answered `closed`), and a second `open` of it is refused.

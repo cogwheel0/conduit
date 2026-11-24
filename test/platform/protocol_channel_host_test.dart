@@ -46,6 +46,7 @@ void main() {
   /// The binding over a core of its own, as the app's root container would
   /// be, listening, with the client told it is ready.
   late _Paths paths;
+  late Map<Object?, Object?> ready;
 
   Future<void> startHost({int limit = 64}) async {
     final core = await _startCore(temporary);
@@ -58,9 +59,9 @@ void main() {
       maxUnacknowledged: limit,
     );
     addTearDown(host.dispose);
-    final ready = swift.nextControl('ready');
+    final told = swift.nextControl('ready');
     host.listen();
-    await ready;
+    ready = await told;
   }
 
   test('the host runs only with the define, and only on iOS', () {
@@ -89,7 +90,9 @@ void main() {
       ..has(
         (it) => it['protocolVersion'],
         'protocolVersion',
-      ).equals(kConduitProtocolVersion);
+      ).equals(kConduitProtocolVersion)
+      // The same start as the ready the host sent, so the client opens once.
+      ..has((it) => it['start'], 'start').equals(ready['start']);
     check(
       await swift.control(<String, Object>{'op': 'open', 'session': 'phone'}),
     ).isA<Map<Object?, Object?>>().has((it) => it['ok'], 'ok').equals(true);
@@ -226,6 +229,17 @@ void main() {
     await swift.bytes(ByteFrame(2, ByteFrameKind.end).encode());
     check((await answered).map((f) => f.kind))
         .contains(ByteFrameKind.responseHead);
+  });
+
+  test('a binding started again names a start of its own', () async {
+    await startHost();
+    final first = ready['start'];
+    check(first).isA<String>().isNotEmpty();
+    await host.dispose();
+    await startHost();
+    check(ready['start'])
+      ..isA<String>()
+      ..not((it) => it.equals(first));
   });
 
   test(

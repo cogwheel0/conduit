@@ -7,8 +7,10 @@ import UIKit
 /// (`lib/platform/protocol_channel_host.dart`). No UI.
 ///
 /// Once the Dart side says it is ready and a window of the app is in front,
-/// it opens a session, handshakes, lists the chats and logs
-/// `[protocol-probe] ok N chats`, or `[protocol-probe] failed <reason>`. It
+/// it logs `[protocol-probe] open`, opens a session, handshakes, lists the
+/// chats and logs `[protocol-probe] ok N chats`, or
+/// `[protocol-probe] failed <reason>`. It opens once per start of the Dart
+/// side: again after a restart, not for a second `ready` of the same one. It
 /// logs counts and error codes only, never a title, an id, an address or any
 /// other content. Without the define the Dart side never answers, and the
 /// probe logs nothing. The session stays open afterwards.
@@ -22,6 +24,9 @@ final class ProtocolProbeBridge: ConduitBridge {
   private var control: FlutterBasicMessageChannel?
   private var rpc: FlutterBasicMessageChannel?
   private var session: String?
+  /// The Dart side's start the probe opens for, from its `ready`.
+  private var start: String?
+  private var opening = false
   private var nextId = 1
   private var pending: [Int: ([String: Any]) -> Void] = [:]
   private var activation: NSObjectProtocol?
@@ -45,7 +50,7 @@ final class ProtocolProbeBridge: ConduitBridge {
       guard let self, let message = message as? [String: Any] else { return }
       switch message["op"] as? String {
       case "ready":
-        self.ready(protocolVersion: message["protocolVersion"] as? String)
+        self.ready(message)
       case "closed":
         if message["session"] as? String == self.session {
           self.forgetSession()
@@ -65,16 +70,22 @@ final class ProtocolProbeBridge: ConduitBridge {
     control.sendMessage(["op": "hello"]) { [weak self] reply in
       guard let reply = reply as? [String: Any], reply["op"] as? String == "ready"
       else { return }
-      self?.ready(protocolVersion: reply["protocolVersion"] as? String)
+      self?.ready(reply)
     }
   }
 
-  /// The Dart side is up, the first time or again after a restart, when its
-  /// sessions are gone.
-  private func ready(protocolVersion: String?) {
-    guard let protocolVersion else { return }
+  /// The Dart side is up: told by Dart, and as the answer to `hello`, both
+  /// naming the same start. A new start is a restart, whose sessions are gone.
+  private func ready(_ message: [String: Any]) {
+    guard let protocolVersion = message["protocolVersion"] as? String,
+      let start = message["start"] as? String, start != self.start
+    else { return }
+    self.start = start
+    opening = false
     forgetSession()
-    whenWindowInFront { [weak self] in self?.open(protocolVersion: protocolVersion) }
+    whenWindowInFront { [weak self] in
+      self?.open(protocolVersion: protocolVersion, start: start)
+    }
   }
 
   private func whenWindowInFront(_ run: @escaping () -> Void) {
@@ -98,13 +109,21 @@ final class ProtocolProbeBridge: ConduitBridge {
     }
   }
 
-  private func open(protocolVersion: String) {
-    guard session == nil else { return }
+  private func open(protocolVersion: String, start: String) {
+    guard session == nil, !opening, start == self.start else { return }
+    opening = true
+    log("open")
     let id = "probe-\(UUID().uuidString)"
     control?.sendMessage(["op": "open", "session": id]) { [weak self] reply in
       guard let self else { return }
+      // A reply from a start since replaced: its session went with it.
+      guard start == self.start else { return }
+      self.opening = false
       guard let reply = reply as? [String: Any], reply["ok"] as? Bool == true else {
-        self.log("failed open")
+        // The binding's codes only; anything else may carry an id.
+        let code = (reply as? [String: Any])?["error"] as? String
+        let codes: Set = ["unavailable", "closed", "open", "stopped"]
+        self.log("failed open \(code.flatMap { codes.contains($0) ? $0 : nil } ?? "other")")
         return
       }
       self.session = id
