@@ -366,7 +366,6 @@ void main() {
     final paging = channels.memberPage(
       const ChannelMemberQuery(channelId: 'c9'),
     );
-    await Future<void>.delayed(Duration.zero);
     channels.dispose();
     heard.clear();
     api.channel.complete(seedSwap);

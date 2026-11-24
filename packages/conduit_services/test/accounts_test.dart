@@ -238,6 +238,7 @@ void main() {
     // would drop.
     accounts.dispose();
     var resets = 0;
+    var appHasReset = Completer<void>();
     final appReset = runtime.container.listen<String?>(
       settledActiveAccountIdProvider,
       (previous, next) {
@@ -245,6 +246,7 @@ void main() {
         resets++;
         resetOpenWebUiAccountState(runtime.container);
         runtime.container.read(searchQueryProvider.notifier).set(next!);
+        if (!appHasReset.isCompleted) appHasReset.complete();
       },
     );
     final query = runtime.container.listen(searchQueryProvider, (_, _) {});
@@ -265,8 +267,11 @@ void main() {
       );
     });
 
+    // The services' own listener on the same change runs in the same round
+    // as the app's, so once the app has reset, a second reset has happened
+    // too if there is one.
     Future<void> expectResetOnce(String accountId, String startedBy) async {
-      await pumpEventQueue();
+      await appHasReset.future;
       expect(resets, 1, reason: '$startedBy: resets');
       expect(
         runtime.container.read(searchQueryProvider),
@@ -274,6 +279,7 @@ void main() {
         reason: "$startedBy: the app's state for the new account kept",
       );
       resets = 0;
+      appHasReset = Completer<void>();
     }
 
     // Started in the app's own interface: the core's accounts controller.

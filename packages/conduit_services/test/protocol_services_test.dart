@@ -623,8 +623,11 @@ void main() {
     addTearDown(built.closeTransports);
     built.attach(app);
     final posted = <String>[];
+    final announced = Completer<void>();
     built.events.tap((event, _, _) {
-      if (event == ConduitEvents.channelsPosted) posted.add(event);
+      if (event != ConduitEvents.channelsPosted) return;
+      posted.add(event);
+      if (!announced.isCompleted) announced.complete();
     });
     await app.read(channelsListProvider.future);
 
@@ -646,7 +649,7 @@ void main() {
         'data': <String, dynamic>{'is_channel_muted': true},
       },
     });
-    await Future<void>.delayed(Duration.zero);
+    await announced.future;
 
     final garden = app.read(channelsListProvider).value!.single;
     expect(garden.unreadCount, 0);
