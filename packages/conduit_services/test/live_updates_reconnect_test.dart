@@ -117,6 +117,19 @@ void main() {
     return read.future.whenComplete(watch.close);
   }
 
+  /// Completes once the connection attempt the socket in use is making has
+  /// failed, and the socket service has taken that in. A listener added with
+  /// `on`, not `once`: the service may replace the socket as it takes the
+  /// failure in, which clears that socket's `once` listeners first.
+  Future<void> attemptFails() {
+    final failed = Completer<void>();
+    final socket = runtime.container.read(socketServiceProvider)!.socket!;
+    socket.on('connect_error', (_) {
+      if (!failed.isCompleted) failed.complete();
+    });
+    return failed.future;
+  }
+
   test('a websocket-only server is never asked for a polling handshake: '
       'not while the way to it drops connections, nor once the network is '
       'back', () async {
@@ -129,23 +142,29 @@ void main() {
     final chats = owui.chats;
 
     // The way to the server goes (the address released, a forwarder's
-    // tunnel down) before the network's report says so: the socket's own
-    // reconnects meet dropped connections.
-    final tries = chats.nextSocketHandshakes(2);
+    // tunnel down) before the network's report says so, and a Retry meets
+    // a dropped connection.
     chats.stopServer();
-    expect(await tries, ['websocket', 'websocket']);
+    await liveUpdates(connected: false);
+    final retried = chats.nextSocketHandshakes(1);
+    final retry = data.reconnect();
+    final failed = attemptFails();
+    expect(await retried, ['websocket']);
+    await failed;
 
     await reportNetwork(online: false);
     chats.startServer();
+    final back = chats.nextSocketHandshakes(1);
     await reportNetwork(online: true);
+    expect(await back, ['websocket']);
 
     await liveUpdates(connected: true);
-    expect(data.connection().transport, 'websocket');
+    expect((await retry).connected, isTrue);
     expect(chats.socketHandshakes, isNot(contains('polling')));
   });
 
   test('live updates the network report ended come back once the network '
-      'is, retrying while the server is still out of reach', () async {
+      'is, after a try that met the server still out of reach', () async {
     await liveUpdates(connected: true);
     await serverPolicyRead();
     final chats = owui.chats;
@@ -156,13 +175,16 @@ void main() {
     chats.stopServer();
 
     // The network is back before the way to the server is.
-    final tries = chats.nextSocketHandshakes(2);
+    final tried = chats.nextSocketHandshakes(1);
     await reportNetwork(online: true);
-    expect(await tries, ['websocket', 'websocket']);
+    final failed = attemptFails();
+    expect(await tried, ['websocket']);
+    await failed;
 
     chats.startServer();
-    await liveUpdates(connected: true);
-    expect(data.connection().transport, 'websocket');
+    final health = await data.reconnect();
+    expect(health.connected, isTrue);
+    expect(health.transport, 'websocket');
     expect(chats.socketHandshakes, isNot(contains('polling')));
   });
 
