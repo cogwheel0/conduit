@@ -3459,6 +3459,15 @@ final class TurnsService implements ChatTurns, AddressReplies {
         ? null
         : libreChatPendingActionFor(session.scope.container, answer.id);
     final actionId = libreChat?.actionId;
+    // The pause a card waits on was answered elsewhere (a resumed stream no
+    // longer has it) or gave way to another: its card goes now, before the
+    // next is put.
+    final waiting = session.libreChatPause;
+    if (waiting != null &&
+        waiting.messageId == answer.id &&
+        waiting.actionId != actionId) {
+      waiting.leave();
+    }
     if (libreChat != null &&
         actionId != null &&
         session.asked.add('librechat:$actionId')) {
@@ -3490,6 +3499,12 @@ final class TurnsService implements ChatTurns, AddressReplies {
       (_, _) => leave(),
     );
     unawaited(turn.ended.future.then((_) => leave(), onError: (_) => leave()));
+    final pause = (
+      messageId: messageId,
+      actionId: action.actionId,
+      leave: leave,
+    );
+    session.libreChatPause = pause;
     // The turn that asked still runs, and still waits on this pause: a card
     // answered later touches no newer reply in the chat.
     bool asking() =>
@@ -3519,6 +3534,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
     } finally {
       switches.close();
       leave();
+      if (session.libreChatPause?.actionId == pause.actionId) {
+        session.libreChatPause = null;
+      }
     }
   }
 
@@ -4865,6 +4883,10 @@ final class _ChatSession {
 
   /// Approvals already put to the user, so each is asked once.
   final Set<String> asked = <String>{};
+
+  /// The LibreChat pause a card waits on: the answer it paused, and how to
+  /// take its card back once that answer no longer waits on it.
+  ({String messageId, String? actionId, void Function() leave})? libreChatPause;
 
   /// The queue as `queue.changed` last published it.
   QueueState? lastQueue;

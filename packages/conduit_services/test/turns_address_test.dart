@@ -463,9 +463,21 @@ void main() {
       expect(libreChat.aborts, isEmpty);
     });
 
-    test('a LibreChat pause belongs to the account it came under: a change '
-        'of the account in charge takes its card back, and an answer given '
-        'as it changes sends nothing', () async {
+    /// A LibreChat reply paused on a tool call, its card put to a window
+    /// ([seen] says, in order, which cards were put and settled).
+    Future<
+      ({
+        UiRequestsService windows,
+        FakeLibreChatChat libreChat,
+        LibreChatSignInResult signedIn,
+        SendTurnAccepted turn,
+        UiRequest card,
+        Future<String> withdrawn,
+        List<String> seen,
+        Stream<UiRequest> cards,
+      })
+    >
+    pausedTide() async {
       final windows = UiRequestsService(events);
       final pausing = TurnsService(
         runtime.container,
@@ -477,13 +489,21 @@ void main() {
       addTearDown(pausing.dispose);
       final asked = Completer<UiRequest>();
       final withdrawn = Completer<String>();
+      final seen = <String>[];
+      final cards = StreamController<UiRequest>.broadcast();
+      addTearDown(cards.close);
       events.attach('window-1', (envelope) {
-        if (envelope.event == ConduitEvents.uiRequest && !asked.isCompleted) {
-          asked.complete(UiRequest.fromJson(envelope.payload));
+        if (envelope.event == ConduitEvents.uiRequest) {
+          final card = UiRequest.fromJson(envelope.payload);
+          seen.add('put ${card.messageArgs['title']}');
+          cards.add(card);
+          if (!asked.isCompleted) asked.complete(card);
         }
-        if (envelope.event == ConduitEvents.uiSettled &&
-            !withdrawn.isCompleted) {
-          withdrawn.complete('${envelope.payload['requestId']}');
+        if (envelope.event == ConduitEvents.uiSettled) {
+          seen.add('settled');
+          if (!withdrawn.isCompleted) {
+            withdrawn.complete('${envelope.payload['requestId']}');
+          }
         }
       });
       addTearDown(() => events.detach('window-1'));
@@ -545,6 +565,31 @@ void main() {
       });
       final card = await clock.during(asked.future);
       expect(card.messageArgs['chatId'], turn.chatId);
+      return (
+        windows: windows,
+        libreChat: libreChat,
+        signedIn: signedIn,
+        turn: turn,
+        card: card,
+        withdrawn: withdrawn.future,
+        seen: seen,
+        cards: cards.stream,
+      );
+    }
+
+    test('a LibreChat pause belongs to the account it came under: a change '
+        'of the account in charge takes its card back, and an answer given '
+        'as it changes sends nothing', () async {
+      final (
+        :windows,
+        :libreChat,
+        :signedIn,
+        :turn,
+        :card,
+        :withdrawn,
+        :seen,
+        :cards,
+      ) = await pausedTide();
       // A window answers in the instant the account changes, before the
       // reply it paused has heard of the change.
       final answerAtTheChange = runtime.container.listen<int>(
@@ -565,7 +610,7 @@ void main() {
           ),
         ),
       );
-      expect(await clock.during(withdrawn.future), card.requestId);
+      expect(await clock.during(withdrawn), card.requestId);
       // Not put to a window of the next account that connects now.
       expect(windows.pending, isEmpty);
       // An answer that comes later is taken by nothing.
@@ -578,6 +623,50 @@ void main() {
       await clock.during(pumpEventQueue());
       expect(libreChat.resumes, isEmpty);
     });
+
+    test(
+      'a LibreChat pause answered elsewhere takes its card back when the '
+      'resumed stream no longer has it, before the next pause is put',
+      () async {
+        final (
+          :windows,
+          :libreChat,
+          :signedIn,
+          :turn,
+          :card,
+          :withdrawn,
+          :seen,
+          :cards,
+        ) = await pausedTide();
+        // Answered on another device while the stream was away: the resumed
+        // stream's snapshot has no pause, and the reply goes on to the next.
+        libreChat.resumedWithoutPause();
+        final next = cards.first;
+        libreChat.paused({
+          'actionId': 'act-weather',
+          'conversationId': 'conv-ridge',
+          'payload': {
+            'type': 'tool_approval',
+            'action_requests': [
+              {'tool_call_id': 'call-weather', 'name': 'lookup_weather'},
+            ],
+            'review_configs': [
+              {
+                'tool_call_id': 'call-weather',
+                'allowed_decisions': ['approve', 'reject'],
+              },
+            ],
+          },
+        });
+        await clock.during(next);
+        expect(seen, ['put lookup_tide', 'settled', 'put lookup_weather']);
+        expect(await clock.during(withdrawn), card.requestId);
+        expect(windows.pending.map((r) => r.messageArgs['title']), [
+          'lookup_weather',
+        ]);
+        expect(libreChat.resumes, isEmpty);
+      },
+    );
   });
 
   // 0.13.4 passes both on to the provider instead of reading them. The core

@@ -137,6 +137,14 @@ final class FakeLibreChatChat {
     },
   });
 
+  /// The stream is resumed: the server's snapshot of the reply, here with
+  /// no pause in it (answered meanwhile, on another device).
+  void resumedWithoutPause() => _emit({
+    'sync': true,
+    'resumeState': {'aggregatedContent': <Object>[]},
+    'pendingEvents': <Object>[],
+  });
+
   /// The run pauses on [action] (`on_pending_action`): a tool call or a
   /// question waiting for the user.
   void paused(Map<String, dynamic> action) =>
