@@ -257,6 +257,66 @@ void main() {
     expect(seen, isNot(contains(ConduitEvents.hermesChanged)));
   });
 
+  test('a reading stopped as transports close hears its window answer the '
+      'stop, so closing does not wait out the timeout', () async {
+    await startDesktop();
+    final built = services()..attach(runtime.container);
+    final pipe = StreamChannelController<String>(sync: true);
+    final session = built.openSession(pipe.local, sessionId: 'phone');
+    addTearDown(session.close);
+    unawaited(session.listen());
+    final window = json_rpc.Peer(pipe.foreign);
+    addTearDown(window.close);
+    // The window's speech engine: it answers every command, and says what
+    // the answer to the stop was.
+    final spoke = Completer<void>();
+    final stopAnswered = Completer<Object?>();
+    registerEventSink(
+      window,
+      onEvent: (envelope) {
+        if (envelope.event != ConduitEvents.speechCommand) return;
+        final command = SpeechCommand.fromJson(envelope.payload);
+        final answered = window.sendRequest(
+          ConduitMethods.speechReport,
+          SpeechReport(id: command.id, value: true).toJson(),
+        );
+        switch (command.kind) {
+          case SpeechCommandKind.deviceSpeak when !spoke.isCompleted:
+            spoke.complete();
+          case SpeechCommandKind.deviceStop when !stopAnswered.isCompleted:
+            answered.then(
+              stopAnswered.complete,
+              onError: (Object error) => stopAnswered.complete(error),
+            );
+          default:
+        }
+      },
+    );
+    unawaited(window.listen());
+    await handshakeAndAsk(window);
+    await window.sendRequest(
+      ConduitMethods.eventsSubscribe,
+      const EventSubscription().toJson(),
+    );
+    await window.sendRequest(
+      ConduitMethods.speechPreview,
+      const SpeechPreview(
+        text: 'The harbour lights come on one by one as evening settles in.',
+      ).toJson(),
+    );
+    await spoke.future;
+
+    var closed = false;
+    final closing = built.closeTransports().then((_) => closed = true);
+
+    expect(await stopAnswered.future, isA<Map<dynamic, dynamic>>());
+    await pumpEventQueue();
+    expect(closed, isTrue);
+    await closing;
+    // Stopped: from here a report reaches nothing.
+    expect(built.core.speechReports, isNull);
+  });
+
   test('closing again after disposal shows sessions nothing', () async {
     await startDesktop();
     final built = services()..attach(runtime.container);

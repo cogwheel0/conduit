@@ -382,6 +382,7 @@ final class ProtocolServices {
   TerminalsService? _terminals;
   ComputerRpcService? _computer;
   bool _transportsClosed = false;
+  bool _speechStopped = false;
   bool _disposed = false;
 
   /// Null once [closeTransports] has begun.
@@ -436,6 +437,7 @@ final class ProtocolServices {
     access: _access,
     folderSettings: _folderSettings,
     speech: transports ? _speech : null,
+    speechReports: _speechStopped ? null : _speech,
     calls: transports ? _calls : null,
     apple: _apple,
     location: _ports.window.location,
@@ -473,7 +475,10 @@ final class ProtocolServices {
     _transportsClosed = true;
     if (_attached && !_disposed) _core = _buildCore(transports: false);
     await _calls?.dispose();
+    // Its stop asks the window, whose answer still reaches it until now.
     await _speech?.dispose();
+    _speechStopped = true;
+    if (_attached && !_disposed) _core = _buildCore(transports: false);
     await _terminals?.dispose();
     await _computer?.dispose();
     await _data?.dispose();
