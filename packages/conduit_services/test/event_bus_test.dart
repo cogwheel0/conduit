@@ -48,6 +48,39 @@ void main() {
     expect(bus.lastSeqFor('b'), 3);
   });
 
+  test("an event a session's transport refuses is not numbered, and a "
+      'direct send is not asked', () {
+    seen['a'] = <EventEnvelope>[];
+    bus.attach(
+      'a',
+      seen['a']!.add,
+      admit: (event, scope, payload) => payload['keep'] == true,
+    );
+    bus.subscribe('a', const EventSubscription(scopes: <String>['chat_1']));
+    open(
+      'b',
+      subscription: const EventSubscription(scopes: <String>['chat_1']),
+    );
+
+    bus
+      ..publish(
+        ConduitEvents.turnDelta,
+        scope: 'chat_1',
+        payload: <String, dynamic>{'keep': false},
+      )
+      ..publish(
+        ConduitEvents.turnDelta,
+        scope: 'chat_1',
+        payload: <String, dynamic>{'keep': true},
+      )
+      ..sendTo('a', ConduitEvents.turnDelta, scope: 'chat_1');
+
+    expect(seqs('a'), <int>[1, 2]);
+    expect(seen['a']!.first.payload, <String, dynamic>{'keep': true});
+    // Another session is not asked: it gets both.
+    expect(seqs('b'), <int>[1, 2]);
+  });
+
   test('publish says how many sessions it reached', () {
     open('a');
     open('b', subscription: const EventSubscription(events: <String>['x']));

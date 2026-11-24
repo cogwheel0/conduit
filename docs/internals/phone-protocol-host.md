@@ -1,0 +1,66 @@
+# The phone's protocol host
+
+[`InProcessProtocolHost`](../../packages/conduit_services/lib/src/in_process_host.dart)
+runs the protocol's services inside the Flutter app, so a native screen in the
+same process can use them over messages. It shares the app's root container
+rather than starting a second core: two cores over the same databases and
+Keychain would each sync, drain the outbox and own a socket, and race.
+
+## What the app keeps, and what the host does not do
+
+The host builds the services in shared mode
+(`ProtocolHostPorts.sharesAppContainer`). The app's own listeners already run
+over that container, so the host must not run them a second time:
+
+- **Read-aloud, calls, Apple models and location** stay the app's. Their
+  window bridges are not built, and their namespaces answer
+  `rpc.unsupported` (`Capabilities.notOffered`).
+- **Channel upkeep**: the app counts unread, applies mutes and reloads the
+  list after a reconnect.
+- **Alerts**: the app's notification router alerts for channel messages and
+  answers from elsewhere, with the push ledger it shares with the
+  notification extension. The services announce neither `channels.posted` nor
+  `notifications.answered`, so a client cannot alert a second time.
+- **The account-change reset**: the app's root listener resets the departing
+  account's state, in its own order, however the switch started.
+
+A new service that listens to the container must ask the same question: does
+the app already do this?
+
+## Stopping
+
+`dispose()` stops in the order `conduitd` does: no new sessions or streams,
+the sessions closed, `closeTransports()`, the byte streams ended, then the
+services. It never disposes the container, and it does not call
+`CoreRuntime.beginShutdown`: the app's core keeps running. The services close
+the event bus last, so work still in flight after that tells no client.
+
+## Backpressure
+
+A platform channel has none, so each session counts the messages its client
+has not yet acknowledged. Past the limit, a chat's `turn.delta` and
+`turn.blocks` frames are held back, each replaced by the next: every frame
+carries the whole state so far. Nothing else is ever held or dropped.
+
+A held frame is refused before the bus numbers it (`EventBus.attach`'s
+`admit`), so the client sees no gap in `seq`. A gap means "refetch" to a
+client (the Mac's stores do), so dropping an already numbered frame would
+trade a few stale frames for a refetch storm. What is held goes out when the
+client catches up, and before any other event for the same chat, so a chat's
+final text always precedes its `turn.completed`.
+
+## Byte routes
+
+The byte routes travel as frames (`ByteFrame`): a 12-byte header (stream,
+kind, flags, reserved, length) and up to 64 KiB of payload. Flow control is by
+reply: the client sends the next chunk once the host's future for the last one
+completes, and the host sends the next chunk of an answer once the client's
+reply comes. Either side can cancel. Tunnels need a socket both ways and are
+refused.
+
+**Chunk ownership.** A chunk a host hands a route is the route's: the host
+never writes to its bytes again, so a route may keep it without copying. This
+is the contract on `ByteRequest.read`, and `ProtocolByteRoutes._collect`
+depends on it. The in-process host copies each frame's payload, because the
+client may reuse its buffer. `conduitd` passes `dart:io`'s views of each socket
+read, which it never rewrites.

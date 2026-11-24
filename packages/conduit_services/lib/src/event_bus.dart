@@ -9,6 +9,15 @@ typedef EventTap = void Function(
   Map<String, dynamic> payload,
 );
 
+/// Whether a session takes an event its filter wants, asked before the
+/// event is numbered ([EventBus.attach]): one it refuses is never sent, and
+/// leaves no gap.
+typedef EventAdmission = bool Function(
+  String event,
+  String? scope,
+  Map<String, dynamic> payload,
+);
+
 /// Fan-out of daemon events to every connected window, with per-client
 /// filters.
 ///
@@ -30,8 +39,15 @@ class EventBus {
 
   /// Starts delivering to [sessionId]. Its numbering starts at 1, so a
   /// reconnecting window, which is a new session, starts again too.
-  void attach(String sessionId, void Function(EventEnvelope envelope) deliver) {
-    _subscribers[sessionId] = _Subscriber(deliver);
+  ///
+  /// [admit] may refuse a published event the filter wants, as the filter
+  /// does: before it is numbered. Events [sendTo] sends are not asked.
+  void attach(
+    String sessionId,
+    void Function(EventEnvelope envelope) deliver, {
+    EventAdmission? admit,
+  }) {
+    _subscribers[sessionId] = _Subscriber(deliver, admit);
     final waiting = List<Completer<bool>>.of(_attachWaiters);
     _attachWaiters.clear();
     for (final waiter in waiting) {
@@ -67,6 +83,10 @@ class EventBus {
     _taps.add(listener);
     return () => _taps.remove(listener);
   }
+
+  /// Whether [sessionId]'s filter takes [event] under [scope] now.
+  bool wantedBy(String sessionId, String event, String? scope) =>
+      _subscribers[sessionId]?.wants(event, scope) ?? false;
 
   /// Whether a window is listening to [scope] (shows that chat, say).
   bool watches(String scope) =>
@@ -106,6 +126,7 @@ class EventBus {
     // A copy: delivering can close a session, which detaches it.
     for (final subscriber in _subscribers.values.toList()) {
       if (!subscriber.wants(event, scope)) continue;
+      if (!(subscriber.admit?.call(event, scope, payload) ?? true)) continue;
       subscriber.send(event, scope, payload);
       reached++;
     }
@@ -176,9 +197,10 @@ class EventBus {
 }
 
 class _Subscriber {
-  _Subscriber(this.deliver);
+  _Subscriber(this.deliver, this.admit);
 
   final void Function(EventEnvelope envelope) deliver;
+  final EventAdmission? admit;
 
   /// The last sequence number this session was sent.
   int seq = 0;

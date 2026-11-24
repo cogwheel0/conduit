@@ -484,11 +484,13 @@ final class ProtocolServices {
 
   /// A window's session over [channel]. The caller runs
   /// [RpcSession.listen], which closes the session when the channel ends.
-  /// None opens once [dispose] has begun.
+  /// None opens once [dispose] has begun. [admitEvent] is the transport's
+  /// say over the events it is sent ([EventBus.attach]).
   RpcSession openSession(
     StreamChannel<String> channel, {
     required String sessionId,
     void Function(bool online)? reportNetwork,
+    EventAdmission? admitEvent,
   }) {
     if (_disposed) throw StateError('the protocol services are disposed');
     return RpcSession(
@@ -498,6 +500,7 @@ final class ProtocolServices {
       events: events,
       services: () => core,
       reportNetwork: reportNetwork,
+      admitEvent: admitEvent,
     );
   }
 
