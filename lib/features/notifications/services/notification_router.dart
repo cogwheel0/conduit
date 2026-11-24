@@ -249,6 +249,13 @@ class NotificationRouter {
     if (notification.kind == NotificationKind.channelMessage &&
         !alreadyCounted) {
       _onChannelUnread(notification);
+      // A push for the same message may still come in the foreground, as
+      // in step 3's background.
+      if (!alreadyClaimed &&
+          !notification.sharesPushDedupKey &&
+          _pushCovers(notification)) {
+        _countedByFrame.record(notification);
+      }
     }
     if (!alert || !alerts) return NotificationSurface.suppressed;
     if (settings.notificationSound && settings.notificationSoundAlways) {

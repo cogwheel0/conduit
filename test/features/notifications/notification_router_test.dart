@@ -718,6 +718,30 @@ void main() {
         check(unreads).deepEquals([unnamed]);
       });
 
+      for (final (name, settings) in [
+        ('', allOn),
+        (', notifications off', allOn.copyWith(notificationsEnabled: false)),
+      ]) {
+        test('in the foreground, is not counted again by its push, and '
+            "leaves another message's push to count$name", () async {
+          foreground = true;
+          router = build(
+            settings: settings,
+            isForeground: () => foreground,
+            pushOn: {'owui:acct-1'},
+          );
+          final unnamed = frame('digest-1', text: 'See you at 3');
+          await router.route(unnamed);
+          final other = pushed('m-2', text: 'Lunch?');
+          await router.route(other, alreadyClaimed: true);
+          await router.route(
+            pushed('m-1', text: 'See you at 3'),
+            alreadyClaimed: true,
+          );
+          check(unreads).deepEquals([unnamed, other]);
+        });
+      }
+
       test("is not taken by another message's push", () async {
         final unnamed = frame('digest-1', text: 'See you at 3');
         await router.route(unnamed);
