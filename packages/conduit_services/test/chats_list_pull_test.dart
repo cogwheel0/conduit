@@ -3,7 +3,11 @@ library;
 
 import 'dart:async';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageIdentity, ChatStorageKind;
 import 'package:conduit_core/database/database_provider.dart'
     show appDatabaseProvider, directLocalDatabaseProvider;
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
@@ -35,6 +39,9 @@ final class _Engine extends SyncEngine {
   var reachable = false;
   var pulls = 0;
 
+  /// The chats pulled one at a time, by the id each was fetched under.
+  final pulled = <String>[];
+
   @override
   SyncStatus build() => const SyncStatus();
 
@@ -42,6 +49,12 @@ final class _Engine extends SyncEngine {
   Future<PullResult?> requestPull({required String reason}) async {
     pulls++;
     state = SyncStatus(lastError: reachable ? null : 'pull failed');
+    return null;
+  }
+
+  @override
+  Future<Conversation?> pullChatNow(String chatId) async {
+    pulled.add(chatId);
     return null;
   }
 }
@@ -265,6 +278,28 @@ void main() {
 
     expect(owui.toggles, ['pin srv-chat', 'archive srv-chat']);
     expect(changedHere, [true, true]);
+
+    // Named by an id scoped to its store (one an in-process host may hold),
+    // the chat is the same one: its lock, its mark and its pull are under
+    // the id the server and the sync know it by.
+    owui.toggles.clear();
+    changedHere.clear();
+    final scopedId = ChatStorageIdentity(
+      rawId: 'srv-chat',
+      storage: ChatStorageKind.openWebUi,
+    ).scopedId;
+    await service.setPinned(scopedId, value: false);
+    await service.setArchived(scopedId, value: false);
+    await service.rename(scopedId, 'Seed packets');
+    await locks.runExclusive('srv-chat', () async {});
+
+    expect(owui.toggles, [
+      'pin srv-chat',
+      'archive srv-chat',
+      'rename srv-chat',
+    ]);
+    expect(changedHere, [true, true]);
+    expect(engine.pulled, ['srv-chat']);
   });
 
   // Macroscope 4652079206: a pin that waited for the chat while another
@@ -371,5 +406,16 @@ final class _OwuiApi extends ApiService {
   Future<void> archiveConversation(String id, bool archived) async {
     whileWriting?.call(id);
     toggles.add('archive $id');
+  }
+
+  @override
+  Future<void> updateConversation(
+    String id, {
+    String? title,
+    String? systemPrompt,
+    List<String>? models,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    toggles.add('rename $id');
   }
 }

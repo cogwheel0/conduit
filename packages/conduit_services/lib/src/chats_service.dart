@@ -806,7 +806,7 @@ final class ChatsService {
         debugMessage: 'a tag needs a name, and not "none"',
       );
     }
-    final tags = await _api.addChatTag(_serverId(edit.chatId), name);
+    final tags = await _api.addChatTag(edit.chatId, name);
     await _afterEnvelopeChange(edit.chatId);
     return TagList(tags: _tagsFrom(tags));
   }
@@ -815,10 +815,7 @@ final class ChatsService {
     if (_moved(edit.chatId) case final moved?) {
       edit = edit.copyWith(chatId: await moved);
     }
-    final tags = await _api.removeChatTag(
-      _serverId(edit.chatId),
-      edit.name.trim(),
-    );
+    final tags = await _api.removeChatTag(edit.chatId, edit.name.trim());
     await _afterEnvelopeChange(edit.chatId);
     return TagList(tags: _tagsFrom(tags));
   }
@@ -886,7 +883,7 @@ final class ChatsService {
       await renameLibreChatConversation(_container, id, trimmed);
       return _refresh();
     }
-    await _api.updateConversation(_serverId(id), title: trimmed);
+    await _api.updateConversation(id, title: trimmed);
     await _afterEnvelopeChange(id);
     return _refresh();
   }
@@ -898,10 +895,7 @@ final class ChatsService {
     } else if (_isLibreChat(id)) {
       await pinConversation(_container, _libreChatScoped(id), value);
     } else {
-      await _onServer(
-        id,
-        (api) => api.pinConversation(_serverId(id), value),
-      );
+      await _onServer(id, (api) => api.pinConversation(id, value));
     }
     return _refresh();
   }
@@ -921,10 +915,7 @@ final class ChatsService {
     if (_isLibreChat(id)) {
       return archiveConversation(_container, _libreChatScoped(id), value);
     }
-    await _onServer(
-      id,
-      (api) => api.archiveConversation(_serverId(id), value),
-    );
+    await _onServer(id, (api) => api.archiveConversation(id, value));
   }
 
   /// Makes [change], a pin or archive of Open WebUI chat [id] that this
@@ -1049,10 +1040,7 @@ final class ChatsService {
           case BulkChatAction.delete:
             await _deleteConversation(id);
           case BulkChatAction.move:
-            await _api.moveConversationToFolder(
-              _serverId(id),
-              request.folderId,
-            );
+            await _api.moveConversationToFolder(id, request.folderId);
             await _afterEnvelopeChange(id);
         }
       } on Object catch (error) {
@@ -1165,7 +1153,7 @@ final class ChatsService {
       await _pause(const Duration(milliseconds: 300));
       final current = await _current(chatId);
       try {
-        final raw = await _api.getChatRaw(_serverId(current));
+        final raw = await _api.getChatRaw(current);
         final chat = raw?['chat'];
         final history = chat is Map ? chat['history'] : null;
         if (history is! Map || history['currentId'] == leaf) return;
@@ -1258,10 +1246,6 @@ final class ChatsService {
   }
 
   Future<String>? _moved(String id) => movedChatId(_container, id);
-
-  /// [id] as Open WebUI's API names the chat: a scoped id (one this process
-  /// minted to tell its stores apart) stays on this side.
-  static String _serverId(String id) => ChatStorageIdentity.parse(id).rawId;
 
   /// [chatId] as the chat goes now, read where it is used after a wait: a
   /// chat made here may have moved to its server id meanwhile. Not a check
@@ -1523,7 +1507,7 @@ final class ChatsService {
     if (settings == null) {
       // No settings service (tests): the legacy field, as before.
       await _api.updateConversation(
-        _serverId(request.chatId),
+        request.chatId,
         systemPrompt: request.prompt.trim(),
       );
       await _afterEnvelopeChange(request.chatId);
@@ -1713,10 +1697,7 @@ final class ChatsService {
     if (_moved(request.chatId) case final moved?) {
       request = request.copyWith(chatId: await moved);
     }
-    await _api.moveConversationToFolder(
-      _serverId(request.chatId),
-      request.folderId,
-    );
+    await _api.moveConversationToFolder(request.chatId, request.folderId);
     await _afterEnvelopeChange(request.chatId);
     return _refresh();
   }

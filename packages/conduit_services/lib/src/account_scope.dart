@@ -210,18 +210,19 @@ final class AccountScope {
   }
 }
 
-/// The id the chat [chatId] names goes by now, for a request that still
-/// names a chat's `local:` id after it moved to the server's
-/// ([currentChatId]); null for an id that cannot have moved, so the request
-/// goes on with no wait and under the account it came under. A lookup is
-/// read for that account: once another is in charge, the request is
-/// refused, as one that reached the core then would be.
+/// The id the chat [chatId] names goes by now, in the protocol's form
+/// ([currentChatId]): a request that names a chat's `local:` id after it
+/// moved to the server's, or an Open WebUI chat by an id scoped to its
+/// store, has its id replaced as it comes in. Null when the id stays as it
+/// is, so the request goes on with no wait and under the account it came
+/// under. Otherwise the request is refused once another account is in
+/// charge, as one that reached the core then would be.
 Future<String>? movedChatId(ProviderContainer container, String chatId) {
   final current = currentChatId(container, chatId);
-  if (current is String) return null;
+  if (current == chatId) return null;
   final account = AccountScope.capture(container);
-  return current.then((moved) {
+  return Future<String>.value(current).then((now) {
     account.require('the chat\'s id was read');
-    return moved;
+    return now;
   });
 }

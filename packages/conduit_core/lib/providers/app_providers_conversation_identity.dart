@@ -160,12 +160,14 @@ Conversation withChatStorageProvenance(
   return annotated.copyWith(metadata: metadata);
 }
 
-/// The id [chatId] goes by now. A chat made here keeps a `local:` id until
-/// the server stores it, then moves to the server's id (`route.remap`); a
-/// request that still names the old id, from a window that missed the move,
-/// means the chat it became. Only the active Open WebUI account's moves
-/// count: they are recorded in its own database, so an old id of another
-/// account's names nothing here. Any other id, and one that never moved,
+/// The id [chatId] goes by now, in the protocol's form for an Open WebUI
+/// chat: its raw id. A chat made here keeps a `local:` id until the server
+/// stores it, then moves to the server's id (`route.remap`); a request that
+/// still names the old id, from a window that missed the move, means the
+/// chat it became. Only the active Open WebUI account's moves count: they
+/// are recorded in its own database, so an old id of another account's
+/// names nothing here. An Open WebUI id scoped to its store (one this
+/// process minted) comes back raw; any other id, and one that never moved,
 /// comes back as it is.
 ///
 /// Synchronous for an id that cannot have moved, so a caller that reads its
@@ -176,7 +178,8 @@ FutureOr<String> currentChatId(dynamic ref, String chatId) {
       identity.storage != ChatStorageKind.openWebUi) {
     return chatId;
   }
-  if (!identity.rawId.startsWith('local:')) return chatId;
+  final raw = identity.rawId;
+  if (!raw.startsWith('local:')) return raw;
   final ChatDatabaseLocation? location;
   final ChatDatabaseRepository repository;
   try {
@@ -185,20 +188,12 @@ FutureOr<String> currentChatId(dynamic ref, String chatId) {
     location = repository.openWebUiLocation;
   } on Object {
     // No account database to have recorded a move in.
-    return chatId;
+    return raw;
   }
-  if (location == null) return chatId;
+  if (location == null) return raw;
   return repository
-      .resolveCommittedChatRemapTarget(location, recordedChatId: identity.rawId)
-      .then((moved) {
-        if (moved == null) return chatId;
-        return identity.storage == null
-            ? moved
-            : ChatStorageIdentity(
-                rawId: moved,
-                storage: ChatStorageKind.openWebUi,
-              ).scopedId;
-      });
+      .resolveCommittedChatRemapTarget(location, recordedChatId: raw)
+      .then((moved) => moved ?? raw);
 }
 
 ChatStorageKind? chatStorageKindOf(Conversation? conversation) {
