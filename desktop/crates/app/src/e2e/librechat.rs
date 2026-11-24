@@ -456,6 +456,42 @@ fn in_approvals<R>(
     })
 }
 
+/// What the main window's alerts say, as VoiceOver reads them from the
+/// accessibility tree (an alert with no label says nothing: "").
+async fn alert_labels(name: &str, dir: &Path, cx: &mut AsyncApp) -> Vec<String> {
+    let Some((handle, _)) = cx.update(main_window) else {
+        return vec![];
+    };
+    // Turns accessibility on and waits for a tree, checking the card's
+    // controls are labelled.
+    ax(handle, name, dir, cx).await;
+    let tree = cx.update(|cx| {
+        handle
+            .update(cx, |_, window, _| window.debug_a11y_tree_json())
+            .ok()
+            .flatten()
+    });
+    let Some(Ok(tree)) = tree.as_deref().map(serde_json::from_str::<Value>) else {
+        return vec![];
+    };
+    tree.get("nodes")
+        .and_then(Value::as_object)
+        .map(|nodes| {
+            nodes
+                .values()
+                .filter_map(|n| n.get("aria"))
+                .filter(|a| a.get("role").and_then(Value::as_str) == Some("Alert"))
+                .map(|a| {
+                    a.get("label")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The reply goes on and ends with `text` in it.
 async fn replied(text: &'static str, cx: &mut AsyncApp) -> bool {
     wait_until(cx, Duration::from_secs(60), move |cx| {
@@ -522,6 +558,11 @@ async fn pauses(dir: &Path, cx: &mut AsyncApp) -> bool {
     .unwrap_or(false);
     settle(cx, 300).await;
     shoot_main(dir, "librechat-pause-edit-refused", cx).await;
+    let alerts = alert_labels("librechat-pause-edit-refused", dir, cx).await;
+    pass &= ok(
+        &format!("VoiceOver hears the refusal from its alert ({alerts:?})"),
+        alerts.iter().any(|a| a == "Enter a valid JSON object."),
+    );
     let (said, kept) = in_approvals(cx, |v, _, cx| v.librechat_refused(cx)).unwrap_or_default();
     pass &= ok(
         "an edit that is not a JSON object is refused on the card, as typed",

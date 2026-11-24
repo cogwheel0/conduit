@@ -1208,7 +1208,7 @@ impl ApprovalsView {
                     card = card.step(index - 1, count);
                 }
                 if t.problem == Some(PauseProblem::Failed) {
-                    card = card.note(l10n.libre_chat_answer_failed());
+                    card = card.alert(l10n.libre_chat_answer_failed());
                 }
                 let actions = match composing {
                     Some(decision) => {
@@ -1241,6 +1241,7 @@ impl ApprovalsView {
                                     div()
                                         .id("librechat-edit-invalid")
                                         .role(Role::Alert)
+                                        .aria_label(e.clone())
                                         .text_size(px(theme.metrics.small))
                                         .text_color(theme.roles.danger)
                                         .child(e.clone())
@@ -1348,7 +1349,7 @@ impl ApprovalsView {
                     card = card.step(index - 1, count);
                 }
                 if q.problem == Some(PauseProblem::Failed) {
-                    card = card.note(l10n.libre_chat_answer_failed());
+                    card = card.alert(l10n.libre_chat_answer_failed());
                 }
                 (
                     card,
