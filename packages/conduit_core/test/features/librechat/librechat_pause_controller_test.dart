@@ -277,6 +277,11 @@ void main() {
       check(first.answerFor('Paris')).equals('paris');
       check(first.answerFor('Rome')).equals('Rome');
       check(first.answerFor('Lyon, I think')).equals('Lyon, I think');
+      // By place: no label to match back.
+      check(first.answerForPlaces([1])).equals('Rome');
+      check(first.answerForPlaces([0, 1])).isNull();
+      check(first.answerForPlaces([2])).isNull();
+      check(first.answerForPlaces([])).isNull();
       check(
         await pause.answer('q1', first.answerFor('Paris')),
       ).equals(LibreChatPauseStep.next);
@@ -287,6 +292,7 @@ void main() {
       check(second.multiSelect).isTrue();
       check(second.answerFor('["Mon","Tue"]')).equals('monday, Tue');
       check(second.answerFor('weekends')).equals('weekends');
+      check(second.answerForPlaces([1, 0])).equals('monday, Tue');
       check(
         await pause.answer('q2', second.answerFor('["Mon","Tue"]')),
       ).equals(LibreChatPauseStep.sent);

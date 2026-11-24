@@ -155,8 +155,9 @@ pub struct LibreChatTool {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LibreChatQuestion {
-    /// The question as a form question: its choices go back by label, as
-    /// the card shows them (the daemon sends their values).
+    /// The question as a form question: each choice's value is its place
+    /// in `detail.options`, which the answer carries (the daemon sends the
+    /// options' own values).
     pub question: ClarifyQuestion,
     pub description: String,
     pub progress: Option<(usize, usize)>,
@@ -345,12 +346,16 @@ pub fn card(request: &UiRequest) -> Card {
                 .get("options")
                 .and_then(Value::as_array)
                 .map(|a| {
+                    // Each option goes back by its place in `options`, never
+                    // by a label the card shows trimmed (or like another's).
                     a.iter()
-                        .filter_map(|o| text_of(o.get("label")))
-                        .map(|label| ClarifyChoice {
-                            value: label.clone(),
-                            label,
-                            recommended: false,
+                        .enumerate()
+                        .filter_map(|(place, o)| {
+                            Some(ClarifyChoice {
+                                value: place.to_string(),
+                                label: text_of(o.get("label"))?,
+                                recommended: false,
+                            })
                         })
                         .collect()
                 })
@@ -1210,5 +1215,37 @@ mod tests {
                 ["c"],
             );
         }
+    }
+
+    #[test]
+    fn a_librechat_question_shows_labels_trimmed_and_answers_by_place() {
+        let mut asked = request(
+            "q",
+            UiRequestKind::LibreChatQuestion,
+            &[("chatId", "chat-a")],
+        );
+        asked.detail = json!({
+            "question": "Which trail?",
+            "options": [
+                {"label": " North Ridge ", "value": "north-ridge"},
+                {"label": "  ", "value": "blank"},
+                {"label": "Ridge", "value": "ridge-north"},
+                {"label": " Ridge ", "value": "ridge-south"},
+            ],
+        });
+        let Card::LibreChatQuestion(q) = card(&asked) else {
+            panic!("not a question card");
+        };
+        let shown: Vec<(&str, &str)> = q
+            .question
+            .choices
+            .iter()
+            .map(|c| (c.label.as_str(), c.value.as_str()))
+            .collect();
+        // A blank option shows nothing to pick; the others keep their place.
+        assert_eq!(
+            shown,
+            [("North Ridge", "0"), ("Ridge", "2"), ("Ridge", "3")]
+        );
     }
 }

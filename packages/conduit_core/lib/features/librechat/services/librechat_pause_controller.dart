@@ -149,6 +149,20 @@ final class LibreChatQuestionCard extends LibreChatPauseCard {
     }
     return picked;
   }
+
+  /// The answer for the choices at [places] in [choices], by their values
+  /// (several joined with ", ", in the choices' order). A window that shows
+  /// the choices answers by place, so no label has to be matched back. Null
+  /// when nothing is picked, a place has no choice, or a single-choice
+  /// question gets several.
+  String? answerForPlaces(Iterable<int> places) {
+    final picked = places.toSet().toList()..sort();
+    if (picked.isEmpty || (!multiSelect && picked.length > 1)) return null;
+    if (picked.any((place) => place < 0 || place >= choices.length)) {
+      return null;
+    }
+    return picked.map((place) => choices[place].value).join(', ');
+  }
 }
 
 /// The policy of one LibreChat pause, for every host: one card at a time,

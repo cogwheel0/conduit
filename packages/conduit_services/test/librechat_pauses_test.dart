@@ -94,6 +94,41 @@ void main() {
     },
   );
 
+  test('options are answered by their place, whatever their labels: a '
+      'padded label, several picked, and two labels alike', () async {
+    // Whether the pause went on with the answer, or put the card again.
+    Future<String> after(Future<LibreChatPauseOutcome> outcome) {
+      final again = nextCard();
+      return Future.any([
+        outcome.then((_) => 'resumed'),
+        again.then((card) => 'again: ${card.detail['refusal']}'),
+      ]);
+    }
+
+    for (final (multi, picks, sent) in [
+      (false, '[0]', 'north-ridge'),
+      (true, '[0, 1]', 'north-ridge, lake-loop'),
+      (false, '[3]', 'ridge-south'),
+    ]) {
+      final card = nextCard();
+      final (:outcome, :decisions, :answers) = pause(_placed(multi: multi));
+      final shown = await card;
+      expect(shown.detail['options'], hasLength(4));
+      answer(shown, 'options', picks);
+      expect(await after(outcome), 'resumed', reason: picks);
+      expect(answers, [
+        {'call-p': sent},
+      ], reason: picks);
+    }
+
+    // A place no option has is not taken: the card comes back.
+    final card = nextCard();
+    final (:outcome, :decisions, :answers) = pause(_placed(multi: false));
+    answer(await card, 'options', '[9]');
+    expect(await after(outcome), 'again: empty');
+    expect(answers, isEmpty);
+  });
+
   test(
     'a tool call offers every decision its server allows, and only those',
     () async {
@@ -388,6 +423,27 @@ const _twoCalls = LibreChatPendingAction(<String, dynamic>{
     ],
   },
 });
+
+/// A run paused on one question whose labels a window could confuse: one
+/// padded, and two alike once trimmed.
+LibreChatPendingAction _placed({required bool multi}) =>
+    LibreChatPendingAction(<String, dynamic>{
+      'actionId': 'act-p',
+      'payload': <String, dynamic>{
+        'type': 'ask_user_question',
+        'tool_call_id': 'call-p',
+        'question': <String, dynamic>{
+          'question': 'Which trail?',
+          'multiSelect': multi,
+          'options': <Map<String, dynamic>>[
+            {'label': ' North Ridge ', 'value': 'north-ridge'},
+            {'label': 'Lake Loop', 'value': 'lake-loop'},
+            {'label': 'Ridge', 'value': 'ridge-north'},
+            {'label': ' Ridge ', 'value': 'ridge-south'},
+          ],
+        },
+      },
+    });
 
 /// A run paused on one question whose options answer with values unlike
 /// their labels.

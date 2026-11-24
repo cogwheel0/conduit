@@ -492,6 +492,27 @@ async fn alert_labels(name: &str, dir: &Path, cx: &mut AsyncApp) -> Vec<String> 
         .unwrap_or_default()
 }
 
+/// Picks the options the question on screen shows as `labels`, as a click
+/// on each would; false when one is not shown.
+fn pick_shown(
+    v: &mut crate::views::approvals::ApprovalsView,
+    labels: &[&str],
+    window: &mut Window,
+    cx: &mut gpui_kit::Context<crate::views::approvals::ApprovalsView>,
+) -> bool {
+    use crate::stores::ui_requests::{Card, card};
+    let Some(Card::LibreChatQuestion(q)) = pause_card(cx).map(|r| card(&r)) else {
+        return false;
+    };
+    for label in labels {
+        let Some(choice) = q.question.choices.iter().find(|c| c.label == *label) else {
+            return false;
+        };
+        v.pick(0, choice.value.clone(), window, cx);
+    }
+    true
+}
+
 /// The reply goes on and ends with `text` in it.
 async fn replied(text: &'static str, cx: &mut AsyncApp) -> bool {
     wait_until(cx, Duration::from_secs(60), move |cx| {
@@ -651,8 +672,7 @@ async fn pauses(dir: &Path, cx: &mut AsyncApp) -> bool {
         in_approvals(cx, |v, _, cx| !v.deny(cx)).unwrap_or(false),
     );
     let picked = in_approvals(cx, |v, window, cx| {
-        v.pick(0, "Gull Haven".into(), window, cx);
-        v.allow(cx)
+        pick_shown(v, &["Gull Haven"], window, cx) && v.allow(cx)
     })
     .unwrap_or(false);
     let days = wait_pause_card(harbour.as_ref().map(|r| r.request_id.as_str()), cx).await;
@@ -667,9 +687,7 @@ async fn pauses(dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= ok(
         "both answers go as their values",
         in_approvals(cx, |v, window, cx| {
-            v.pick(0, "Monday".into(), window, cx);
-            v.pick(0, "Tuesday".into(), window, cx);
-            v.allow(cx)
+            pick_shown(v, &["Monday", "Tuesday"], window, cx) && v.allow(cx)
         })
         .unwrap_or(false)
             && replied("You chose gull-haven on mon, tue.", cx).await,

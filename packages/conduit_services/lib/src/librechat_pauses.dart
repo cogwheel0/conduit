@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:conduit_core/features/librechat/models/librechat_tools.dart';
 import 'package:conduit_core/features/librechat/services/librechat_pause_controller.dart';
@@ -115,8 +116,15 @@ Future<LibreChatPauseStep> _take(
           _ => LibreChatToolDecisionInput(decision),
         });
       case LibreChatQuestionCard():
-        // The window's question card answers `allow` with the text, as any
-        // question card does; `answer` is the plain word for it.
+        // Choices picked come by their places in `detail.options`; words
+        // typed (or a label, as the phone answers) with `answer`, which a
+        // question card's `allow` also means.
+        if (choice == 'options') {
+          final places = _places(text);
+          final answer = places == null ? null : card.answerForPlaces(places);
+          if (answer == null) return LibreChatPauseStep.empty;
+          return await pause.answer(card.id, answer);
+        }
         if (choice != 'answer' && choice != 'allow') {
           return LibreChatPauseStep.empty;
         }
@@ -130,5 +138,17 @@ Future<LibreChatPauseStep> _take(
       stackTrace: stackTrace,
     );
     return LibreChatPauseStep.failed;
+  }
+}
+
+/// [text] as a JSON list of whole numbers, else null.
+List<int>? _places(String? text) {
+  if (text == null) return null;
+  try {
+    final decoded = jsonDecode(text);
+    if (decoded is! List || decoded.any((place) => place is! int)) return null;
+    return decoded.cast<int>();
+  } on FormatException {
+    return null;
   }
 }

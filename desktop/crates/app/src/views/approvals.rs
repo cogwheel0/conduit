@@ -767,8 +767,9 @@ impl ApprovalsView {
         true
     }
 
-    /// Send on a LibreChat question: the label picked, the labels picked as
-    /// a JSON list, or the words typed (the daemon sends their values).
+    /// Send on a LibreChat question: the options picked, by their places
+    /// (`options`, a JSON list), or the words typed (`answer`). The daemon
+    /// sends the options' values.
     fn answer_librechat_question(
         &mut self,
         request: &UiRequest,
@@ -780,10 +781,25 @@ impl ApprovalsView {
             return false;
         }
         let (draft, typed) = self.draft_of(&question.question, cx);
-        let Some(text) = draft.answer(&question.question, &typed) else {
-            return false;
+        let mut places: Vec<usize> = draft
+            .choices
+            .iter()
+            .filter_map(|value| value.parse().ok())
+            .collect();
+        places.sort_unstable();
+        places.dedup();
+        let answer = if !places.is_empty() {
+            Answer::with_text(
+                "options",
+                serde_json::to_string(&places).unwrap_or_default(),
+            )
+        } else {
+            match draft.answer(&question.question, &typed) {
+                Some(words) => Answer::with_text("answer", words),
+                None => return false,
+            }
         };
-        self.answer(id, Answer::with_text("answer", text), false, cx);
+        self.answer(id, answer, false, cx);
         true
     }
 
@@ -2404,6 +2420,61 @@ mod librechat_tests {
         });
     }
 
+    /// Picks the options the card shows as `labels`, as a click on each
+    /// would.
+    fn pick_labels(b: &Bench, labels: &[&str], vcx: &mut VisualTestContext) {
+        let labels: Vec<String> = labels.iter().map(|l| l.to_string()).collect();
+        vcx.update(|window, cx| {
+            b.view.update(cx, |v, cx| {
+                let top = v.top(cx).expect("a card");
+                let Card::LibreChatQuestion(q) = card(&top) else {
+                    panic!("not a question");
+                };
+                for label in &labels {
+                    let choice = q
+                        .question
+                        .choices
+                        .iter()
+                        .find(|c| &c.label == label)
+                        .unwrap_or_else(|| panic!("no option shown as {label:?}"));
+                    v.pick(0, choice.value.clone(), window, cx);
+                }
+            })
+        });
+    }
+
+    /// An option is answered by its place, so a label the card shows
+    /// trimmed, or one shown like another, never answers for the wrong
+    /// option.
+    #[gpui_kit::test]
+    fn an_option_is_answered_by_its_place(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        let question = paused(
+            "q",
+            UiRequestKind::LibreChatQuestion,
+            &[("title", "Which trail?")],
+            json!({
+                "question": "Which trail?",
+                "options": [
+                    {"label": " North Ridge ", "value": "north-ridge"},
+                    {"label": "", "value": "blank"},
+                    {"label": "Ridge", "value": "ridge-north"},
+                ],
+                "multiSelect": false,
+            }),
+        );
+        b.stores
+            .ui_requests
+            .update(vcx, |u, cx| u.on_request(question, cx));
+        open(&b, "chat-a", vcx);
+        pick_labels(&b, &["North Ridge"], vcx);
+        b.view.update(vcx, |v, cx| assert!(v.allow(cx)));
+        assert_eq!(
+            sent(&b, vcx),
+            [("options".to_string(), Some("[0]".to_string()))]
+        );
+    }
+
     fn sent(b: &Bench, vcx: &mut VisualTestContext) -> Vec<(String, Option<String>)> {
         vcx.run_until_parked();
         b.daemon
@@ -2612,19 +2683,11 @@ mod librechat_tests {
             assert!(!v.deny(cx), "a question was dismissed");
             assert!(!v.allow(cx), "sent with nothing picked");
         });
-        vcx.update(|window, cx| {
-            b.view.update(cx, |v, cx| {
-                v.pick(0, "North Ridge".into(), window, cx);
-                v.pick(0, "Lake Loop".into(), window, cx);
-            })
-        });
+        pick_labels(&b, &["Lake Loop", "North Ridge"], vcx);
         b.view.update(vcx, |v, cx| assert!(v.allow(cx)));
         assert_eq!(
             sent(&b, vcx),
-            [(
-                "answer".to_string(),
-                Some("[\"North Ridge\",\"Lake Loop\"]".to_string())
-            )]
+            [("options".to_string(), Some("[0,1]".to_string()))]
         );
     }
 }

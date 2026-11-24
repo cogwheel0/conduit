@@ -12997,11 +12997,12 @@ pub enum UiRequestKind {
     /// `detail` has `question`, an optional `description`, `options` (a list
     /// of `{label, value}`) and `multiSelect`; `messageArgs.chatId` names the
     /// chat, shown and answered there only, and `messageArgs.progress` the
-    /// question's place in a batch (`2/3`). The answer goes back as
-    /// `UiResponse.text`, with choice `answer` (or `allow`): an option's
-    /// label, several as a JSON list of labels, or the user's own words. The
-    /// core sends each option's value. The card waits until it is answered:
-    /// nothing here stops the reply.
+    /// question's place in a batch (`2/3`). Options picked go back with
+    /// choice `options` and `UiResponse.text` a JSON list of their places in
+    /// `detail.options` (`[0, 2]`; one for a single-choice question); words
+    /// typed go with choice `answer` (or `allow`) as the text. The core sends
+    /// each option's value. The card waits until it is answered: nothing
+    /// here stops the reply.
     ///
     /// The card is put again, with `detail.failed` true, after the answer
     /// could not be sent, and with `detail.refusal` (`empty`) for an answer
