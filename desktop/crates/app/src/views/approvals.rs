@@ -1234,7 +1234,12 @@ impl ApprovalsView {
                             .child(
                                 Textarea::new(&self.compose_text)
                                     .aria_label(label)
-                                    .disabled(answering),
+                                    .disabled(answering)
+                                    // JSON reads as the arguments above it do.
+                                    .when(decision == LibreChatDecision::Edit, |t| {
+                                        t.font_family(conduit_components::theme::mono_font())
+                                            .text_size(px(theme.metrics.code))
+                                    }),
                             )
                             .when_some(invalid, |d, e| {
                                 d.child(
