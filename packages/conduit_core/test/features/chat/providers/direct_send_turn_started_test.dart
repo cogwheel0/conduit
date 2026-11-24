@@ -597,19 +597,22 @@ void main() {
     check(handle!.ownsActiveChat(container)).isTrue();
 
     // Remap the Open WebUI chat id in place while the Direct run is live.
+    // Awaiting the remap event is the milestone: the run's own listener rebinds
+    // registry and owner synchronously as it is delivered.
     const serverId = 'server-direct-42';
+    final remapDelivered = remapper.remapEvents.first;
     await remapper.remapChat(
       localId: localActive.id,
       serverId: serverId,
       serverCreatedAt: 1,
       serverUpdatedAt: 2,
     );
+    await remapDelivered;
     final remappedActive = withChatStorageProvenance(
       localActive.copyWith(id: serverId),
       ChatStorageKind.openWebUi,
     );
     container.read(activeConversationProvider.notifier).set(remappedActive);
-    await Future<void>.delayed(Duration.zero);
 
     check(handle!.ownsActiveChat(container)).isTrue();
     check(

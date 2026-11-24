@@ -960,14 +960,11 @@ void main() {
           .then((handle) => committed = handle);
 
       await tester.runAsync(() => adapter.asked.future);
-      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.runAsync(() => draftCommit);
       await tester.pump();
 
       // While the Direct stream is still open, draft commit has resolved and
       // the sent attachment has left the tray.
-      await tester.runAsync(
-        () => draftCommit.timeout(const Duration(seconds: 1)),
-      );
       expect(committed, isNotNull);
       expect(committed!.ownsActiveChat(container), isTrue);
       expect(container.read(attachedFilesProvider), isEmpty);

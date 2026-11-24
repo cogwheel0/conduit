@@ -609,9 +609,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
     await settle(tester);
-    await tester.runAsync(
-      () => adapter.asked.future.timeout(const Duration(seconds: 5)),
-    );
+    await tester.runAsync(() => adapter.asked.future);
     await settle(tester);
 
     expect(adapter.runs, 2);
@@ -653,9 +651,7 @@ void main() {
       ],
     );
 
-    await tester.runAsync(
-      () => hermes.asked.future.timeout(const Duration(seconds: 5)),
-    );
+    await tester.runAsync(() => hermes.asked.future);
     await settle(tester);
 
     expect(composerText(tester), isEmpty);
