@@ -562,6 +562,9 @@ jobs:
           persist-credentials: false
       - name: The feed scripts' checks
         run: desktop/packaging/winlinux_feed_test.sh
+      # The release workflow's publish gate, on the Linux image it runs on.
+      - name: The publish gate's checks
+        run: desktop/packaging/release_gate_test.sh
       - name: Throwaway keys, and the feeds the install smokes serve
         id: feeds
         run: |
