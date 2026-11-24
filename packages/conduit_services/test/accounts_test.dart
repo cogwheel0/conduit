@@ -9,8 +9,14 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/providers/account_change_reset.dart';
 import 'package:conduit_core/providers/app_providers.dart'
-    show defaultModelProvider;
+    show
+        defaultModelProvider,
+        searchQueryProvider,
+        settledActiveAccountIdProvider;
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show openWebUiAccountsControllerProvider;
 import 'package:conduit_core/providers/storage_providers.dart'
     show optimizedStorageServiceProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -221,6 +227,71 @@ void main() {
 
     final again = await accounts.switchTo(AccountRef(accountId: adaAccount));
     expect(again.outcome, AccountChangeOutcome.alreadyActive);
+  });
+
+  test('over a container an app shares, a switch is reset once, by the '
+      "app's own listener, whether the app or a window starts it", () async {
+    // The app's container: its root listener resets the departing account's
+    // state on every change of account, as `userScopedProviderCleanup`
+    // does, and was listening before the services came. Right after, the
+    // app starts filling the new account's state, which a second reset
+    // would drop.
+    accounts.dispose();
+    var resets = 0;
+    var appHasReset = Completer<void>();
+    final appReset = runtime.container.listen<String?>(
+      settledActiveAccountIdProvider,
+      (previous, next) {
+        if (previous == null || previous == next) return;
+        resets++;
+        resetOpenWebUiAccountState(runtime.container);
+        runtime.container.read(searchQueryProvider.notifier).set(next!);
+        if (!appHasReset.isCompleted) appHasReset.complete();
+      },
+    );
+    final query = runtime.container.listen(searchQueryProvider, (_, _) {});
+    accounts = AccountsService(
+      runtime.container,
+      events: events,
+      turns: turns,
+      sharesAppContainer: true,
+    );
+    addTearDown(() {
+      accounts.dispose();
+      appReset.close();
+      query.close();
+      accounts = AccountsService(
+        runtime.container,
+        events: events,
+        turns: turns,
+      );
+    });
+
+    // The services' own listener on the same change runs in the same round
+    // as the app's, so once the app has reset, a second reset has happened
+    // too if there is one.
+    Future<void> expectResetOnce(String accountId, String startedBy) async {
+      await appHasReset.future;
+      expect(resets, 1, reason: '$startedBy: resets');
+      expect(
+        runtime.container.read(searchQueryProvider),
+        accountId,
+        reason: "$startedBy: the app's state for the new account kept",
+      );
+      resets = 0;
+      appHasReset = Completer<void>();
+    }
+
+    // Started in the app's own interface: the core's accounts controller.
+    await runtime.container
+        .read(openWebUiAccountsControllerProvider)
+        .switchTo(bobAccount);
+    await expectResetOnce(bobAccount, 'the app');
+
+    // Started by a window: `accounts.switch`.
+    final switched = await accounts.switchTo(AccountRef(accountId: adaAccount));
+    expect(switched.outcome, AccountChangeOutcome.done);
+    await expectResetOnce(adaAccount, 'a window');
   });
 
   test('switching to an unknown account is resource.notFound', () async {

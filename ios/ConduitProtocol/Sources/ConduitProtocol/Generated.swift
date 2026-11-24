@@ -16,7 +16,7 @@ import Foundation
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-public let protocolVersion = "1.79.0"
+public let protocolVersion = "1.80.0"
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -5910,6 +5910,47 @@ public struct CallReport: Codable, Equatable, Sendable {
   }
 }
 
+/// A namespace of methods ([ConduitMethods]) that a host may not serve at
+/// all ([Capabilities.notOffered]).
+public enum HostNamespace: Codable, Hashable, Sendable {
+  case speech
+  case calls
+  case apple
+  case location
+  /// A value this build does not know, from a newer core, kept as it came.
+  case unknown(String)
+
+  public init(rawValue: String) {
+    switch rawValue {
+    case "speech": self = .speech
+    case "calls": self = .calls
+    case "apple": self = .apple
+    case "location": self = .location
+    default: self = .unknown(rawValue)
+    }
+  }
+
+  /// The value as it goes on the wire.
+  public var rawValue: String {
+    switch self {
+    case .speech: return "speech"
+    case .calls: return "calls"
+    case .apple: return "apple"
+    case .location: return "location"
+    case .unknown(let raw): return raw
+    }
+  }
+
+  public init(from decoder: Decoder) throws {
+    self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(rawValue)
+  }
+}
+
 /// What the currently connected core can actually do.
 ///
 /// The UI gates navigation and affordances on these flags rather than probing
@@ -5964,6 +6005,10 @@ public struct Capabilities: Codable, Equatable, Sendable {
   public var messageRating: Bool
   public var tags: Bool
   public var bulkSelection: Bool
+  /// Namespaces this host does not serve at all, whatever the account:
+  /// every method in them answers `rpc.unsupported`. A host sharing an
+  /// app's own core (the phone) leaves all of these to the app.
+  public var notOffered: [HostNamespace]
   /// A LibreChat account owns the chats, and what its role may use there.
   /// Null otherwise.
   public var libreChat: LibreChatFeatures?
@@ -6001,6 +6046,7 @@ public struct Capabilities: Codable, Equatable, Sendable {
     messageRating: Bool = false,
     tags: Bool = false,
     bulkSelection: Bool = false,
+    notOffered: [HostNamespace] = [],
     libreChat: LibreChatFeatures? = nil
   ) {
     self.workspace = workspace
@@ -6035,6 +6081,7 @@ public struct Capabilities: Codable, Equatable, Sendable {
     self.messageRating = messageRating
     self.tags = tags
     self.bulkSelection = bulkSelection
+    self.notOffered = notOffered
     self.libreChat = libreChat
   }
 
@@ -6071,6 +6118,7 @@ public struct Capabilities: Codable, Equatable, Sendable {
     case messageRating
     case tags
     case bulkSelection
+    case notOffered
     case libreChat
   }
 
@@ -6108,6 +6156,7 @@ public struct Capabilities: Codable, Equatable, Sendable {
     self.messageRating = try container.decodeIfPresent(Bool.self, forKey: .messageRating) ?? false
     self.tags = try container.decodeIfPresent(Bool.self, forKey: .tags) ?? false
     self.bulkSelection = try container.decodeIfPresent(Bool.self, forKey: .bulkSelection) ?? false
+    self.notOffered = try container.decodeIfPresent([HostNamespace].self, forKey: .notOffered) ?? []
     self.libreChat = try container.decodeIfPresent(LibreChatFeatures.self, forKey: .libreChat)
   }
 
@@ -6145,6 +6194,7 @@ public struct Capabilities: Codable, Equatable, Sendable {
     try container.encode(self.messageRating, forKey: .messageRating)
     try container.encode(self.tags, forKey: .tags)
     try container.encode(self.bulkSelection, forKey: .bulkSelection)
+    try container.encode(self.notOffered, forKey: .notOffered)
     try container.encodeIfPresent(self.libreChat, forKey: .libreChat)
   }
 }

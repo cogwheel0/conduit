@@ -26,16 +26,20 @@ import 'fake_owui_auth_server.dart';
 ///
 /// [interceptDatabase], given a database's file name, returns what that
 /// database's queries and close go through (null for none). [databases]
-/// replaces the account databases in [dataDir].
+/// replaces the account databases in [dataDir], and [preferences] the
+/// preferences kept in memory.
 Future<CoreRuntime> startTestCore(
   Directory dataDir, {
   QueryInterceptor? Function(String fileName)? interceptDatabase,
   DatabaseOpenerPort? databases,
+  KeyValueStore? preferences,
 }) async {
   // `PreferencesStore` is process-wide and keeps the first store it loads,
   // so each runtime gets its own rather than one an earlier test left.
   PreferencesStore.debugReset();
-  PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+  PreferencesStore.installLoader(
+    () async => preferences ?? InMemoryKeyValueStore(),
+  );
   await PreferencesStore.ensureInitialized();
 
   Hive.init('${dataDir.path}/hive');

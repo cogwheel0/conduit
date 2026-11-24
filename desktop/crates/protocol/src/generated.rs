@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.79.0";
+pub const PROTOCOL_VERSION: &str = "1.80.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -2634,6 +2634,24 @@ fn default_call_report_ok() -> bool {
     true
 }
 
+/// A namespace of methods (`ConduitMethods`) that a host may not serve at
+/// all (`Capabilities.notOffered`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HostNamespace {
+    #[serde(rename = "speech")]
+    Speech,
+    #[serde(rename = "calls")]
+    Calls,
+    #[serde(rename = "apple")]
+    Apple,
+    #[serde(rename = "location")]
+    Location,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
 /// What the currently connected core can actually do.
 ///
 /// The UI gates navigation and affordances on these flags rather than probing
@@ -2722,6 +2740,11 @@ pub struct Capabilities {
     pub tags: bool,
     #[serde(default)]
     pub bulk_selection: bool,
+    /// Namespaces this host does not serve at all, whatever the account:
+    /// every method in them answers `rpc.unsupported`. A host sharing an
+    /// app's own core (the phone) leaves all of these to the app.
+    #[serde(default)]
+    pub not_offered: Vec<HostNamespace>,
     /// A LibreChat account owns the chats, and what its role may use there.
     /// Null otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]

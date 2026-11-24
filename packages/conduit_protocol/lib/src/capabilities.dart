@@ -3,6 +3,10 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'capabilities.freezed.dart';
 part 'capabilities.g.dart';
 
+/// A namespace of methods ([ConduitMethods]) that a host may not serve at
+/// all ([Capabilities.notOffered]).
+enum HostNamespace { speech, calls, apple, location }
+
 /// What the currently connected core can actually do.
 ///
 /// The UI gates navigation and affordances on these flags rather than probing
@@ -82,6 +86,11 @@ abstract class Capabilities with _$Capabilities {
     @Default(false) bool messageRating,
     @Default(false) bool tags,
     @Default(false) bool bulkSelection,
+
+    /// Namespaces this host does not serve at all, whatever the account:
+    /// every method in them answers `rpc.unsupported`. A host sharing an
+    /// app's own core (the phone) leaves all of these to the app.
+    @Default(<HostNamespace>[]) List<HostNamespace> notOffered,
 
     /// A LibreChat account owns the chats, and what its role may use there.
     /// Null otherwise.

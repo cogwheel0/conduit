@@ -31,8 +31,10 @@ final class CapabilitiesService {
     this._container, {
     EventBus? events,
     void Function(Capabilities capabilities)? onChange,
+    List<HostNamespace> notOffered = const <HostNamespace>[],
   }) : _events = events,
-       _onChange = onChange {
+       _onChange = onChange,
+       _notOffered = notOffered {
     _features = _container.listen<AccountFeatures>(
       accountFeaturesProvider,
       (_, _) => _update(),
@@ -75,6 +77,7 @@ final class CapabilitiesService {
   final ProviderContainer _container;
   final EventBus? _events;
   final void Function(Capabilities capabilities)? _onChange;
+  final List<HostNamespace> _notOffered;
   late final ProviderSubscription<AccountFeatures> _features;
   late final ProviderSubscription<AsyncValue<BackendConfig?>> _config;
   late final ProviderSubscription<AsyncValue<ServerConfig?>> _server;
@@ -107,6 +110,7 @@ final class CapabilitiesService {
       appleOnDeviceModels:
           _container.read(applePccPlatformSupportedProvider) &&
           _container.read(appleOnDeviceEnabledProvider),
+      notOffered: _notOffered,
     );
     if (next == _current) return;
     _current = next;

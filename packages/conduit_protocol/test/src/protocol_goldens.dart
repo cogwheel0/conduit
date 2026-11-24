@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.79.0",
+  "protocolVersion": "1.80.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.79.0",
+  "protocolVersion": "1.80.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -51,7 +51,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "branchNavigation": true,
     "messageRating": false,
     "tags": true,
-    "bulkSelection": false
+    "bulkSelection": false,
+    "notOffered": []
   },
   "paths": {
     "userData": "/home/u/.config/Conduit",
@@ -97,7 +98,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "branchNavigation": false,
   "messageRating": false,
   "tags": false,
-  "bulkSelection": false
+  "bulkSelection": false,
+  "notOffered": []
 }''',
 
   'capabilitiesOpenWebUi': r'''
@@ -133,7 +135,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "branchNavigation": false,
   "messageRating": false,
   "tags": false,
-  "bulkSelection": true
+  "bulkSelection": true,
+  "notOffered": []
 }''',
 
   'capabilitiesHermesOnly': r'''
@@ -169,7 +172,50 @@ const Map<String, String> protocolGoldens = <String, String>{
   "branchNavigation": false,
   "messageRating": false,
   "tags": false,
-  "bulkSelection": false
+  "bulkSelection": false,
+  "notOffered": []
+}''',
+
+  'capabilitiesSharedContainer': r'''
+{
+  "workspace": false,
+  "notes": true,
+  "channels": false,
+  "hermes": false,
+  "terminal": false,
+  "calendar": false,
+  "automations": false,
+  "scheduledTasks": false,
+  "hermesOnly": false,
+  "workspaceModels": false,
+  "workspaceKnowledge": false,
+  "workspacePrompts": false,
+  "workspaceTools": false,
+  "workspaceSkills": false,
+  "folders": false,
+  "webhooks": false,
+  "memories": false,
+  "codeInterpreter": false,
+  "imageGeneration": false,
+  "webSearch": false,
+  "directConnections": false,
+  "mcp": false,
+  "serverStt": false,
+  "onDeviceStt": false,
+  "serverTts": false,
+  "deviceTts": false,
+  "appleOnDeviceModels": false,
+  "applePcc": false,
+  "branchNavigation": false,
+  "messageRating": false,
+  "tags": false,
+  "bulkSelection": false,
+  "notOffered": [
+    "speech",
+    "calls",
+    "apple",
+    "location"
+  ]
 }''',
 
   'rpcErrorMinimal': r'''
@@ -5968,7 +6014,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "branchNavigation": false,
     "messageRating": false,
     "tags": false,
-    "bulkSelection": false
+    "bulkSelection": false,
+    "notOffered": []
   },
   "reachability": "unknown",
   "isVersionSupported": true,
@@ -6010,7 +6057,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "branchNavigation": true,
     "messageRating": false,
     "tags": true,
-    "bulkSelection": false
+    "bulkSelection": false,
+    "notOffered": []
   },
   "reachability": "reachable",
   "version": "0.11.3",
@@ -6053,7 +6101,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "branchNavigation": false,
     "messageRating": false,
     "tags": false,
-    "bulkSelection": false
+    "bulkSelection": false,
+    "notOffered": []
   },
   "reachability": "unreachable",
   "isVersionSupported": true,
@@ -6096,7 +6145,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "branchNavigation": false,
     "messageRating": false,
     "tags": false,
-    "bulkSelection": false
+    "bulkSelection": false,
+    "notOffered": []
   },
   "reachability": "reachable",
   "version": "0.99.0",

@@ -32,7 +32,8 @@
     "branchNavigation": false,
     "messageRating": false,
     "tags": false,
-    "bulkSelection": false
+    "bulkSelection": false,
+    "notOffered": []
   },
   "reachability": "reachable",
   "version": "0.99.0",
