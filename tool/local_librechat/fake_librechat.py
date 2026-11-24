@@ -18,8 +18,15 @@ Standard library only (Python 3.9+). It serves enough of LibreChat's API, as
 
 What a reply does depends on the user's words (see `Turn.script`):
 
-* "approve" in the message pauses on a tool approval;
+* "approve" in the message pauses on a tool approval (Approve or Reject);
+* "decide" pauses on a tool approval that allows every decision (Approve,
+  Reject, Edit the arguments, or Respond in the tool's place), and the reply
+  says which one came and with what;
+* "respond only" pauses on a tool call that can only be answered with a
+  response;
 * "ask me" pauses on a question;
+* "ask several" pauses on a batch of two questions, the second
+  multi-select, whose options answer with values unlike their labels;
 * "long" streams slowly for about 15 seconds (to stop it);
 * "fail" ends the stream with an error;
 * anything else gets a short answer that names the model and quotes it.
@@ -566,6 +573,9 @@ class Job:
             "runId": self.response_id,
             "responseMessageId": self.response_id,
             "createdAt": ms(),
+            # LibreChat's default checkpoint TTL (24 h); this fake never
+            # expires a pause on its own.
+            "expiresAt": ms() + 86400000,
             "payload": payload,
         }
         with self.cond:
@@ -638,7 +648,100 @@ class Job:
                 }
             )
             index += 1
-        if "approve" in lower:
+        if "decide" in lower.split() or "respond only" in lower:
+            allowed = ["respond"] if "respond only" in lower else ["approve", "reject", "edit", "respond"]
+            call = {
+                "id": "call_tide",
+                "name": "lookup_tide_mcp_harbour_docs",
+                "args": json.dumps({"harbour": "Port Wren"}),
+            }
+            self.step("step_tool", index, "tool", call)
+            answer = self.pause(
+                {
+                    "type": "tool_approval",
+                    "action_requests": [
+                        {
+                            "name": "lookup_tide_mcp_harbour_docs",
+                            "arguments": {"harbour": "Port Wren"},
+                            "tool_call_id": "call_tide",
+                            "description": "Look up the next high tide at Port Wren.",
+                        }
+                    ],
+                    "review_configs": [
+                        {
+                            "action_name": "lookup_tide_mcp_harbour_docs",
+                            "tool_call_id": "call_tide",
+                            "allowed_decisions": allowed,
+                        }
+                    ],
+                }
+            )
+            if self.aborted:
+                return self.finish(aborted=True)
+            decided = next(
+                (d for d in (answer or {}).get("decisions") or [] if d.get("tool_call_id") == "call_tide"),
+                {},
+            )
+            decision = decided.get("decision")
+            if decision == "approve":
+                result = "High tide at 06:40."
+                reply = "Approved: the next high tide at Port Wren is at 06:40."
+            elif decision == "edit":
+                # The tool runs with the edited arguments, and its call is
+                # shown and saved with them.
+                call = dict(call, args=json.dumps(decided["editedArguments"]))
+                harbour = decided["editedArguments"].get("harbour", "an unnamed harbour")
+                result = "High tide at 06:40."
+                reply = "Edited: the next high tide at %s is at 06:40." % harbour
+            elif decision == "respond":
+                result = decided.get("responseText") or ""
+                reply = "Responded: the tool was not run, and returned %s" % result
+            else:
+                result = "The user declined this tool call."
+                reply = "Rejected: I did not look up the tide."
+            self.tool_done("step_tool", index, call, result)
+            index += 1
+        elif "ask several" in lower:
+            call = {
+                "id": "call_ask_several",
+                "name": "ask_user_question",
+                "args": json.dumps({"questions": 2}),
+            }
+            self.step("step_ask", index, "tool", call)
+            answer = self.pause(
+                {
+                    "type": "ask_user_question",
+                    "tool_call_id": "call_ask_several",
+                    "question": {"question": "Which harbour do you mean?"},
+                    "questions": [
+                        {
+                            "id": "harbour",
+                            "question": "Which harbour do you mean?",
+                            "options": [
+                                {"label": "Port Wren", "value": "port-wren"},
+                                {"label": "Gull Haven", "value": "gull-haven"},
+                            ],
+                        },
+                        {
+                            "id": "days",
+                            "question": "Which days?",
+                            "description": "Pick any.",
+                            "multiSelect": True,
+                            "options": [
+                                {"label": "Monday", "value": "mon"},
+                                {"label": "Tuesday", "value": "tue"},
+                            ],
+                        },
+                    ],
+                }
+            )
+            if self.aborted:
+                return self.finish(aborted=True)
+            answers = (answer or {}).get("answers") or {}
+            self.tool_done("step_ask", index, call, json.dumps(answers))
+            index += 1
+            reply = "You chose %s on %s." % (answers.get("harbour"), answers.get("days"))
+        elif "approve" in lower:
             call = {
                 "id": "call_tide",
                 "name": "lookup_tide_mcp_harbour_docs",
@@ -696,8 +799,8 @@ class Job:
                         "question": "Which harbour do you mean?",
                         "description": "Pick one, or write another.",
                         "options": [
-                            {"label": "Port Wren", "description": "North coast"},
-                            {"label": "Gull Haven", "description": "South coast"},
+                            {"label": "Port Wren", "value": "Port Wren"},
+                            {"label": "Gull Haven", "value": "Gull Haven"},
                         ],
                     },
                 }
@@ -1369,18 +1472,114 @@ def abort(h, user):
 @route("POST", r"/api/agents/chat/resume")
 @authed
 def resume(h, user):
+    # The refusals and their bodies are LibreChat's own
+    # (api/server/controllers/agents/resume.js, and the checks in
+    # packages/api/src/agents/hitl/resume.ts, see resume_refusal).
     body = h._json_body()
     job = STATE.jobs.get(body.get("conversationId"))
-    if job is None or job.pending is None:
-        return h.send(404, {"message": "Nothing is waiting for an answer."})
+    if job is None:
+        return h.send(404, {"error": "No paused generation for this conversation"})
+    if job.pending is None:
+        return h.send(409, {"error": "No live pending action to resume"})
+    if not body.get("actionId"):
+        return h.send(400, {"error": "actionId is required to resume"})
     if body.get("actionId") != job.pending.get("actionId"):
-        return h.send(409, {"message": "That question was already answered."})
+        return h.send(409, {"error": "This decision targets a stale action"})
+    refused = resume_refusal(job.pending.get("payload") or {}, body)
+    if refused is not None:
+        return h.send(*refused)
     with STATE.lock:
         STATE.turns.append({"resume": body})
     with job.cond:
         job.answer = body
         job.cond.notify_all()
-    h.send(200, {"success": True})
+    h.send(200, {"streamId": job.cid, "conversationId": job.cid, "status": "resuming"})
+
+
+MAX_ANSWER_LENGTH = 16000
+
+
+def js_length(text):
+    """A string's length as LibreChat measures it: UTF-16 code units, so a
+    character outside the basic plane counts twice. A lone surrogate, which
+    JSON may carry, counts once."""
+    return len(text.encode("utf-16-le", errors="surrogatepass")) // 2
+
+
+def resume_refusal(payload, body):
+    """What LibreChat refuses in an answer to a paused run, as
+    (status, body), in its order; None when it takes the answer.
+
+    Tool calls: packages/api/src/agents/hitl/resume.ts
+    resolveToolApprovalResume (an unknown or repeated call, an undecided one,
+    a decision the call does not allow, an edit without an arguments object
+    or a response without text). Questions: resolveAskUserQuestionResume.
+    """
+    kind = payload.get("type")
+    if kind == "tool_approval":
+        decisions = body.get("decisions") if isinstance(body.get("decisions"), list) else []
+        requested = [r.get("tool_call_id") for r in payload.get("action_requests") or []]
+        seen = []
+        for d in decisions:
+            call = d.get("tool_call_id") if isinstance(d, dict) else None
+            if call in seen or call not in requested:
+                return 400, {"error": "Invalid tool approval decisions"}
+            seen.append(call)
+        undecided = [call for call in requested if call not in seen]
+        if undecided:
+            return 400, {"error": "Every paused tool call must be decided", "undecided": undecided}
+        allowed = {
+            c.get("tool_call_id"): set(c.get("allowed_decisions") or [])
+            for c in payload.get("review_configs") or []
+        }
+        # LibreChat checks a decision with a Set's `has`: anything but one of
+        # the call's allowed names, a list or a number included, is refused.
+        disallowed = [
+            d["tool_call_id"]
+            for d in decisions
+            if not isinstance(d.get("decision"), str)
+            or d.get("decision") not in allowed.get(d["tool_call_id"], set())
+        ]
+        if disallowed:
+            return 403, {"error": "Decision not permitted for one or more tools", "disallowed": disallowed}
+        incomplete = [
+            d["tool_call_id"]
+            for d in decisions
+            if (d.get("decision") == "edit" and not isinstance(d.get("editedArguments"), dict))
+            or (
+                d.get("decision") == "respond"
+                and not (isinstance(d.get("responseText"), str) and d.get("responseText"))
+            )
+        ]
+        if incomplete:
+            return 400, {
+                "error": "edit requires editedArguments and respond requires responseText",
+                "incomplete": incomplete,
+            }
+        return None
+    if kind == "ask_user_question":
+        questions = payload.get("questions")
+        if not isinstance(questions, list):
+            answer = body.get("answer")
+            if not isinstance(answer, str) or not answer:
+                return 400, {"error": "An answer is required"}
+            if js_length(answer) > MAX_ANSWER_LENGTH:
+                return 400, {"error": "Answer exceeds the maximum length"}
+            return None
+        answers = body.get("answers")
+        if not isinstance(answers, dict):
+            return 400, {"error": "Answers are required for every question"}
+        ids = [q.get("id") for q in questions]
+        for question_id in ids:
+            answer = answers.get(question_id)
+            if not isinstance(answer, str) or not answer:
+                return 400, {"error": "Answers are required for every question"}
+            if js_length(answer) > MAX_ANSWER_LENGTH:
+                return 400, {"error": "An answer exceeds the maximum length"}
+        if any(key not in ids for key in answers):
+            return 400, {"error": "Answers contain an unknown question id"}
+        return None
+    return 400, {"error": "Unsupported pending action type"}
 
 
 @route("GET", r"/api/agents/chat/active")
@@ -1402,7 +1601,7 @@ def status(h, user, cid):
             "active": True,
             "streamId": job.cid,
             "createdAt": job.created_at,
-            "status": "running",
+            "status": "requires_action" if job.pending is not None else "running",
             "resumeState": job.snapshot(),
             "pendingAction": job.pending,
         },
