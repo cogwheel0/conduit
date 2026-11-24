@@ -3,6 +3,10 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 part 'capabilities.freezed.dart';
 part 'capabilities.g.dart';
 
+/// A namespace of methods ([ConduitMethods]) that a host may not serve at
+/// all ([Capabilities.notOffered]).
+enum HostNamespace { speech, calls, apple, location }
+
 /// What the currently connected core can actually do.
 ///
 /// The UI gates navigation and affordances on these flags rather than probing
@@ -14,10 +18,6 @@ part 'capabilities.g.dart';
 /// A flat struct is safe here because [kConduitProtocolVersion] demands strict
 /// equality — the daemon and the UI are always the same build, so there is no
 /// "older peer sees an unknown flag" case to design around.
-/// A namespace of methods ([ConduitMethods]) that a host may not serve at
-/// all ([Capabilities.notOffered]).
-enum HostNamespace { speech, calls, apple, location }
-
 @freezed
 abstract class Capabilities with _$Capabilities {
   const factory Capabilities({

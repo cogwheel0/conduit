@@ -2634,17 +2634,6 @@ fn default_call_report_ok() -> bool {
     true
 }
 
-/// What the currently connected core can actually do.
-///
-/// The UI gates navigation and affordances on these flags rather than probing
-/// the server itself: capability detection is server- and build-dependent
-/// (an Open WebUI version, a Hermes deployment, a macOS-only helper), and
-/// duplicating that logic in the renderer is exactly the drift the workspace
-/// rules exist to stop.
-///
-/// A flat struct is safe here because `kConduitProtocolVersion` demands strict
-/// equality — the daemon and the UI are always the same build, so there is no
-/// "older peer sees an unknown flag" case to design around.
 /// A namespace of methods (`ConduitMethods`) that a host may not serve at
 /// all (`Capabilities.notOffered`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -2663,6 +2652,17 @@ pub enum HostNamespace {
     Unknown,
 }
 
+/// What the currently connected core can actually do.
+///
+/// The UI gates navigation and affordances on these flags rather than probing
+/// the server itself: capability detection is server- and build-dependent
+/// (an Open WebUI version, a Hermes deployment, a macOS-only helper), and
+/// duplicating that logic in the renderer is exactly the drift the workspace
+/// rules exist to stop.
+///
+/// A flat struct is safe here because `kConduitProtocolVersion` demands strict
+/// equality — the daemon and the UI are always the same build, so there is no
+/// "older peer sees an unknown flag" case to design around.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
