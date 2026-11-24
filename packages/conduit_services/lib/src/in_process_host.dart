@@ -78,6 +78,11 @@ final class InProcessProtocolHost {
   }
 
   final ProviderContainer _container;
+
+  /// Sends a frame to the client, completing once the client has taken it.
+  /// It may complete late, after frames the client sends meanwhile: the
+  /// host waits on it only inside the one stream's serving task, never while
+  /// taking a frame ([receiveBytes]).
   final Future<void> Function(Uint8List frame) _sendBytes;
 
   /// How many messages a session may have sent and not yet had taken
@@ -154,9 +159,16 @@ final class InProcessProtocolHost {
     return session;
   }
 
-  /// A frame of the byte routes from the client. Completes once the host
-  /// has taken it: a body chunk once the route reading it is ready for more,
-  /// so the client sends the next one then.
+  /// A frame of the byte routes from the client.
+  ///
+  /// The calling contract, which a binding follows:
+  /// * Frames may be passed one at a time, each awaited before the next: this
+  ///   never waits on a route or on a send ([sendBytes] may complete late,
+  ///   even after later frames), only on taking the frame.
+  /// * A stream's frames come in order: `open`, its body's chunks, `end`.
+  /// * Every stream the host serves ends with exactly one `end` (answered
+  ///   whole) or `error` (failed, refused or cancelled) from the host; its
+  ///   number may be used again only after that.
   ///
   /// The host keeps no part of [frame]: a chunk is copied before a route
   /// sees it ([ByteRequest.read]).
@@ -175,16 +187,20 @@ final class InProcessProtocolHost {
     final stream = _streams[decoded.stream];
     switch (decoded.kind) {
       case ByteFrameKind.open:
-        await _open(decoded);
+        _open(decoded);
       case ByteFrameKind.chunk:
-        await stream?.push(Uint8List.fromList(decoded.payload));
+        if (stream == null) {
+          // Answered or failed already: what it was still sending is not
+          // wanted (the host said so, or ended the stream).
+          return;
+        }
+        stream.push(Uint8List.fromList(decoded.payload));
       case ByteFrameKind.end:
-        stream?.endBody();
+        stream?.endByClient();
       case ByteFrameKind.cancel:
-        stream?.cancel();
-        // Taken once the host has let go of the stream: nothing more of it
-        // comes, and its number may be used again.
-        await stream?.finished;
+        // At once: nothing more of the stream is sent, and its last frame
+        // (`error`) comes from its serving task when that has let go.
+        stream?.stop('cancelled');
       case ByteFrameKind.responseHead || ByteFrameKind.error:
         DebugLogger.warning(
           'byte-frame-from-client',
@@ -194,12 +210,16 @@ final class InProcessProtocolHost {
     }
   }
 
-  Future<void> _open(ByteFrame frame) async {
+  void _open(ByteFrame frame) {
     final id = frame.stream;
     if (_stopping != null) {
-      return _fail(id, 'the protocol host is stopping');
+      unawaited(_fail(id, 'the protocol host is stopping'));
+      return;
     }
-    if (_streams.containsKey(id)) return _fail(id, 'stream $id is open');
+    if (_streams.containsKey(id)) {
+      unawaited(_fail(id, 'stream $id is open'));
+      return;
+    }
     final ByteRequest request;
     final String path;
     try {
@@ -221,13 +241,15 @@ final class InProcessProtocolHost {
       );
     } on Object {
       _streams.remove(id);
-      return _fail(id, 'a byte stream opens with its request as JSON');
+      unawaited(_fail(id, 'a byte stream opens with its request as JSON'));
+      return;
     }
     try {
       _attach();
     } on StateError catch (error) {
       _streams.remove(id);
-      return _fail(id, error.message);
+      unawaited(_fail(id, error.message));
+      return;
     }
     unawaited(_serve(id, request, path));
   }
@@ -250,10 +272,10 @@ final class InProcessProtocolHost {
                 ));
       }
       // Answered: whatever of the body is still to come is not wanted.
-      if (stream.finishBody() && !stream.cancelled) {
+      if (stream.finishBody() && !stream.stopped) {
         await _send(ByteFrame(id, ByteFrameKind.cancel));
       }
-      if (stream.cancelled || _stopping != null) return;
+      if (stream.stopped || _stopping != null) return;
       if (response.failure case final failure?) {
         DebugLogger.error(
           failure.what,
@@ -281,7 +303,7 @@ final class InProcessProtocolHost {
         final other => throw StateError('a byte body of ${other.runtimeType}'),
       };
       for (var at = 0; at < body.length; at += ByteFrame.maxChunk) {
-        if (stream.cancelled || _stopping != null) return;
+        if (stream.stopped || _stopping != null) return;
         final end = at + ByteFrame.maxChunk < body.length
             ? at + ByteFrame.maxChunk
             : body.length;
@@ -290,7 +312,7 @@ final class InProcessProtocolHost {
           return;
         }
       }
-      if (stream.cancelled || _stopping != null) return;
+      if (stream.stopped || _stopping != null) return;
       await _send(ByteFrame(id, ByteFrameKind.end));
     } on Object catch (error, stack) {
       DebugLogger.error(
@@ -300,10 +322,13 @@ final class InProcessProtocolHost {
         stackTrace: stack,
       );
       stream.finishBody();
-      if (!stream.cancelled) await _fail(id, 'the route failed');
+      if (!stream.stopped) await _fail(id, 'the route failed');
     } finally {
       if (identical(_streams[id], stream)) _streams.remove(id);
-      stream._finished.complete();
+      // A stream stopped for a reason ends with it, once let go of.
+      if (stream.stopReason case final reason? when _stopping == null) {
+        await _fail(id, reason);
+      }
     }
   }
 
@@ -320,7 +345,7 @@ final class InProcessProtocolHost {
         error: error,
         stackTrace: stack,
       );
-      _streams[frame.stream]?.cancel();
+      _streams[frame.stream]?.stop(null);
       return false;
     }
   }
@@ -348,7 +373,7 @@ final class InProcessProtocolHost {
     _sessions.clear();
     await services.closeTransports();
     for (final stream in _streams.values.toList()) {
-      stream.cancel();
+      stream.stop(null);
     }
     _streams.clear();
     if (_ownsMedia) _media.close();
@@ -593,63 +618,53 @@ final class _HeldFrames implements EventGate {
 
 /// One request on the byte routes and its answer.
 final class _ByteStream {
-  _ByteStream() {
-    body = StreamController<List<int>>(
-      onListen: _wake,
-      onResume: _wake,
-      onCancel: () {
-        _bodyDone = true;
-        _wake();
-      },
-    );
-  }
-
-  late final StreamController<List<int>> body;
-  final Completer<void> _finished = Completer<void>();
+  /// The body, which takes each chunk as it comes: every route reads its
+  /// whole body, so holding the client back gains nothing.
+  final StreamController<List<int>> body = StreamController<List<int>>();
   bool _bodyDone = false;
 
-  /// Completes once the host is done with the stream, answered or not.
-  Future<void> get finished => _finished.future;
-  bool cancelled = false;
-  Completer<void>? _ready;
+  /// The client sent `end`.
+  bool endedByClient = false;
 
-  void _wake() {
-    _ready?.complete();
-    _ready = null;
+  /// Nothing more of the answer is sent; [stopReason], if any, is the
+  /// stream's last frame.
+  bool stopped = false;
+  String? stopReason;
+
+  void push(Uint8List chunk) {
+    if (!_bodyDone) body.add(chunk);
   }
 
-  /// Hands [chunk] to the route once it is reading.
-  Future<void> push(Uint8List chunk) async {
-    while (!_bodyDone && (!body.hasListener || body.isPaused)) {
-      await (_ready ??= Completer<void>()).future;
-    }
-    if (_bodyDone) return;
-    body.add(chunk);
+  void endByClient() {
+    endedByClient = true;
+    _endBody();
   }
 
-  void endBody() {
+  void _endBody() {
     if (_bodyDone) return;
     _bodyDone = true;
-    _wake();
     unawaited(body.close());
   }
 
   /// No more of the body is taken. True when some of it was still to come.
   bool finishBody() {
     final open = !_bodyDone;
-    endBody();
+    _endBody();
     return open;
   }
 
-  /// The client abandoned the request: a route reading its body fails, and
-  /// nothing of the answer is sent.
-  void cancel() {
-    if (cancelled) return;
-    cancelled = true;
+  /// Ends the stream: a route still reading its body fails, so a body never
+  /// reaches it short, and nothing of the answer is sent. [reason] is told
+  /// to the client as the stream's last frame; none when the transport
+  /// itself failed. A route already answering runs on (a route cannot be
+  /// stopped), and its answer is dropped.
+  void stop(String? reason) {
+    if (stopped) return;
+    stopped = true;
+    stopReason = reason;
     if (!_bodyDone) {
       _bodyDone = true;
       body.addError(const ByteStreamCancelled());
-      _wake();
       unawaited(body.close());
     }
   }

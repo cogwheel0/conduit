@@ -570,6 +570,8 @@ void main() {
       site = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => site.close(force: true));
       site.listen((request) {
+        // A site that never answers.
+        if (request.uri.path == '/never') return;
         request.response
           ..headers.contentType = ContentType('image', 'png')
           ..add(picture);
@@ -615,12 +617,13 @@ void main() {
         query: pictureQuery(),
       );
       await firstChunk;
-      final cancelled = bytes.cancel(1);
-      final sent = answer.frames.length;
+      // Taken at once, although the host still waits on the client's answer
+      // to that chunk (a transport that answers only once this returns).
+      await bytes.cancel(1);
       bytes.release();
-      // Taken once the host has let go of the stream, the host still running.
-      await cancelled;
-      check(answer.frames.length).equals(sent);
+      // The stream's last word: the host has let go, and still runs.
+      await answer.settled;
+      check(answer.error).equals('cancelled');
       check(answer.chunks).length.equals(1);
       check(answer.ended).isFalse();
     });
@@ -702,7 +705,7 @@ void main() {
           .isFalse();
 
       // Abandoned after its first chunk: no route hears of it, and no answer
-      // comes.
+      // comes, only the stream's last word.
       final abandoned = bytes.answerFor(4);
       await open(4);
       await sendFrom(
@@ -711,8 +714,10 @@ void main() {
       await bytes.cancel(4);
       // The next request is answered after it, on the same host.
       await (await upload(5, short)).done;
+      await abandoned.settled;
       check(transcriber.heard).length.equals(4);
-      check(abandoned.frames).isEmpty();
+      check(abandoned.error).equals('cancelled');
+      check(abandoned.status).isNull();
     });
 
     test('an answer given before the body ends tells the client to stop '
@@ -753,13 +758,39 @@ void main() {
           query: pictureQuery(),
         );
         await second.done;
-        // Answered once the host has let go of the stream, ended or not.
-        await bytes.cancel(1);
         check(second.body).deepEquals(picture);
         check(first.chunks).isEmpty();
         check(first.ended).isFalse();
       },
     );
+
+    test('a cancel is taken at once, though its route is still answering '
+        'and never finishes, and another stream is served meanwhile', () async {
+      await startApp();
+      final patient = MediaService(
+        ownServer: () async => Uri.parse('http://127.0.0.1:${site.port}'),
+        timeout: const Duration(hours: 1),
+      );
+      addTearDown(patient.close);
+      final (_, bytes) = await startHost(media: patient);
+      final url = 'http://127.0.0.1:${site.port}/never';
+      final stuck = await bytes.request(
+        1,
+        'GET',
+        '/media/image',
+        query: 'url=${Uri.encodeQueryComponent(url)}',
+      );
+      await bytes.cancel(1);
+      final other = await bytes.request(
+        2,
+        'GET',
+        '/media/image',
+        query: pictureQuery(),
+      );
+      await other.done;
+      check(other.body).deepEquals(picture);
+      check(stuck.frames).isEmpty();
+    });
 
     test('every tunnel is refused: this host carries no socket', () async {
       await startApp();
@@ -1043,14 +1074,28 @@ final class _Client {
 
 /// One answer on the byte routes, as the client collects it.
 final class _Answer {
+  _Answer() {
+    // Awaited where an answer is expected; an error frame is a result too.
+    unawaited(_done.future.then<void>((_) {}, onError: (Object _) {}));
+  }
+
   final List<ByteFrame> frames = <ByteFrame>[];
   final List<Uint8List> chunks = <Uint8List>[];
   final Completer<void> _done = Completer<void>();
+  final Completer<void> _settled = Completer<void>();
   int? status;
   Map<String, String> headers = const <String, String>{};
   bool ended = false;
 
+  /// What the host's error frame said, if it ended the stream with one.
+  String? error;
+
+  /// The answer's end; an error frame fails it.
   Future<void> get done => _done.future;
+
+  /// The stream's last frame from the host, `end` or `error`: its number is
+  /// free from then on.
+  Future<void> get settled => _settled.future;
 
   Uint8List get body =>
       Uint8List.fromList([for (final chunk in chunks) ...chunk]);
@@ -1106,8 +1151,11 @@ final class _BytePeer {
       case ByteFrameKind.end:
         answer.ended = true;
         answer._done.complete();
+        answer._settled.complete();
       case ByteFrameKind.error:
-        answer._done.completeError(utf8.decode(frame.payload));
+        answer.error = utf8.decode(frame.payload);
+        answer._done.completeError(answer.error!);
+        answer._settled.complete();
       case ByteFrameKind.open || ByteFrameKind.cancel:
         break;
     }
@@ -1157,6 +1205,9 @@ final class _BytePeer {
 final class _Transcriber implements LocalTranscriber {
   final List<Uint8List> heard = <Uint8List>[];
 
+  /// When set, a transcription waits for it.
+  Completer<void>? hold;
+
   @override
   bool get available => true;
 
@@ -1189,6 +1240,7 @@ final class _Transcriber implements LocalTranscriber {
     Uint8List wav, {
     String? language,
   }) async {
+    await hold?.future;
     heard.add(wav);
     return '${wav.length} bytes';
   }

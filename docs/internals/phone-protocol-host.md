@@ -71,14 +71,26 @@ new session catches up.
 ## Byte routes
 
 The byte routes travel as frames (`ByteFrame`): a 12-byte header (stream,
-kind, flags, reserved, length) and up to 64 KiB of payload. Flow control is by
-reply: the client sends the next chunk once the host's future for the last one
-completes, and the host sends the next chunk of an answer once the client's
-reply comes. A chunk over 64 KiB is refused either way. Either side can
-cancel; the client's cancel is answered once the host has let go of the
-stream, so its number can be used again. A frame the client fails to take
-ends that stream alone. Tunnels need a socket both ways and are refused by
-path, without asking services the app keeps.
+kind, flags, reserved, length) and up to 64 KiB of payload. A chunk over
+64 KiB is refused either way. Tunnels need a socket both ways and are refused
+by path, without asking services the app keeps.
+
+The calling contract, which a binding must follow, is on `receiveBytes` and
+`sendBytes`:
+- `receiveBytes` never waits on a route or on a send, so frames may be taken
+  one at a time, each awaited before the next. Body chunks are taken as they
+  come: every route reads its whole body, so holding the client back gains
+  nothing.
+- `sendBytes` may complete late, after frames the client sends meanwhile. The
+  host waits on it only inside one stream's serving task, and sends that
+  stream's next chunk once the client has taken the last.
+- Every stream the host serves ends with exactly one `end` or `error` from the
+  host, and its number may be used again only after that.
+- A client's cancel takes effect at once: nothing more of the stream is sent,
+  and its `error` comes when the serving task has let go. A route cannot be
+  stopped once it is answering; it runs on and its answer is dropped, so a
+  route that never finishes keeps its number busy (a client uses a fresh one).
+- A frame the client fails to take ends that stream alone.
 
 **Chunk ownership.** A chunk a host hands a route is the route's: the host
 never writes to its bytes again, so a route may keep it without copying. This
