@@ -38,6 +38,12 @@ dependencies:
     path: packages/conduit_core
   conduit_markdown:
     path: packages/conduit_markdown
+  # The protocol and its services, for screens in the app's own process
+  # (lib/platform/protocol_channel_host.dart; off by a build define).
+  conduit_protocol:
+    path: packages/conduit_protocol
+  conduit_services:
+    path: packages/conduit_services
   conduit_theme:
     path: packages/conduit_theme
 

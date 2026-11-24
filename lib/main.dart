@@ -24,6 +24,7 @@ import 'platform/android_user_certificates.dart';
 import 'platform/flutter_app_lifecycle.dart';
 import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
+import 'platform/protocol_channel_host.dart';
 import 'platform/realtime_pcm_audio.dart';
 import 'platform/webrtc_realtime_media.dart';
 import 'platform/url_launcher_open_external_url_port.dart';
@@ -601,6 +602,10 @@ void main() {
       // CarPlay can cold-launch Conduit without a visible Flutter scene, so
       // install its method-channel handler before frame-scheduled startup work.
       providerContainer.read(carPlayCoordinatorProvider);
+
+      // Off by default; a const guard, so a build without the define carries
+      // none of the protocol host.
+      if (kProtocolHost) startProtocolChannelHost(providerContainer);
 
       installConduitErrorWidgetBuilder();
 
