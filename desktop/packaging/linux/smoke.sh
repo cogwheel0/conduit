@@ -292,6 +292,8 @@ if [ -n "$update_feed" ]; then
   log "serving $update_feed on 127.0.0.1:$update_port for the update check"
 fi
 command -v xwininfo >/dev/null || die "the WM_CLASS check needs xwininfo (x11-utils)"
+wm_class="$(sed -n 's/^StartupWMClass=//p' "$entry")"
+[ -n "$wm_class" ] || die "$entry names no StartupWMClass"
 mkdir -p "$keyring_data/keyrings" "$work/runtime"
 chmod 700 "$keyring_data/keyrings" "$work/runtime"
 printf '[keyring]\ndisplay-name=login\nctime=0\nmtime=0\nlock-on-idle=false\nlock-after=false\n' \
@@ -307,17 +309,20 @@ env -u CONDUITD_PATH XDG_RUNTIME_DIR="$work/runtime" \
       printf probe | timeout 20 secret-tool store --label="Conduit smoke probe" conduit-smoke probe &&
         [ "$(timeout 20 secret-tool lookup conduit-smoke probe)" = probe ] || exit 71
     fi
-    # The WM_CLASS its windows carry (instance and class), once one has it;
-    # emptied first, so a reused WORK never offers what an earlier run saw.
+    # Every WM_CLASS (instance and class) on the display, sampled until the
+    # desktop entry'"'"'s appears or the app ends: other clients, such as a
+    # portal the session starts, may show a window first. Emptied first, so
+    # a reused WORK never offers what an earlier run saw.
     : >"$3"
     /usr/bin/conduit-desktop --smoke "$1" &
     app=$!
-    while kill -0 "$app" 2>/dev/null && [ ! -s "$3" ]; do
-      xwininfo -root -tree 2>/dev/null |
-        sed -n "s/.*: (\"\([^\"]*\)\" \"\([^\"]*\)\").*/\1 \2/p" | sort -u >"$3"
+    while kill -0 "$app" 2>/dev/null && ! grep -qx "$4 $4" "$3"; do
+      { cat "$3"; xwininfo -root -tree 2>/dev/null |
+        sed -n "s/.*: (\"\([^\"]*\)\" \"\([^\"]*\)\").*/\1 \2/p"; } | sort -u >"$3.next"
+      mv "$3.next" "$3"
       sleep 0.2
     done
-    wait "$app"' sh "$report" "$keyring_data" "$work/smoke/wm-class" >"$work/smoke/run.log" 2>&1 ||
+    wait "$app"' sh "$report" "$keyring_data" "$work/smoke/wm-class" "$wm_class" >"$work/smoke/run.log" 2>&1 ||
   status=$?
 if [ -n "$server" ]; then kill "$server" 2>/dev/null || true; fi
 case "$status" in
@@ -340,8 +345,6 @@ fi
 # binary: only a packaged release build runs in the production flavour.
 grep -q 'Conduit Desktop .* (Production), userData ' "$work/smoke/logs/conduit-desktop.log" ||
   die "the installed app didn't run in the production flavour (it found no packaged conduitd)"
-wm_class="$(sed -n 's/^StartupWMClass=//p' "$entry")"
-[ -n "$wm_class" ] || die "$entry names no StartupWMClass"
 grep -qx "$wm_class $wm_class" "$work/smoke/wm-class" 2>/dev/null ||
   die "the app's windows carry WM_CLASS '$(tr '\n' ',' 2>/dev/null <"$work/smoke/wm-class")', not $entry's StartupWMClass ($wm_class)"
 log "the app's windows carry WM_CLASS $wm_class, the desktop entry's StartupWMClass"
