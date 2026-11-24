@@ -292,24 +292,92 @@ except (binascii.Error, ValueError):
 # (SPARKLE_NEXT_PUBLIC_ED_KEY), only when ROTATION_TAG
 # (SPARKLE_KEY_ROTATION_TAG) names TAG. Anything else stops: one of the two
 # without the other, a rotation named for another tag (left over, or set
-# early), or a NEXT that is not a key or is CURRENT.
+# early), or a NEXT that is not a key or is CURRENT. PREFIX (default
+# SPARKLE; WINDOWS or LINUX for their own keys) names the variables.
 #
-#   release_app_key TAG CURRENT NEXT ROTATION_TAG
+#   release_app_key TAG CURRENT NEXT ROTATION_TAG [PREFIX]
 release_app_key() {
-  local tag="$1" current="$2" next="$3" rotation_tag="$4"
+  local tag="$1" current="$2" next="$3" rotation_tag="$4" p="${5:-SPARKLE}" runbook
+  runbook="docs/RELEASING-DESKTOP.md, \"Rotating the Sparkle key\""
+  [ "$p" = SPARKLE ] || runbook="docs/RELEASING-DESKTOP.md, \"Rotating the Windows or Linux key\""
   if [ -z "$next" ] && [ -z "$rotation_tag" ]; then
     printf '%s\n' "$current"
     return 0
   fi
   [ -n "$next" ] && [ -n "$rotation_tag" ] ||
-    die "a key rotation needs both SPARKLE_NEXT_PUBLIC_ED_KEY and SPARKLE_KEY_ROTATION_TAG; only one is set (docs/RELEASING-DESKTOP.md, \"Rotating the Sparkle key\")"
+    die "a key rotation needs both ${p}_NEXT_PUBLIC_ED_KEY and ${p}_KEY_ROTATION_TAG; only one is set ($runbook)"
   [ "$rotation_tag" = "$tag" ] ||
-    die "SPARKLE_KEY_ROTATION_TAG names $rotation_tag, not $tag: finish that rotation (swap the keys, delete both rotation variables) or name this tag (docs/RELEASING-DESKTOP.md)"
+    die "${p}_KEY_ROTATION_TAG names $rotation_tag, not $tag: finish that rotation (swap the keys, delete both rotation variables) or name this tag (docs/RELEASING-DESKTOP.md)"
   is_ed25519_public_key "$next" ||
-    die "SPARKLE_NEXT_PUBLIC_ED_KEY is not a Sparkle public key (base64 of 32 bytes; generate_keys -p)"
+    die "${p}_NEXT_PUBLIC_ED_KEY is not a Sparkle public key (base64 of 32 bytes; generate_keys -p)"
   [ "$next" != "$current" ] ||
-    die "SPARKLE_NEXT_PUBLIC_ED_KEY is SPARKLE_PUBLIC_ED_KEY: nothing to rotate (delete both rotation variables)"
+    die "${p}_NEXT_PUBLIC_ED_KEY is ${p}_PUBLIC_ED_KEY: nothing to rotate (delete both rotation variables)"
   printf '%s\n' "$next"
+}
+
+# The state of OS's update feed (windows or linux) on the feed release
+# (release.env's release-asset hosting), for the release workflow: `live`
+# once appcast-OS.xml is there; `new` when neither it nor
+# appcast-OS.previous.xml is, or there is no feed release yet (that OS's
+# first release). Stops when the feed release cannot be read, and on
+# appcast-OS.previous.xml without appcast-OS.xml (a publication that
+# stopped half way, never read as a first release).
+#
+#   winlinux_feed_state OS
+winlinux_feed_state() {
+  local os="$1" out names
+  case "$os" in windows | linux) ;; *) die "winlinux_feed_state: windows or linux, not '$os'" ;; esac
+  [ "$APPCAST_HOSTING" = release-asset ] ||
+    die "the Windows and Linux feeds are published on the feed release only (APPCAST_HOSTING release-asset, not $APPCAST_HOSTING)"
+  if ! out="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \
+    --jq '.assets[] | "\(.id) \(.name)"' 2>&1)"; then
+    case "$out" in
+      *"HTTP 404"*) printf 'new\n'; return 0 ;;
+      *) die "could not list the feed release's files: $out" ;;
+    esac
+  fi
+  names="$(printf '%s\n' "$out" | awk '{print $2}')"
+  if printf '%s\n' "$names" | grep -qxF "appcast-$os.xml"; then
+    printf 'live\n'
+  elif printf '%s\n' "$names" | grep -qxF "appcast-$os.previous.xml"; then
+    die "the feed release has appcast-$os.previous.xml but no appcast-$os.xml: a publication stopped half way; rename appcast-$os.previous.xml to appcast-$os.xml first (docs/RELEASING-DESKTOP.md, \"A stale or missing appcast\")"
+  else
+    printf 'new\n'
+  fi
+}
+
+# The public key the published OS feed FEED is signed with, which
+# winlinux-appcast.sh checks it with before it adds a release: CURRENT
+# (<OS>_PUBLIC_ED_KEY); or, on the first release after a key swap, RETIRED
+# (<OS>_RETIRED_PUBLIC_ED_KEY), the key before it. Stops when neither
+# verifies the feed, and when RETIRED is set but the feed is already signed
+# with CURRENT: a variable left over would keep trusting a retired key.
+#
+#   feed_signing_key FEED OS CURRENT RETIRED
+feed_signing_key() {
+  local feed="$1" os="$2" current="$3" retired="$4" OS
+  OS="$(printf '%s' "$os" | tr '[:lower:]' '[:upper:]')"
+  if [ -n "$retired" ]; then
+    is_ed25519_public_key "$retired" ||
+      die "${OS}_RETIRED_PUBLIC_ED_KEY is not a public key (base64 of 32 bytes; generate_keys -p)"
+    [ "$retired" != "$current" ] ||
+      die "${OS}_RETIRED_PUBLIC_ED_KEY is ${OS}_PUBLIC_ED_KEY: delete it"
+  fi
+  if verify_feed "$feed" "$current" 2>/dev/null; then
+    [ -z "$retired" ] ||
+      die "the published $os feed is signed with ${OS}_PUBLIC_ED_KEY already: ${OS}_RETIRED_PUBLIC_ED_KEY is left over; delete it (docs/RELEASING-DESKTOP.md, \"Rotating the Windows or Linux key\")"
+    printf '%s\n' "$current"
+    return 0
+  fi
+  if [ -n "$retired" ] && verify_feed "$feed" "$retired" 2>/dev/null; then
+    log "the first $os release after a key swap: the published feed is signed with ${OS}_RETIRED_PUBLIC_ED_KEY"
+    printf '%s\n' "$retired"
+    return 0
+  fi
+  if [ -n "$retired" ]; then
+    die "the published $os feed is signed with neither ${OS}_PUBLIC_ED_KEY nor ${OS}_RETIRED_PUBLIC_ED_KEY: it is never added to"
+  fi
+  die "the published $os feed is not signed with ${OS}_PUBLIC_ED_KEY: after a key swap, set ${OS}_RETIRED_PUBLIC_ED_KEY to the key before it (docs/RELEASING-DESKTOP.md, \"Rotating the Windows or Linux key\"); otherwise it is never added to"
 }
 
 # Whether the appcast XML's item for sparkle:version BUILD describes FILE:

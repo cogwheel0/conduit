@@ -1,15 +1,31 @@
-# Releasing Conduit Desktop (macOS)
+# Releasing Conduit Desktop
 
-How a signed, notarized, self-updating Conduit Desktop release is made, and
-the one-time setup it needs. Building and testing the app day to day is in
+How a Conduit Desktop release is made for macOS, Windows and Linux, and the
+one-time setup it needs. Building and testing the app day to day is in
 [BUILDING-DESKTOP.md](BUILDING-DESKTOP.md).
 
-**What ships:** `Conduit-<version>.dmg`, holding `Conduit.app` for **Apple
-silicon only** (arm64) on **macOS 14 Sonoma or later**. It is signed with a
-Developer ID Application certificate, notarized, and stapled. It updates
-itself through **Sparkle 2** from **one stable channel**: a single appcast on
-GitHub Releases, fed by `desktop-v*` tags. There are no beta releases; a
-`-beta.N` tag is refused.
+**What ships:** one `desktop-v*` tag releases every OS together, in one
+GitHub release. There are no beta releases; a `-beta.N` tag is refused.
+
+- **macOS:** `Conduit-<version>.dmg`, holding `Conduit.app` for **Apple
+  silicon only** (arm64) on **macOS 14 Sonoma or later**. It is signed with
+  a Developer ID Application certificate, notarized, and stapled. It updates
+  itself through **Sparkle 2** from **one stable channel**: a single appcast
+  on GitHub Releases.
+- **Windows:** `Conduit-<version>-windows-x64-setup.exe`, a per-user
+  installer for x64 Windows 10 or later, **unsigned** for now (the release
+  notes say how to get past SmartScreen). It updates itself through
+  WinSparkle from its own signed feed.
+- **Linux:** `conduit-desktop_<version>-1_amd64.deb` and
+  `conduit-desktop-<version>-1.x86_64.rpm` (x86_64). The app says when a
+  newer version is out, from its own signed feed; the package manager
+  installs it.
+
+All or nothing: a draft is complete only once every OS's files and feeds
+are on it and verify, and no feed goes live for a release that lacks any of
+them ([The publish gate](#the-publish-gate)). GitHub lets no workflow stop
+a person publishing a draft, so the check made at publication runs after
+the release is public: a release it refuses is put back to a draft.
 
 **Contents**
 
@@ -17,6 +33,8 @@ GitHub Releases, fed by `desktop-v*` tags. There are no beta releases; a
 - [One-time setup](#one-time-setup)
 - [Secrets and variables](#secrets-and-variables)
 - [Making a release](#making-a-release)
+- [The publish gate](#the-publish-gate)
+- [The release notes](#the-release-notes)
 - [What the workflow checks](#what-the-workflow-checks)
 - [Rehearsals](#rehearsals)
 - [Platform targets](#platform-targets)
@@ -30,20 +48,31 @@ GitHub Releases, fed by `desktop-v*` tags. There are no beta releases; a
 ```text
 git tag desktop-v1.2.0 && git push origin desktop-v1.2.0
    │
-   ▼  release-desktop.yml, job "build" (macOS, Apple silicon, Xcode 26+)
-   build (no secrets) ─ strip, keep dSYMs ─ import Developer ID into a temporary keychain
-   ─ sign inside out ─ notarize + staple the app ─ DMG ─ sign, notarize + staple it
-   ─ verify ─ smoke --launch ─ sign the appcast ─ DRAFT release:
-       Conduit-1.2.0.dmg, Conduit-1.2.0-dSYMs.zip, appcast.xml, SHA256SUMS.txt
+   ▼  release-desktop.yml
+   "winlinux-config": the Windows and Linux keys and rotation variables (every build waits for it)
+   "draft": the tag's DRAFT release, its notes saying it is still being built
+   │
+   ├─ "build" (macOS, Apple silicon, Xcode 26+)
+   │    build (no secrets) ─ strip, keep dSYMs ─ import Developer ID into a temporary keychain
+   │    ─ sign inside out ─ notarize + staple the app ─ DMG ─ sign, notarize + staple it
+   │    ─ verify ─ smoke --launch ─ sign the appcast ─ the Mac's files onto the draft
+   ├─ "notices" ─ "build-windows" (installer) + "build-linux" (.deb, .rpm), no secrets
+   │    ─ "winlinux-feeds": each OS's feed signed with its own key
+   │    ─ "smoke-windows" + "smoke-linux": installed on fresh runners
+   │
+   ▼  "release": the Windows and Linux files onto the draft (step 3 of "Making a release" lists them)
+   │  then the publish gate on everything the draft carries, then the release notes
    │
    ▼  a person checks the draft and publishes it
    release-desktop.yml, job "feed"
-   appcast.xml, its signature checked → the fixed release `desktop-appcast` (the URL in every Info.plist)
+   the publish gate again (a release it refuses goes back to a draft) ─ each feed against the live one
+   ─ appcast.xml, appcast-windows.xml, appcast-linux.xml → the fixed release `desktop-appcast`
    │
    ▼  installed copies find 1.2.0 on their next check (daily, or Check for Updates…)
 ```
 
-Nothing reaches installed copies until the draft is published.
+Nothing reaches installed copies until the draft is published, and no feed
+changes unless the gate passes.
 
 ## One-time setup
 
@@ -193,16 +222,30 @@ profile that cannot sign in, and the release bundle id. The Sparkle key is
 a throwaway one made for the run (the bundle is not for distribution). It
 ends with `spctl` reporting `source=Notarized Developer ID`.
 
-### 6. A dry run on GitHub
+### 6. The Windows and Linux update keys
 
-Actions › Release Desktop › Run workflow runs the whole build as a
-rehearsal: ad-hoc signature, a test bundle id, a throwaway Sparkle key, no
-secrets, nothing published. It is the cheapest way to find out whether the
-runner image (Xcode 26+), the disk and the time limit hold before a real
-tag. `desktop.yml`'s bundle job runs the same rehearsal on every push to
-`main` that touches the desktop app, and on a pull request into `main` that
-changes the packaging (see [BUILDING-DESKTOP.md](BUILDING-DESKTOP.md) for
-which). A stacked pull request skips it unless it has the `full-ci` label.
+Each OS has its own EdDSA key pair, made like the Sparkle key: the commands
+and the names are in [Windows and Linux updates](#windows-and-linux-updates).
+A tag fails within a minute while any of `WINDOWS_ED_PRIVATE_KEY`,
+`LINUX_ED_PRIVATE_KEY`, `WINDOWS_PUBLIC_ED_KEY` and `LINUX_PUBLIC_ED_KEY` is
+missing, before anything builds, the Mac's build included.
+
+### 7. A dry run on GitHub
+
+Actions › Release Desktop › Run workflow runs the whole release as a
+rehearsal, every OS: the Mac's build with an ad-hoc signature on a test
+bundle id, the Windows installer and the Linux packages, throwaway update
+keys and feeds for version 0.0.0 that the install smokes read on 127.0.0.1,
+and the publish gate on all of it, which must pass and must refuse each file
+in turn when that file is missing. No secret is read, and no release or tag
+is made or changed. It is the cheapest way to find out whether the runner
+images (Xcode 26+, Windows Server 2025, Ubuntu 22.04), the disk and the time
+limits hold before a real tag. `desktop.yml`'s bundle job runs the Mac's
+rehearsal on every push to `main` that touches the desktop app, and on a
+pull request into `main` that changes the packaging (see
+[BUILDING-DESKTOP.md](BUILDING-DESKTOP.md) for which); a stacked pull
+request skips it unless it has the `full-ci` label. Its Windows and Linux
+package and install-smoke jobs run on the same paths, whatever the base.
 
 ## Secrets and variables
 
@@ -228,17 +271,23 @@ which). A stacked pull request skips it unless it has the `full-ci` label.
 | `LINUX_PUBLIC_ED_KEY` | variable | its public key, built into every Linux app | Linux releases |
 | `WINDOWS_NEXT_PUBLIC_ED_KEY`, `WINDOWS_KEY_ROTATION_TAG` | variables | a Windows key rotation's next public key and bridge tag | a Windows key rotation only, together |
 | `LINUX_NEXT_PUBLIC_ED_KEY`, `LINUX_KEY_ROTATION_TAG` | variables | a Linux key rotation's next public key and bridge tag | a Linux key rotation only, together |
+| `WINDOWS_RETIRED_PUBLIC_ED_KEY` | variable | the Windows public key before a key swap, which the published Windows feed is still signed with | the one release after a Windows key swap |
+| `LINUX_RETIRED_PUBLIC_ED_KEY` | variable | the same for Linux | the one release after a Linux key swap |
 
 Either option A or option B is needed for notarization; with both, A is
-used. The `GITHUB_TOKEN` creates the draft release (`contents: write`, in
-that job only) and, when it is published, updates the feed. The build
-itself (cargo, dart, cmake) gets no secret. One step reads secrets before
-it: the configuration check, which sees whether each secret is set and
-reads `SPARKLE_ED_PRIVATE_KEY` to check that it belongs to
-`SPARKLE_PUBLIC_ED_KEY` (and the rotation variables, see
-[Rotating the Sparkle key](#rotating-the-sparkle-key)), so the run fails
-within a minute instead of after the build. Every other secret is read
-after the build, only in the step that needs it.
+used. The `GITHUB_TOKEN` creates the draft release and adds the files to it
+(`contents: write`, in those jobs only) and, when it is published, updates
+the feeds. The builds themselves (cargo, dart, cmake) get no secret. Two
+steps read secrets before them, so the run fails within a minute instead
+of after the builds: the Mac's configuration check, which sees whether each
+secret is set and reads `SPARKLE_ED_PRIVATE_KEY` to check that it belongs
+to `SPARKLE_PUBLIC_ED_KEY` (and the rotation variables, see
+[Rotating the Sparkle key](#rotating-the-sparkle-key)); and job
+`winlinux-config`, which does the same for `WINDOWS_ED_PRIVATE_KEY` and
+`LINUX_ED_PRIVATE_KEY` (see [Rotating the Windows or Linux
+key](#rotating-the-windows-or-linux-key)). Every other secret is read after
+the builds, only in the step that needs it: the two Windows and Linux
+private keys again in job `winlinux-feeds`, which signs the feeds.
 
 ## Making a release
 
@@ -252,33 +301,63 @@ after the build, only in the step that needs it.
    git tag desktop-v1.2.0 && git push origin desktop-v1.2.0
    ```
 
-3. **Wait for the draft.** `release-desktop.yml` › job *build* takes about
-   an hour (a cold GPUI build, whisper, notarization twice). It ends with a
-   **draft** release `desktop-v1.2.0` carrying:
+3. **Wait for the draft to complete.** The run makes the **draft** release
+   `desktop-v1.2.0` at once, its notes saying it is still being built. Job
+   *build* (macOS) takes about an hour (a cold GPUI build, whisper,
+   notarization twice) and puts the Mac's files on the draft; the Windows
+   and Linux builds and their install smokes run alongside. Job
+   *release* ends the run: it adds the Windows and Linux files, runs [the
+   publish gate](#the-publish-gate) on everything the draft carries, and
+   only then replaces the notes with the release notes
+   (`desktop/packaging/release-notes.md`, [below](#the-release-notes)). The
+   draft then carries:
    - `Conduit-1.2.0.dmg`, signed, notarized and stapled;
    - `Conduit-1.2.0-dSYMs.zip`, the debug symbols (see below);
-   - `appcast.xml`, the signed feed with the new item on top;
-   - `SHA256SUMS.txt`.
+   - `appcast.xml`, the signed Mac feed with the new item on top;
+   - `SHA256SUMS.txt`, the Mac files' checksums;
+   - `Conduit-1.2.0-windows-x64-setup.exe`, the unsigned Windows installer;
+   - `conduit-desktop_1.2.0-1_amd64.deb` and
+     `conduit-desktop-1.2.0-1.x86_64.rpm`;
+   - `appcast-windows.xml` and `appcast-linux.xml`, each OS's signed feed
+     with the new item on top;
+   - `THIRD_PARTY_NOTICES-windows.md` and `THIRD_PARTY_NOTICES-linux.md`,
+     the licences of what the Windows and Linux builds include;
+   - `SHA256SUMS-windows.txt` and `SHA256SUMS-linux.txt`.
 
    The run also keeps the notary reports and the codesign report as an
-   artifact for 30 days.
+   artifact for 30 days. A draft whose notes still say it is being built is
+   not complete: the run is still going, or a job failed (the run says
+   which; see [When something goes wrong](#when-something-goes-wrong)).
 4. **Check the draft.** Download the DMG on a Mac that has never seen a
    development build: it opens without a warning, the app starts, Settings ›
-   About shows the version. Write the release notes into the draft.
-5. **Publish** it, never as "Latest" (that stays the mobile app's):
+   About shows the version. On a clean Windows VM, the installer passes
+   SmartScreen with More info › Run anyway, the app starts and About shows
+   the version; on Ubuntu and Fedora VMs, the .deb and the .rpm install
+   with the package manager and the app starts. (The install smokes did
+   this on fresh runners; a VM is a real desktop.) Add anything worth saying
+   to the release notes.
+5. **Publish** it, only once it has its release notes (the gate passed on
+   the draft), and never as "Latest" (that stays the mobile app's):
 
    ```sh
    gh release edit desktop-v1.2.0 --draft=false --latest=false
    ```
 
    (In the web UI: untick "Set as the latest release" before Publish.)
-6. **The feed goes live.** Publishing starts job *feed*: it checks that the
-   draft's `appcast.xml` matches `SHA256SUMS.txt`, that its newest item is
+6. **The feeds go live.** Publishing starts job *feed*, once the release
+   is public. It runs the publish gate again on the release's files; a
+   release it refuses goes back to a draft and no feed changes. Then it
+   checks that the draft's `appcast.xml` matches `SHA256SUMS.txt`, that its
+   newest item is
    this version at this release's DMG, and that it keeps every item the
    live feed has; it downloads that DMG from its public URL and checks it
    against `SHA256SUMS.txt` and against the item's signed enclosure (its
    length, and its EdDSA signature with `SPARKLE_PUBLIC_ED_KEY`), so a DMG
-   swapped on the draft never goes live. Then `publish-appcast.sh` checks
+   swapped on the draft never goes live. It checks the Windows and Linux
+   feeds the same way: each keeps every item its live feed has (none on
+   that OS's first release), and the installer, the .deb and the .rpm
+   download from their public URLs as the files the gate checked. Only
+   then does anything go live. `publish-appcast.sh` checks
    the feed's own signature with `SPARKLE_PUBLIC_ED_KEY` (installed copies
    refuse a feed their key did not sign), so an appcast swapped on the
    draft, its checksum with it, never goes live either, and puts the feed
@@ -288,12 +367,15 @@ after the build, only in the step that needs it.
    draft no installed copy reads, and the next run takes it over (re-run
    the feed job). Later publications upload the new feed under a name of
    their run's own (`appcast.next-….xml`) and swap that file in by two
-   renames, the last one kept as `appcast.previous.xml`.
+   renames, the last one kept as `appcast.previous.xml`. Then
+   `publish-appcast.sh --os windows` and `--os linux` do the same for
+   `appcast-windows.xml` and `appcast-linux.xml` beside it, each checked
+   with its own OS's public key (`appcast-windows.previous.xml` and so on).
    Installed copies pick the update up on their next daily check, or at
-   once with Conduit › Check for Updates….
+   once with Check for Updates….
 
 Publish each draft, and wait for its feed job to pass, before tagging the
-next release: a draft's appcast is made from the live feed at build time,
+next release: a draft's feeds are made from the live ones at build time,
 and the feed job refuses one that would drop a release published since.
 Feed publications run one at a time, in order, in their own queue
 (`queue: max`): no other run (a mobile release, a dry run) can cancel
@@ -308,6 +390,57 @@ not be published. A re-run of the build job replaces
 a draft's files only after looking the draft up again right before each
 one, and refuses once it is published; a release published in the moment
 between that look and the upload is the one case this does not close.
+
+## The publish gate
+
+One tag releases every OS, and no OS's feed goes live without the others.
+`desktop/packaging/release_gate.sh check` decides it, on the release's
+files as GitHub serves them, and lists every problem it finds:
+
+- every file in [Making a release](#making-a-release), step 3, is there
+  (`release_gate.sh assets --os mac|windows|linux --version X.Y.Z` prints
+  the exact names);
+- each checksum file lists exactly its OS's other files, and each matches
+  (one that cannot be read refuses the release);
+- each feed is signed with the key installed copies of that OS have
+  (`SPARKLE_PUBLIC_ED_KEY`, `WINDOWS_PUBLIC_ED_KEY`,
+  `LINUX_PUBLIC_ED_KEY`), and its newest item is this version: the Mac's
+  at this release's DMG, with its length and EdDSA signature, the Windows
+  one at this release's installer, likewise; the Windows and Linux items
+  name this release's page;
+- each OS's notices were made for it.
+
+It runs twice:
+
+- **Before publication.** At the end of the tag's run, job *release* runs
+  it on the draft once every file is on it, and only then writes the
+  release notes. A draft whose notes still say it is being built is
+  incomplete, and the run says why. This is the check to rely on: publish
+  only a draft that has its notes.
+- **After publication.** GitHub lets no workflow stop a person publishing a
+  draft, so job *feed* starts once the release is already public, and runs
+  the gate again before any feed changes. A release it refuses is **put back
+  to a draft** and no feed changes, so installed copies are offered
+  nothing. Until then, and if putting it back fails (the job says so; do it
+  by hand), its files are public. A gate that could not run (a lookup or a
+  download failed) changes nothing, the release stays public, and the job
+  says so: re-run it.
+
+The dry run (workflow_dispatch) runs it on the dry run's files, which must
+pass, then takes each file away in turn and checks that the gate refuses
+the release and names that file. `release_gate_test.sh`, which
+`desktop.yml` runs, checks each refusal against synthetic releases.
+
+## The release notes
+
+Job *release* writes them from `desktop/packaging/release-notes.md`, with
+the version in place of `@VERSION@`: what each OS's download is and how to
+install it, and the release's assets. While the Windows installer is
+unsigned they carry the SmartScreen note from
+[BUILDING-DESKTOP.md](BUILDING-DESKTOP.md) ("Unsigned installers"): check
+the download against `SHA256SUMS-windows.txt`, then choose **More info**,
+then **Run anyway**. Edit the template for what every release says, and the
+draft for what one release says.
 
 ## What the workflow checks
 
@@ -357,6 +490,13 @@ feed safeguards and the publishing ones against synthetic feeds and keys.
 On macOS it also checks `verify_feed` against feeds the pinned Sparkle's
 `sign_update` signs, and runs `appcast.sh` through its `generate_appcast`
 for a release, a bridge release and the release after it.
+
+For Windows and Linux, `build.ps1` and `package.sh` check the install
+folder (complete, no test harness, the notices made for that OS), the
+install smokes install each package on a fresh runner and run the app's
+`--smoke` pass, `winlinux-appcast.sh` checks each OS's new feed as
+[Windows and Linux updates](#windows-and-linux-updates) says, and the
+publish gate checks the lot.
 
 ## Rehearsals
 
@@ -505,9 +645,9 @@ The Windows installer updates itself through WinSparkle, and the Linux app
 says when a newer version exists and links to its release (it installs
 nothing). Each has its **own EdDSA key** and its **own feed** beside the
 Mac's, so a key or a feed of one OS never touches another's. The release
-workflow's Windows and Linux jobs, which build with these keys and publish
-the feeds, come with the Windows and Linux releases; the scripts and their
-rehearsal are here already.
+workflow builds each OS's packages with its public key built in, adds the
+version to its feed in job *winlinux-feeds*, and publishes the feed with
+the Mac's when the draft is published.
 
 **The feeds**, on the same fixed release as the Mac's `appcast.xml`
 (`release.env`'s hosting; `desktop/packaging/winlinux_feed.py url windows`
@@ -539,6 +679,11 @@ which the Windows and Linux release jobs read:
 | `LINUX_PUBLIC_ED_KEY` | variable | its public key, built into every Linux app (`package.sh --update-public-key`) |
 | `WINDOWS_NEXT_PUBLIC_ED_KEY`, `WINDOWS_KEY_ROTATION_TAG` | variables | a Windows key rotation only, together |
 | `LINUX_NEXT_PUBLIC_ED_KEY`, `LINUX_KEY_ROTATION_TAG` | variables | a Linux key rotation only, together |
+| `WINDOWS_RETIRED_PUBLIC_ED_KEY`, `LINUX_RETIRED_PUBLIC_ED_KEY` | variables | the one release after that OS's key swap only |
+
+Until all four of the first are set, a tag stops within a minute, before
+anything builds. To set them (on the Mac whose login keychain holds the
+keys):
 
 ```sh
 d="$(bash -c '. desktop/packaging/macos/lib.sh && sparkle_dir')"
@@ -547,11 +692,15 @@ for os in windows linux; do
   gh variable set "${OS}_PUBLIC_ED_KEY" --body "$("$d/bin/generate_keys" --account "conduit-desktop-$os" -p)"
   "$d/bin/generate_keys" --account "conduit-desktop-$os" -x "$os-private-key.txt"
   gh secret set "${OS}_ED_PRIVATE_KEY" < "$os-private-key.txt"
+  # must print the same public key as the variable
+  bash -c '. desktop/packaging/macos/lib.sh && sparkle_public_key' < "$os-private-key.txt"
+  gh variable get "${OS}_PUBLIC_ED_KEY"
 done
 ```
 
 Put each `*-private-key.txt` in the offline backup with the Sparkle key,
-and don't leave them on disk.
+and don't leave them on disk. Then run the dry run ([7. A dry run on
+GitHub](#7-a-dry-run-on-github)) before the first tag.
 
 **Adding a release to a feed** (what the release jobs run; nothing is
 uploaded):
@@ -581,6 +730,30 @@ then makes a throwaway key per OS: the rehearsal packages are built with
 its public half and a feed on 127.0.0.1, and the install smokes serve a
 feed it signed, which WinSparkle and the Linux notice read.
 
+**In the release workflow**, job *winlinux-feeds* runs it for each OS with
+the secrets, after the builds:
+
+- **That OS's first release** (the feed release has neither
+  `appcast-<os>.xml` nor `appcast-<os>.previous.xml`): `--allow-new`, so a
+  new feed starts only when its URL answers 404; any other answer stops.
+  A feed release with `appcast-<os>.previous.xml` but no `appcast-<os>.xml`
+  is a publication that stopped half way, never a first release (see [A
+  stale or missing appcast](#a-stale-or-missing-appcast)).
+- **Later releases**: the published feed is fetched and added to
+  (`--existing`), once it verifies with `<OS>_PUBLIC_ED_KEY`, or with
+  `<OS>_RETIRED_PUBLIC_ED_KEY` on the first release after a key swap
+  (`--feed-public-key`; see below).
+- **A bridge release** (`<OS>_KEY_ROTATION_TAG` names the tag): the app is
+  built with `<OS>_NEXT_PUBLIC_ED_KEY` and the item added with
+  `--next-public-key`.
+
+Job *winlinux-config* makes the same checks of the keys and the published
+feeds before anything builds, so a missing or left-over variable stops the
+run in a minute. When the draft is published, job *feed* checks each feed
+against the live one again (it must keep every live item), checks that the
+installer, the .deb and the .rpm download from the release as the files
+the gate checked, and publishes each with `publish-appcast.sh --os`.
+
 ### Rotating the Windows or Linux key
 
 As for the Mac ([Rotating the Sparkle key](#rotating-the-sparkle-key)),
@@ -596,13 +769,30 @@ install it trust only the new key; every later release is signed with it.
    is built with the next key (`build.ps1 -UpdatePublicKey`,
    `package.sh --update-public-key`), and its item is added with
    `winlinux-appcast.sh --next-public-key <next key>`, which signs with the
-   current key and needs `<OS>_PUBLIC_ED_KEY` to be it.
-3. Publish it. Then swap the keys (`<OS>_ED_PRIVATE_KEY` and
-   `<OS>_PUBLIC_ED_KEY` from the new pair) and delete both rotation
-   variables.
-4. The next release's item is added with `winlinux-appcast.sh
-   --feed-public-key <the retired public key>`: the published feed is still
-   signed with it. Every release after that is added without it.
+   current key and needs `<OS>_PUBLIC_ED_KEY` to be it. Job
+   *winlinux-config* stops the run when only one of the two is set, when
+   the tag is not the one being built, or when the next key is not a key or
+   is the current one, as for the Mac.
+3. Tag the bridge release, publish it, and wait for its feed job to pass
+   (it checks the feed with `<OS>_PUBLIC_ED_KEY`, still the old key). Then
+   keep the old public key for one more release, swap the keys and delete
+   both rotation variables (Windows shown; Linux alike):
+
+   ```sh
+   gh variable set WINDOWS_RETIRED_PUBLIC_ED_KEY --body "$(gh variable get WINDOWS_PUBLIC_ED_KEY)"
+   gh secret set WINDOWS_ED_PRIVATE_KEY < windows-next-private-key.txt
+   gh variable set WINDOWS_PUBLIC_ED_KEY --body "$("$d/bin/generate_keys" --account conduit-desktop-windows-next -p)"
+   gh variable delete WINDOWS_NEXT_PUBLIC_ED_KEY
+   gh variable delete WINDOWS_KEY_ROTATION_TAG
+   ```
+
+4. The next release is signed with the new key, but the published feed it
+   adds to is still signed with the old one: job *winlinux-feeds* checks it
+   with `<OS>_RETIRED_PUBLIC_ED_KEY` (`winlinux-appcast.sh
+   --feed-public-key`). Once that release's feed job has passed, delete
+   `<OS>_RETIRED_PUBLIC_ED_KEY`. Left set, it stops the next release: the
+   published feed is signed with the new key by then, and a retired key is
+   never trusted longer than that one release.
 
 What installed copies see: there is no safe mode like Sparkle's on the Mac.
 WinSparkle offers the newest item only, so a Windows copy older than the
@@ -616,25 +806,50 @@ backup matters.
 
 ## When something goes wrong
 
-**The build job fails.** Nothing was published. A passing failure (the
-network, a notarization queue): re-run the job; a draft it already made
-takes the new build's files, and a published release is never changed. A
-fix in the code: delete the tag (`git push --delete origin
-desktop-vX.Y.Z`, `git tag -d desktop-vX.Y.Z`) and the draft, and tag again.
-Notarization failures print `notarytool log` in the job log.
+**A job of the tag's run fails.** Nothing was published, and the draft's
+notes still say it is being built. *winlinux-config* failing names the
+missing or wrong variable: set it, then re-run the run. A passing failure
+(the network, a notarization queue, a runner): re-run the failed jobs
+(GitHub runs the jobs after them again too); the draft takes the new
+builds' files, and a published release is never changed. A fix in the
+code: delete the tag (`git push --delete origin desktop-vX.Y.Z`, `git tag
+-d desktop-vX.Y.Z`) and the draft, and tag again. Notarization failures
+print `notarytool log` in the job log; an install smoke that fails keeps
+its logs as an artifact.
 
 **A published release is bad.** Installed copies that already updated keep
-it until the next release. To stop offering it, put the previous feed back:
-download `appcast.xml` from the previous `desktop-v*` release and, with
-`gh` signed in, run:
+it until the next release. To stop offering it, put the previous feeds back:
+download `appcast.xml`, `appcast-windows.xml` and `appcast-linux.xml` from
+the previous `desktop-v*` release and, with `gh` signed in, run:
 
 ```sh
 SPARKLE_PUBLIC_ED_KEY="$(gh variable get SPARKLE_PUBLIC_ED_KEY)" \
   desktop/packaging/macos/publish-appcast.sh appcast.xml --push
+WINDOWS_PUBLIC_ED_KEY="$(gh variable get WINDOWS_PUBLIC_ED_KEY)" \
+  desktop/packaging/macos/publish-appcast.sh appcast-windows.xml --push --os windows
+LINUX_PUBLIC_ED_KEY="$(gh variable get LINUX_PUBLIC_ED_KEY)" \
+  desktop/packaging/macos/publish-appcast.sh appcast-linux.xml --push --os linux
 ```
 
-It refuses a feed the current key did not sign (one from before a key
+Each refuses a feed the current key did not sign (one from before a key
 rotation), as installed copies would. Then ship a fixed X.Y.Z+1.
+
+### The publish gate refuses a release
+
+**At the end of the tag's run** (job *release*): the draft stays a draft,
+its notes saying it is being built, and the job lists what is missing or
+wrong. A file a job failed to put on the draft: re-run that job (and the
+ones after it). A file that doesn't verify (a feed signed with another key,
+a checksum that doesn't match): find out why before anything else; a file
+changed on the draft by hand is the likeliest. Re-run the failed jobs once
+it is fixed; job *release* writes the notes when the gate passes.
+
+**When the draft was published** (job *feed*): the release goes back to a
+draft and no feed changes, so installed copies are offered nothing, and the
+job lists why. Complete the draft as above, wait for job *release* to pass,
+and publish it again. If the job could not put it back to a draft, it says
+so: run `gh release edit desktop-vX.Y.Z --draft=true`. A gate that could not
+run (a lookup or a download failed) changed nothing: re-run the feed job.
 
 ### A stale or missing appcast
 
@@ -648,6 +863,15 @@ the change still needs to ship, release a version above the newest build
 in the feed. To avoid this, wait for each release's feed job to pass before
 tagging the next one.
 
+**The feed job fails part way through publishing** (say `appcast.xml` went
+live, then the Windows upload failed): GitHub has no way to swap the three
+files at once, so for now Mac copies are offered the release and Windows or
+Linux copies are not. Re-run the feed job. Its checks pass again, a feed
+that is already live, byte for byte, is left as it is (its last copy stays
+`*.previous.xml`), and the rest go live. A live feed it cannot read back
+stops the run with nothing changed; re-run it again. If it stopped between
+a feed's two renames, put that feed back first, as below.
+
 **The first publication fails** (the feed release is still a draft):
 nothing is live and no installed copy reads a draft. Re-run the feed job;
 it takes the draft over, uploads `appcast.xml` again, checks it and
@@ -659,6 +883,14 @@ cannot read the feed. On the `desktop-appcast` release, rename
 `appcast.previous.xml` back to `appcast.xml` (and delete a leftover
 `appcast.next-….xml`), then re-run the feed job. Neither the feed job nor
 `publish-appcast.sh` ever starts an empty feed over a published host.
+
+**The same for Windows or Linux** ("the feed release has
+appcast-windows.previous.xml but no appcast-windows.xml"): rename it back
+to `appcast-windows.xml` (or the Linux one to `appcast-linux.xml`), delete a
+leftover `appcast-windows.next-….xml`, and re-run the job that stopped. The
+release workflow never takes such a feed release for that OS's first
+release. A Windows or Linux feed the feed job refuses as stale is handled as
+the Mac's above.
 
 ### Rotating the Sparkle key
 
