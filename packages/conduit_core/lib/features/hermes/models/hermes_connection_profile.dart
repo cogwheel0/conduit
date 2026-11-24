@@ -46,6 +46,7 @@ final class HermesConnectionProfile {
     this.mode = HermesBackendMode.responsesApi,
     this.desktopAuthKind = HermesDesktopAuthKind.legacyToken,
     this.desktopProfile = 'default',
+    this.useTailscale = false,
     this.allowSelfSignedCertificates = false,
     this.plainHttpConsentOrigin,
     this.lastUsedAt,
@@ -58,6 +59,7 @@ final class HermesConnectionProfile {
   final HermesBackendMode mode;
   final HermesDesktopAuthKind desktopAuthKind;
   final String desktopProfile;
+  final bool useTailscale;
   final bool allowSelfSignedCertificates;
 
   /// The origin the user agreed to send credentials to without encryption
@@ -121,6 +123,7 @@ final class HermesConnectionProfile {
     HermesBackendMode? mode,
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
+    bool? useTailscale,
     bool? allowSelfSignedCertificates,
     Object? plainHttpConsentOrigin = _unset,
     String? documentTrustPrincipalId,
@@ -133,6 +136,7 @@ final class HermesConnectionProfile {
     mode: mode ?? this.mode,
     desktopAuthKind: desktopAuthKind ?? this.desktopAuthKind,
     desktopProfile: desktopProfile ?? this.desktopProfile,
+    useTailscale: useTailscale ?? this.useTailscale,
     allowSelfSignedCertificates:
         allowSelfSignedCertificates ?? this.allowSelfSignedCertificates,
     plainHttpConsentOrigin: identical(plainHttpConsentOrigin, _unset)
@@ -151,6 +155,7 @@ final class HermesConnectionProfile {
     'mode': mode.name,
     'desktop_auth_kind': desktopAuthKind.name,
     'desktop_profile': desktopProfile,
+    'use_tailscale': useTailscale,
     'allow_self_signed_certificates': allowSelfSignedCertificates,
     // Written even when null: a row without it was saved before connections
     // asked, and keeps working (see [fromJson]).
@@ -197,6 +202,7 @@ final class HermesConnectionProfile {
         orElse: () => HermesDesktopAuthKind.legacyToken,
       ),
       desktopProfile: desktopProfile,
+      useTailscale: value['use_tailscale'] == true,
       allowSelfSignedCertificates:
           value['allow_self_signed_certificates'] == true,
       // A connection saved before connections asked was already in use over

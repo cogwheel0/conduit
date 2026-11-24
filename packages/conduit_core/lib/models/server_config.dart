@@ -38,6 +38,8 @@ sealed class ServerConfig with _$ServerConfig {
     DateTime? lastConnected,
     @Default(false) bool isActive,
 
+    @Default(false) bool useTailscale,
+
     /// Whether to trust self-signed TLS certificates for this server.
     @Default(false) bool allowSelfSignedCertificates,
 

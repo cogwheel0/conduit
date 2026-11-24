@@ -5232,5 +5232,12 @@
   "chatBackendHermesTurnedOff": "Hermes Agent staat uit. Zet hem aan in Instellingen → Hermes Agent en probeer het opnieuw.",
   "@chatBackendHermesTurnedOff": {
     "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
-  }
+  },
+  "tailscaleBrowserSignInUnavailable": "Aanmelden via de browser kan de Tailscale-verbinding van deze app niet gebruiken. Gebruik de inloggegevens van de server.",
+  "useTailscale": "Tailscale gebruiken",
+  "tailscaleAccountHelp": "Meld je één keer aan en zet Tailscale aan voor elke Open WebUI- of Hermes-server die je privé wilt bereiken.",
+  "tailscaleIdle": "Aangemeld · maakt zo nodig verbinding",
+  "tailscaleAuthorize": "Voltooi de aanmelding in je browser",
+  "tailscaleApprove": "Wachten op goedkeuring van het apparaat",
+  "tailscaleUnavailable": "Verbinding met Tailscale mislukt"
 }

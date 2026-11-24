@@ -375,6 +375,7 @@ abstract class _ApiServiceBase {
         serverOrigin,
       );
       List<InternetAddress>? pinnedAddresses;
+      if (!targetsServer && serverConfig.useTailscale) return false;
       if (!targetsServer) {
         final validatedAddresses = await _resolveSafeOffOriginHealthTarget(
           current,

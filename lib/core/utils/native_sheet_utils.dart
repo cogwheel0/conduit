@@ -1,3 +1,7 @@
+import '../../platform/mobile_tailnet.dart' show supportsMobileTailnet;
+import '../../features/settings/pages/tailnet_settings_pages.dart'
+    show tailnetSettingsId;
+
 import 'package:flutter/foundation.dart'
     show TargetPlatform, Uint8List, defaultTargetPlatform, immutable;
 import 'package:intl/intl.dart';
@@ -28,9 +32,11 @@ import 'package:conduit_core/providers/app_providers.dart'
 
 import '../../features/hermes/widgets/hermes_connection_switcher.dart'
     show hermesConnectionSummary;
+
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/ports/push_platform_port.dart' show PushTransport;
+
 import '../../features/push/widgets/push_target_actions.dart'
     show
         kUnifiedPushDistributorsUrl,
@@ -338,6 +344,12 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         id: nativeAccountsDetailId,
         title: l10n.accountsTitle,
         sfSymbol: 'person.2',
+      ),
+    if (supportsMobileTailnet)
+      const NativeSheetItemConfig(
+        id: tailnetSettingsId,
+        title: 'Tailscale',
+        sfSymbol: 'network',
       ),
   ];
   // What belongs to the Open WebUI account signed in; its profile is the

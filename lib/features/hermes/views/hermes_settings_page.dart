@@ -308,6 +308,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   /// Desktop sign-in needs the live connection: save the draft, then make
   /// this connection the active one.
   Future<bool> _prepareSignIn() async {
+    if (_controller.useTailscale) {
+      _controller.reportFailure(AppLocalizations.of(context)!.tailscaleBrowserSignInUnavailable);
+      return false;
+    }
     if (!await _saveSettings() || !mounted) return false;
     return _editsActive || await _useConnection();
   }

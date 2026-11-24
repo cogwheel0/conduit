@@ -1,3 +1,6 @@
+import '../../platform/mobile_tailnet.dart';
+import 'pages/tailnet_settings_pages.dart';
+
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
@@ -40,6 +43,8 @@ List<NativeSheetDetailConfig> buildSettingsRootDetails(
   );
   return [
     readNativeAccountsDetail(read, l10n),
+    if (supportsMobileTailnet)
+      tailnetSettingsPage(l10n, MobileTailnet.instance.state),
     readNativeAccountSignOutDetail(read, l10n),
     readNativeAddAccountDetail(read, l10n),
     ...buildHermesAccountsDetails(l10n),

@@ -5233,5 +5233,12 @@
   "chatBackendHermesTurnedOff": "Hermes Agent 已關閉。請在「設定 → Hermes Agent」中開啟，然後再試一次。",
   "@chatBackendHermesTurnedOff": {
     "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
-  }
+  },
+  "tailscaleBrowserSignInUnavailable": "瀏覽器登入無法使用此 App 的 Tailscale 連線。請使用伺服器憑證。",
+  "useTailscale": "使用 Tailscale",
+  "tailscaleAccountHelp": "登入一次，然後為需要透過私人網路存取的每個 Open WebUI 或 Hermes 伺服器開啟 Tailscale。",
+  "tailscaleIdle": "已登入 · 視需要連線",
+  "tailscaleAuthorize": "請在瀏覽器中完成登入",
+  "tailscaleApprove": "正在等待裝置核准",
+  "tailscaleUnavailable": "無法連線至 Tailscale"
 }

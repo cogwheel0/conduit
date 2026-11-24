@@ -1,3 +1,5 @@
+import '../../../platform/mobile_tailnet.dart';
+
 import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -849,6 +851,7 @@ NativeSheetDetailConfig buildHermesConnectionAdvancedPage(
   required String key,
   required HermesBackendMode mode,
   required Map<String, String> headers,
+  bool useTailscale = false,
   required bool allowSelfSigned,
   required bool sessionKeyConfigured,
   bool disabled = false,
@@ -891,6 +894,16 @@ NativeSheetDetailConfig buildHermesConnectionAdvancedPage(
       ),
       NativeSheetSectionConfig(
         items: [
+          if (supportsMobileTailnet)
+            NativeSheetItemConfig(
+              id: row('tailscale'),
+              title: l10n.useTailscale,
+              subtitle: l10n.tailscaleAccountHelp,
+              sfSymbol: 'network',
+              kind: NativeSheetItemKind.toggle,
+              value: useTailscale,
+              disabled: disabled,
+            ),
           NativeSheetItemConfig(
             id: row('self-signed'),
             title: l10n.allowSelfSignedCertificates,
@@ -1658,6 +1671,7 @@ class HermesSettingsPages extends SettingsPageModule {
       key: key,
       mode: controller.mode,
       headers: controller.accessHeaders,
+      useTailscale: controller.useTailscale,
       allowSelfSigned: controller.allowSelfSignedCertificates,
       sessionKeyConfigured: _saved(editor).sessionKey?.isNotEmpty == true,
       disabled: controller.operation.isBusy,
@@ -2106,6 +2120,10 @@ class HermesSettingsPages extends SettingsPageModule {
     String key,
     _Editor editor,
   ) async {
+    if (editor.controller!.useTailscale) {
+      editor.controller!.reportFailure(l10n.tailscaleBrowserSignInUnavailable);
+      return false;
+    }
     // Shown edited first, so the save that follows reads as one on both
     // renderers and Back after it asks nothing.
     if (editor.edited && !editor.shownEdited) {
@@ -2576,6 +2594,9 @@ class HermesSettingsPages extends SettingsPageModule {
         await _applyEditor(l10n, key, editor, withPages: false);
       case 'refresh-profiles':
         await _loadProfiles(key, editor);
+      case 'tailscale' when value is bool:
+        controller.setUseTailscale(value);
+        await _draftChanged(key, editor);
       case 'self-signed' when value is bool:
         controller.setAllowSelfSignedCertificates(value);
         await _draftChanged(key, editor);

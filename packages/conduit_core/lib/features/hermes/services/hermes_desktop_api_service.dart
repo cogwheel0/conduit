@@ -287,7 +287,7 @@ final class HermesDesktopApiService
        _browserAuth = browserAuth ?? const NullBrowserAuthPort(),
        _readStoredTokens = readStoredTokens,
        _guardTokens = guardTokens,
-       _dashboardBridgeFactory = dashboardBridgeFactory,
+       _dashboardBridgeFactory = config.useTailscale ? null : dashboardBridgeFactory,
        _confirmModelSwitch = confirmModelSwitch,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
        _origin =

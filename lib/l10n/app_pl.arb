@@ -9833,5 +9833,12 @@
   "chatBackendHermesTurnedOff": "Hermes Agent jest wyłączony. Włącz go w Ustawienia → Hermes Agent, a potem spróbuj ponownie.",
   "@chatBackendHermesTurnedOff": {
     "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
-  }
+  },
+  "tailscaleBrowserSignInUnavailable": "Logowanie w przeglądarce nie może korzystać z połączenia Tailscale tej aplikacji. Użyj danych logowania do serwera.",
+  "useTailscale": "Używaj Tailscale",
+  "tailscaleAccountHelp": "Zaloguj się raz, a następnie włącz Tailscale dla każdego serwera Open WebUI lub Hermes, z którym chcesz łączyć się prywatnie.",
+  "tailscaleIdle": "Zalogowano · łączenie w razie potrzeby",
+  "tailscaleAuthorize": "Dokończ logowanie w przeglądarce",
+  "tailscaleApprove": "Oczekiwanie na zatwierdzenie urządzenia",
+  "tailscaleUnavailable": "Nie udało się połączyć z Tailscale"
 }

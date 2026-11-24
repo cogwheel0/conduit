@@ -152,6 +152,7 @@ class HermesConfig {
     this.mode = HermesBackendMode.responsesApi,
     this.desktopAuthKind = HermesDesktopAuthKind.legacyToken,
     this.desktopProfile = 'default',
+    this.useTailscale = false,
     this.allowSelfSignedCertificates = false,
     this.plainHttpConsentOrigin,
     this.apiKey,
@@ -179,6 +180,9 @@ class HermesConfig {
 
   /// Profile selected for Desktop Gateway REST and RPC operations.
   final String desktopProfile;
+
+  /// Route this connection through the mobile host’s embedded Tailscale node.
+  final bool useTailscale;
 
   /// Trusts an unverified TLS certificate for this server, matching the
   /// equivalent Open WebUI and direct-connection setting.
@@ -362,6 +366,7 @@ class HermesConfig {
     HermesBackendMode? mode,
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
+    bool? useTailscale,
     bool? allowSelfSignedCertificates,
     Object? plainHttpConsentOrigin = _unset,
     // Sentinel-typed so secrets can be explicitly cleared: passing `null`
@@ -380,6 +385,7 @@ class HermesConfig {
       mode: mode ?? this.mode,
       desktopAuthKind: desktopAuthKind ?? this.desktopAuthKind,
       desktopProfile: desktopProfile ?? this.desktopProfile,
+      useTailscale: useTailscale ?? this.useTailscale,
       allowSelfSignedCertificates:
           allowSelfSignedCertificates ?? this.allowSelfSignedCertificates,
       plainHttpConsentOrigin: identical(plainHttpConsentOrigin, _unset)
@@ -405,6 +411,7 @@ class HermesConfig {
       other.mode == mode &&
       other.desktopAuthKind == desktopAuthKind &&
       other.desktopProfile == desktopProfile &&
+      other.useTailscale == useTailscale &&
       other.allowSelfSignedCertificates == allowSelfSignedCertificates &&
       other.plainHttpConsentOrigin == plainHttpConsentOrigin &&
       other.apiKey == apiKey &&
@@ -436,6 +443,7 @@ class HermesConfig {
       mode,
       desktopAuthKind,
       desktopProfile,
+      useTailscale,
       allowSelfSignedCertificates,
       plainHttpConsentOrigin,
       apiKey,

@@ -29,5 +29,6 @@ ServerConfig _serverConfig(HermesConfig config) => ServerConfig(
   id: 'hermes',
   name: 'Hermes',
   url: config.baseUrl,
+  useTailscale: config.useTailscale,
   allowSelfSignedCertificates: config.allowSelfSignedCertificates,
 );

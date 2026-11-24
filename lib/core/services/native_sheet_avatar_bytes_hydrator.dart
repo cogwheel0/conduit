@@ -1,3 +1,4 @@
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -99,7 +100,7 @@ class NativeSheetAvatarBytesHydrator {
     required List<NativeSheetModelOption> options,
   }) {
     if (api == null ||
-        !api.serverConfig.needsCustomTlsClient ||
+        !ServerTlsHttpClientFactory.requiresCustomHttpClient(api.serverConfig) ||
         options.isEmpty) {
       return options;
     }
@@ -128,7 +129,7 @@ class NativeSheetAvatarBytesHydrator {
     bool Function()? isActive,
   }) async {
     if (api == null ||
-        !api.serverConfig.needsCustomTlsClient ||
+        !ServerTlsHttpClientFactory.requiresCustomHttpClient(api.serverConfig) ||
         options.isEmpty ||
         !_isHydrationActive(isActive)) {
       return options;
@@ -409,7 +410,7 @@ bool _shouldHydrateNativeAvatarUrl(ApiService api, String? avatarUrl) {
   if (value == null ||
       value.isEmpty ||
       value.startsWith('data:image') ||
-      !api.serverConfig.needsCustomTlsClient) {
+      !ServerTlsHttpClientFactory.requiresCustomHttpClient(api.serverConfig)) {
     return false;
   }
 

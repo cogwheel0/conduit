@@ -85,6 +85,7 @@ bool authenticationServerMatchesSelection(
       normalizeAuthenticationServerUrl(actual.url) ==
           normalizeAuthenticationServerUrl(expected.url) &&
       mapEquals(actual.customHeaders, expected.customHeaders) &&
+      actual.useTailscale == expected.useTailscale &&
       actual.allowSelfSignedCertificates ==
           expected.allowSelfSignedCertificates &&
       actual.mtlsCertificateChainPem == expected.mtlsCertificateChainPem &&
@@ -200,9 +201,12 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   bool get _hasSsoEnabled =>
       _hasWebViewSso || _browserConfigured || _canSetUpBrowserSignIn;
 
+  bool get _usesTailscale =>
+      (_serverConfig ?? ref.read(activeServerProvider).value)?.useTailscale == true;
+
   /// Whether the server's SSO can run in the in-app WebView.
   bool get _hasWebViewSso =>
-      isWebViewSupported && (_backendConfig?.hasSsoEnabled ?? true);
+      !_usesTailscale && isWebViewSupported && (_backendConfig?.hasSsoEnabled ?? true);
 
   /// Which of the server's providers can sign in through the system browser,
   /// and whether the device and server can.
@@ -215,7 +219,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// Whether browser sign-in can be set up for this server.
   bool get _canSetUpBrowserSignIn {
     final availability = _browserAvailability;
-    return availability.browserSupported &&
+    return !_usesTailscale && availability.browserSupported &&
         availability.serverSupported &&
         availability.providers.isNotEmpty;
   }
@@ -241,7 +245,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   /// Whether the page's SSO continues in the system browser.
   bool get _browserConfigured =>
-      ref.read(browserAuthPortProvider).isSupported && _browserConfig != null;
+      !_usesTailscale && ref.read(browserAuthPortProvider).isSupported && _browserConfig != null;
 
   /// Whether LDAP authentication is enabled on the server.
   bool get _hasLdapEnabled => _backendConfig?.enableLdap == true;

@@ -215,6 +215,11 @@ that.
 - **Reverse proxies actually work**: `oauth2-proxy`, Authelia, Authentik,
   Pangolin, and Cloudflare Tunnel, by capturing the right cookies and session
   state on-device.
+- **Private servers over Tailscale (iOS and Android)**. Sign in once under
+  Settings → Tailscale. Enable **Use Tailscale** on an Open WebUI address or
+  a Hermes connection and enter the peer’s MagicDNS name or Tailscale IP.
+  The setting defaults to off. Use a password, token, or API key for server
+  authentication. Browser-based server sign-in requires its own network path.
 - **Custom headers during setup** for environments that require `X-API-Key`,
   `Authorization`, or organization routing headers.
 - **Credentials in Keychain or Keystore**, never plain-text local storage.
@@ -312,6 +317,10 @@ a menu-bar item.
   available without a connection.
 - Credentials use platform secure storage: Keychain on iOS and macOS, Keystore
   on Android.
+- Enabling mobile Tailscale contacts Tailscale for device registration and peer
+  discovery. A relay may carry encrypted packets between the phone and the
+  selected peer. Conduit releases the node when the app goes into the background
+  after sign-in. You can remove its local identity in Settings → Tailscale.
 - No third-party analytics or advertising SDKs.
 - Diagnostic logging is local and transient. On the Mac, logs stay in
   `~/Library/Logs/Conduit` and are never uploaded. Besides your servers and

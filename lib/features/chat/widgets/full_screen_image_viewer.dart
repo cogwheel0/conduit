@@ -877,6 +877,7 @@ class _FullScreenImageContent extends ConsumerWidget {
           fit: BoxFit.contain,
           headers: headers,
           cacheIdentity: networkCacheKey,
+          cacheManager: ref.watch(selfSignedImageCacheManagerProvider),
           placeholderBuilder: (context) => Center(
             child: AdaptiveProgressIndicator(
               color: context.conduitTheme.buttonPrimary,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart'
@@ -123,6 +124,7 @@ import 'package:conduit_core/features/notifications/models/notification_scope.da
 import 'shared/theme/theme_extensions.dart';
 import 'shared/theme/theme_providers.dart';
 import 'platform/frame_profiler.dart';
+import 'platform/mobile_tailnet.dart';
 import 'features/direct_connections/providers/apple_pcc_providers.dart';
 import 'features/direct_connections/services/apple_pcc_adapter.dart'
     show PigeonApplePccHost;
@@ -171,6 +173,10 @@ Future<void> _configureUserAgent() async {
 
 void _registerBundledLicenses() {
   LicenseRegistry.addLicense(() async* {
+    final notices = await rootBundle.loadString('native/tailnet/THIRD_PARTY_NOTICES.txt');
+    yield LicenseEntryWithLineBreaks(const ['Tailscale'], notices);
+  });
+  LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(
       const ['noVNC', 'pako'],
       await rootBundle.loadString('assets/computer/novnc-LICENSE.txt'),
@@ -204,6 +210,9 @@ void main() {
   // Diagnostics have no destination until a host gives them one.
   // Installed first, so startup itself is logged.
   DebugLogger.sink = const FlutterLogSink();
+  if (supportsMobileTailnet) {
+    ServerTlsHttpClientFactory.tailnetConnect = MobileTailnet.instance.connect;
+  }
   AudioPlaybackPort.hostFactory = JustAudioPlayback.new;
   installReadAloudHost();
   BackgroundExecutionPort.hostDefault = const MobileBackgroundExecution();
@@ -633,6 +642,7 @@ class ConduitApp extends ConsumerStatefulWidget {
 }
 
 class _ConduitAppState extends ConsumerState<ConduitApp> {
+  AppLifecycleListener? _tailnetLifecycle;
   Brightness? _lastAppliedOverlayBrightness;
   StreamSubscription<NativeSheetEvent>? _nativeSheetSubscription;
   VoidCallback? _unregisterSettingsOpener;
@@ -640,6 +650,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   @override
   void initState() {
     super.initState();
+    if (supportsMobileTailnet) {
+      _tailnetLifecycle = AppLifecycleListener(
+        onPause: () => unawaited(MobileTailnet.instance.lifecycle(true)),
+        onResume: () => unawaited(MobileTailnet.instance.lifecycle(false)),
+      );
+    }
     ref.read(userScopedProviderCleanupProvider);
     ref.read(openWebUiDuplicateAccountReconcilerProvider);
     ref.read(openWebUiRouteResolverProvider);
@@ -668,6 +684,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   @override
   void dispose() {
+    _tailnetLifecycle?.dispose();
     _unregisterSettingsOpener?.call();
     _nativeSheetSubscription?.cancel();
     super.dispose();

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:cached_network_image_ce/cached_network_image.dart'
+    show BaseCacheManager, FileInfo;
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:jovial_svg/jovial_svg.dart';
@@ -89,6 +91,7 @@ class JovialSvgImage extends StatefulWidget {
     Key? key,
     Map<String, String>? headers,
     Object? cacheIdentity,
+    BaseCacheManager? cacheManager,
     BoxFit fit = BoxFit.contain,
     Alignment alignment = Alignment.center,
     double? width,
@@ -100,12 +103,33 @@ class JovialSvgImage extends StatefulWidget {
     final normalizedHeaders = _normalizeHeaders(headers);
     return JovialSvgImage._(
       key: key,
-      sourceKey: _NetworkSvgSourceKey(url, normalizedHeaders, cacheIdentity),
-      loader: () => ScalableImage.fromSvgHttpUrl(
-        Uri.parse(url),
-        httpHeaders: normalizedHeaders,
-        warnF: _warnF(),
-      ),
+      sourceKey: _NetworkSvgSourceKey(url, normalizedHeaders, (
+        cacheIdentity,
+        cacheManager,
+      )),
+      loader: () async {
+        if (cacheManager == null) {
+          return ScalableImage.fromSvgHttpUrl(
+            Uri.parse(url),
+            httpHeaders: normalizedHeaders,
+            warnF: _warnF(),
+          );
+        }
+        final response =
+            await cacheManager
+                    .getFileStream(
+                      url,
+                      key: cacheIdentity is String ? cacheIdentity : null,
+                      headers: normalizedHeaders,
+                    )
+                    .firstWhere((response) => response is FileInfo)
+                as FileInfo;
+        final bytes = await response.file.readAsBytes();
+        return ScalableImage.fromSvgString(
+          _decodeSvgBytes(bytes, utf8),
+          warnF: _warnF(),
+        );
+      },
       fit: fit,
       alignment: alignment,
       width: width,

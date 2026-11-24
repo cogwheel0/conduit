@@ -12028,5 +12028,33 @@
   "chatBackendHermesTurnedOff": "Hermes Agent is turned off. Turn it on in Settings → Hermes Agent, then try again.",
   "@chatBackendHermesTurnedOff": {
     "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
+  },
+  "tailscaleBrowserSignInUnavailable": "Browser sign-in cannot use this app’s Tailscale connection. Use a server credential instead.",
+  "@tailscaleBrowserSignInUnavailable": {
+    "description": "Explains how to authenticate to a server reached through the app’s private connection."
+  },
+  "useTailscale": "Use Tailscale",
+  "@useTailscale": {
+    "description": "Toggle to route this server through the embedded Tailscale node."
+  },
+  "tailscaleAccountHelp": "Sign in once, then turn on Tailscale for each Open WebUI or Hermes server you want to reach privately.",
+  "@tailscaleAccountHelp": {
+    "description": "Explains the shared sign-in and per-server opt-in for mobile Tailscale."
+  },
+  "tailscaleIdle": "Signed in · connects when needed",
+  "@tailscaleIdle": {
+    "description": "A signed-in Tailscale account with its transport idle."
+  },
+  "tailscaleAuthorize": "Complete sign-in in your browser",
+  "@tailscaleAuthorize": {
+    "description": "Tailscale is waiting for interactive browser login."
+  },
+  "tailscaleApprove": "Waiting for device approval",
+  "@tailscaleApprove": {
+    "description": "The Tailscale administrator needs to approve the new node."
+  },
+  "tailscaleUnavailable": "Couldn’t connect to Tailscale",
+  "@tailscaleUnavailable": {
+    "description": "Tailscale connection or sign-in failed."
   }
 }

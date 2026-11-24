@@ -5233,5 +5233,12 @@
   "chatBackendHermesTurnedOff": "Hermes Agent è disattivato. Attivalo in Impostazioni → Hermes Agent, poi riprova.",
   "@chatBackendHermesTurnedOff": {
     "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
-  }
+  },
+  "tailscaleBrowserSignInUnavailable": "L’accesso dal browser non può usare la connessione Tailscale di questa app. Usa le credenziali del server.",
+  "useTailscale": "Usa Tailscale",
+  "tailscaleAccountHelp": "Accedi una volta, poi attiva Tailscale per ogni server Open WebUI o Hermes a cui vuoi accedere privatamente.",
+  "tailscaleIdle": "Accesso effettuato · connessione su richiesta",
+  "tailscaleAuthorize": "Completa l’accesso nel browser",
+  "tailscaleApprove": "In attesa di approvazione del dispositivo",
+  "tailscaleUnavailable": "Connessione a Tailscale non riuscita"
 }

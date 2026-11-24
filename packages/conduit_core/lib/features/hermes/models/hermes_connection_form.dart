@@ -22,6 +22,7 @@ final class HermesConnectionForm {
     this.mode = HermesBackendMode.responsesApi,
     this.desktopAuthKind = HermesDesktopAuthKind.legacyToken,
     this.desktopProfile = 'default',
+    this.useTailscale = false,
     this.allowSelfSignedCertificates = false,
     this.plainHttpConsentOrigin,
     this.apiKey = '',
@@ -47,6 +48,7 @@ final class HermesConnectionForm {
   final HermesBackendMode mode;
   final HermesDesktopAuthKind desktopAuthKind;
   final String desktopProfile;
+  final bool useTailscale;
   final bool allowSelfSignedCertificates;
 
   /// The origin the user agreed, in this form, to send credentials to
@@ -96,9 +98,7 @@ HermesConnectionDraft buildHermesConnectionDraft(
   final nextDesktop = originChanged
       ? HermesDesktopCredentials(
           legacyToken: trimmedLegacyToken.isEmpty ? null : trimmedLegacyToken,
-          accessHeaders: form.accessHeadersDirty
-              ? newOriginHeaders
-              : const {},
+          accessHeaders: form.accessHeadersDirty ? newOriginHeaders : const {},
         )
       : form.desktopCredentialsDirty
       ? HermesDesktopCredentials(
@@ -119,6 +119,7 @@ HermesConnectionDraft buildHermesConnectionDraft(
       mode: form.mode,
       desktopAuthKind: form.desktopAuthKind,
       desktopProfile: form.desktopProfile,
+      useTailscale: form.useTailscale,
       allowSelfSignedCertificates: form.allowSelfSignedCertificates,
       plainHttpConsentOrigin:
           form.plainHttpConsentOrigin ?? saved.plainHttpConsentOrigin,

@@ -126,6 +126,9 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
   }
 
   Future<HermesDesktopTokenSet?> _authSignInNative({String? provider}) async {
+    if (config.useTailscale) {
+      throw StateError('Browser sign-in cannot use the embedded Tailscale connection.');
+    }
     await statusProbe(refresh: true);
     if (!nativePkceAdvertised) {
       throw StateError('This Hermes gateway does not advertise native PKCE.');

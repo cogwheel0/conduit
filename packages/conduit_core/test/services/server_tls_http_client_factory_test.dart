@@ -3,6 +3,8 @@ import 'dart:isolate';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_http_transport.dart';
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 import 'package:conduit_core/services/user_trusted_certificates.dart';
 import 'package:dio/dio.dart';
@@ -81,6 +83,102 @@ void main() {
       addTearDown(() => client.close(force: true));
       check(client.userAgent).equals('Conduit/test');
     });
+  });
+
+  group('app-scoped Tailscale', () {
+    tearDown(() => ServerTlsHttpClientFactory.tailnetConnect = null);
+
+    test('older saved servers keep using their original network', () {
+      final json = _server().toJson()..remove('useTailscale');
+      final direct = ServerConfig.fromJson(json);
+      expect(direct.useTailscale, isFalse);
+      expect(
+        ServerTlsHttpClientFactory.requiresCustomHttpClient(direct),
+        isFalse,
+      );
+      final private = direct.copyWith(useTailscale: true);
+      expect(ServerConfig.fromJson(private.toJson()).useTailscale, isTrue);
+    });
+
+    test(
+      'both backend clients route HTTP and WebSockets to the named peer',
+      () async {
+        final peer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => peer.close(force: true));
+        final url = 'http://orchard.test:${peer.port}';
+        peer.listen((request) async {
+          if (WebSocketTransformer.isUpgradeRequest(request)) {
+            final socket = await WebSocketTransformer.upgrade(request);
+            socket.listen(socket.add);
+          } else {
+            request.response.write('orchard');
+            await request.response.close();
+          }
+        });
+        final routes = <Uri>[];
+        ServerTlsHttpClientFactory.tailnetConnect = (uri, context, trust) {
+          routes.add(uri);
+          return Socket.startConnect(InternetAddress.loopbackIPv4, peer.port);
+        };
+        final webui = _server().copyWith(url: url, useTailscale: true);
+        final hermes = HermesConfig(baseUrl: url, useTailscale: true);
+        final clients = [Dio(), Dio()];
+        ServerTlsHttpClientFactory.configureDio(clients.first, webui);
+        configureHermesTransport(clients.last, hermes);
+        for (final client in clients) {
+          addTearDown(() => client.close(force: true));
+          expect((await client.get<String>(url)).data, 'orchard');
+        }
+        for (final client in [
+          ServerTlsHttpClientFactory.createHttpClient(webui),
+          hermesTlsHttpClient(hermes)!,
+        ]) {
+          addTearDown(() => client.close(force: true));
+          final socket = await WebSocket.connect(
+            'ws://orchard.test:${peer.port}/events',
+            customClient: client,
+          );
+          socket.add('blue kite');
+          expect(await socket.first, 'blue kite');
+          await socket.close();
+        }
+        expect(routes, hasLength(4));
+        expect(routes.every((uri) => uri.host == 'orchard.test'), isTrue);
+      },
+    );
+
+    test(
+      'an unavailable route and off-origin redirect never use a direct socket',
+      () async {
+        final peer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => peer.close(force: true));
+        var hits = 0;
+        peer.listen((request) async {
+          hits++;
+          await request.response.redirect(
+            Uri.parse('http://localhost:${peer.port}/next'),
+          );
+        });
+        final direct = Uri.parse('http://127.0.0.1:${peer.port}');
+        final config = _server().copyWith(
+          url: direct.toString(),
+          useTailscale: true,
+        );
+        final client = ServerTlsHttpClientFactory.createHttpClient(config);
+        addTearDown(() => client.close(force: true));
+        Future<void> get() async {
+          final req = await client.getUrl(direct);
+          await (await req.close()).drain<void>();
+        }
+
+        await expectLater(get(), throwsA(isA<SocketException>()));
+        expect(hits, 0);
+        ServerTlsHttpClientFactory.tailnetConnect = (uri, context, trust) =>
+            Socket.startConnect(InternetAddress.loopbackIPv4, uri.port);
+        await expectLater(get(), throwsA(isA<SocketException>()));
+        expect(hits, 1);
+      },
+    );
   });
 
   group('a certificate authority the user installed', () {

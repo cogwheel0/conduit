@@ -1,3 +1,5 @@
+import '../../../platform/mobile_tailnet.dart' show supportsMobileTailnet;
+
 import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -246,6 +248,7 @@ NativeSheetDetailConfig buildServerAddressPage(
   final key = serverAddressEditorKey(serverId, endpointId);
   final pageId = serverAddressPageId(serverId, endpointId);
   final advanced = [
+    if (draft.useTailscale) 'Tailscale',
     if (draft.allowSelfSigned) l10n.allowSelfSignedCertificates,
     if (draft.hasCertificate || draft.hasPrivateKey) l10n.mutualTlsSectionTitle,
     if (draft.headers.isNotEmpty)
@@ -368,6 +371,15 @@ NativeSheetDetailConfig buildServerAddressAdvancedPage(
         ),
       NativeSheetSectionConfig(
         items: [
+          if (supportsMobileTailnet)
+            NativeSheetItemConfig(
+              id: serverAddressRowId('tailscale', editorKey),
+              title: l10n.useTailscale,
+              subtitle: l10n.tailscaleAccountHelp,
+              sfSymbol: 'network',
+              kind: NativeSheetItemKind.toggle,
+              value: draft.useTailscale,
+            ),
           NativeSheetItemConfig(
             id: serverAddressRowId('self-signed', editorKey),
             title: l10n.allowSelfSignedCertificates,
@@ -920,6 +932,8 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         draft.label = value;
       case 'url' when value is String:
         draft.url = value;
+      case 'tailscale' when value is bool:
+        draft.useTailscale = value;
       case 'self-signed' when value is bool:
         draft.allowSelfSigned = value;
       case 'key-password' when value is String:
@@ -965,6 +979,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
     }
     // Changed on the Advanced page or one it opened.
     if (const {
+      'tailscale',
       'self-signed',
       'key-password',
       'pick-certificate',

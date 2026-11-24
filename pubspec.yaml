@@ -52,6 +52,11 @@ dependencies:
   # assertion. Keep the version covered by sidebar_page/workspace_tabs tests.
   go_router: 18.0.1
   
+  # Build the embedded mobile transport from its pinned Go sources.
+  code_assets: ^2.2.0
+  hooks: ^2.2.0
+  ffi: ^2.2.0
+
   # Network & API
   dio: ^5.9.0
   ollama_dart: ^4.1.0
@@ -194,6 +199,7 @@ flutter:
   assets:
     - assets/computer/
     - THIRD_PARTY_NOTICES.md
+    - native/tailnet/THIRD_PARTY_NOTICES.txt
     - assets/icons/
     - assets/model_logos/
     - assets/release_notes/
