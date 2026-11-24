@@ -141,7 +141,7 @@ final class InProcessProtocolHost {
     session._rpc = services.openSession(
       session._channel.local,
       sessionId: sessionId,
-      admitEvent: session._admit,
+      eventGate: session._held,
     );
     _sessions[sessionId] = session;
     unawaited(
@@ -355,33 +355,26 @@ final class InProcessProtocolHost {
 /// One of the client's sessions on an [InProcessProtocolHost].
 ///
 /// The transport has no backpressure of its own, so the session counts the
-/// messages the client has not yet taken. Past the host's limit, a chat's
-/// intermediate streaming frames (`turn.delta`, `turn.blocks`) are held
-/// back instead of sent, each replaced by the next: every one carries the
-/// whole state so far. What is held goes when the client catches up, and
-/// before any other event for that chat, so nothing after it overtakes it.
-/// Nothing else is ever held or dropped, and a frame held back is never
-/// numbered, so the client sees no gap ([EventBus.attach]).
+/// messages the client has not yet taken. Past the host's limit, an
+/// answer's intermediate streaming frames are held back ([_HeldFrames]).
 final class InProcessSession {
-  InProcessSession._(this.id, this._send, this._limit, this._events) {
+  InProcessSession._(this.id, this._send, this._limit, EventBus events) {
+    _held = _HeldFrames(this, events);
     _channel.foreign.stream.listen(_forward);
   }
 
   final String id;
   final Future<void> Function(String message) _send;
   final int _limit;
-  final EventBus _events;
   final StreamChannelController<String> _channel =
       StreamChannelController<String>(sync: true);
   late final RpcSession _rpc;
+  late final _HeldFrames _held;
 
   int _unacknowledged = 0;
-  final Map<
-    String,
-    ({String event, String scope, Map<String, dynamic> payload})
-  >
-  _held = {};
   bool _closed = false;
+
+  bool get _behind => _unacknowledged >= _limit;
 
   /// A message from the client.
   void receive(String message) {
@@ -413,51 +406,133 @@ final class InProcessSession {
           })
           .whenComplete(() {
             _unacknowledged--;
-            if (!_closed && _unacknowledged < _limit) _release(null);
+            if (!_closed && !_behind) _held.release(null);
           }),
     );
   }
+}
+
+/// A session's frames held back while its client is behind.
+///
+/// Only an answer's intermediate streaming frames (`turn.delta`,
+/// `turn.blocks`) are held, each in place of the last of its kind for the
+/// same answer (event, chat and `messageId`): every one carries the whole
+/// state so far. Nothing else is ever held or dropped, and a frame held is
+/// refused before it is numbered, so the client sees no gap.
+///
+/// A held frame is never sent after a newer state for the same answer, by
+/// any path: whatever else reaches the client for that chat, published or
+/// sent straight to the session (a catch-up), goes after what is held for
+/// it, and a frame of the same kind for the same answer replaces it. A chat
+/// the client stops watching is owed nothing held, and frames held under an
+/// id a chat leaves (`route.remap`) move to its new one.
+final class _HeldFrames implements EventGate {
+  _HeldFrames(this._session, this._events);
+
+  final InProcessSession _session;
+  final EventBus _events;
+  final Map<
+    String,
+    ({String event, String scope, Map<String, dynamic> payload})
+  >
+  _held = {};
+  bool _releasing = false;
 
   static bool _intermediate(String event) =>
       event == ConduitEvents.turnDelta || event == ConduitEvents.turnBlocks;
 
-  /// The answer a frame is the whole state of: a comparison streams several
-  /// in one chat. A frame naming no message stands for its chat's.
+  /// The answer a frame is the whole state of. A frame naming no message
+  /// stands for its chat's.
   static String _key(
     String event,
     String scope,
     Map<String, dynamic> payload,
   ) => '$event $scope ${payload['messageId'] ?? ''}';
 
-  bool _admit(String event, String? scope, Map<String, dynamic> payload) {
-    if (_closed || scope == null) return true;
-    final intermediate = _intermediate(event);
-    if (intermediate && _unacknowledged >= _limit) {
+  void clear() => _held.clear();
+
+  @override
+  bool admit(String event, String? scope, Map<String, dynamic> payload) {
+    if (_session._closed) return true;
+    if (event == ConduitEvents.routeRemap) {
+      _move(payload);
+      return true;
+    }
+    if (scope == null) return true;
+    if (_intermediate(event) && _session._behind) {
       final key = _key(event, scope, payload);
       _held.remove(key);
       _held[key] = (event: event, scope: scope, payload: payload);
       return false;
     }
-    if (_held.isNotEmpty) {
-      // This one is newer than one of its kind held for the chat.
-      if (intermediate) _held.remove(_key(event, scope, payload));
-      _release(scope);
-    }
+    _before(event, scope, payload);
     return true;
   }
 
-  /// Sends what is held, for [scope] or for every chat.
-  void _release(String? scope) {
+  @override
+  void direct(String event, String? scope, Map<String, dynamic> payload) {
+    if (_session._closed || _releasing || scope == null) return;
+    _before(event, scope, payload);
+  }
+
+  @override
+  void filterChanged() {
+    _held.removeWhere(
+      (_, held) => !_events.wantedBy(_session.id, held.event, held.scope),
+    );
+  }
+
+  /// [event] is about to reach the client for [scope]: what is held for the
+  /// chat goes first, but for the one it supersedes.
+  void _before(String event, String scope, Map<String, dynamic> payload) {
+    if (_held.isEmpty) return;
+    if (_intermediate(event)) _held.remove(_key(event, scope, payload));
+    release(scope);
+  }
+
+  /// Frames held under a chat's old id go on under its new one, where its
+  /// turn now streams; a newer one held there already stands.
+  void _move(Map<String, dynamic> remap) {
+    final from = remap['fromId'];
+    final to = remap['toId'];
+    if (from is! String || to is! String || from == to) return;
+    final moving = [
+      for (final entry in _held.entries)
+        if (entry.value.scope == from) entry,
+    ];
+    for (final entry in moving) {
+      _held.remove(entry.key);
+      final payload = <String, dynamic>{...entry.value.payload};
+      if (payload['chatId'] == from) payload['chatId'] = to;
+      _held.putIfAbsent(
+        _key(entry.value.event, to, payload),
+        () => (event: entry.value.event, scope: to, payload: payload),
+      );
+    }
+  }
+
+  /// Sends what is held, for [scope] or for every chat, in the order it was
+  /// held.
+  void release(String? scope) {
     final going = [
       for (final entry in _held.entries)
-        if (scope == null || entry.value.scope == scope) entry,
+        if (scope == null || entry.value.scope == scope) entry.key,
     ];
-    for (final entry in going) {
-      _held.remove(entry.key);
-      final held = entry.value;
-      // A chat the client stopped watching meanwhile is owed nothing.
-      if (!_events.wantedBy(id, held.event, held.scope)) continue;
-      _events.sendTo(id, held.event, scope: held.scope, payload: held.payload);
+    _releasing = true;
+    try {
+      for (final key in going) {
+        final held = _held.remove(key);
+        if (held == null) continue;
+        if (!_events.wantedBy(_session.id, held.event, held.scope)) continue;
+        _events.sendTo(
+          _session.id,
+          held.event,
+          scope: held.scope,
+          payload: held.payload,
+        );
+      }
+    } finally {
+      _releasing = false;
     }
   }
 }

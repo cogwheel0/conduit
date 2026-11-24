@@ -362,6 +362,90 @@ void main() {
       phone.expectNumberedWithoutGaps();
     });
 
+    test('a catch-up sent straight to a client still behind comes after '
+        'what was held for that answer', () async {
+      phone.holdAcknowledgements();
+      for (var n = 1; n <= 10; n++) {
+        await publish(ConduitEvents.turnDelta, 'chat-a', 'main', n);
+      }
+      // What `TurnsService.catchUp` sends: past the filter, not asked.
+      events.sendTo(
+        'phone',
+        ConduitEvents.turnCompleted,
+        scope: 'chat-a',
+        payload: <String, dynamic>{'messageId': 'main', 'n': 'done'},
+      );
+      await catchUp();
+      final answer = [
+        for (final e in phone.events)
+          if (e.payload['messageId'] == 'main') e.payload['n'],
+      ];
+      expect(answer.last, 'done');
+      expect(answer.where((n) => n == 10), hasLength(1));
+      phone.expectNumberedWithoutGaps();
+    });
+
+    test('a chat the client stops watching while behind is owed nothing '
+        'held: its catch-up when watched again is the last word', () async {
+      phone.holdAcknowledgements();
+      for (var n = 1; n <= 10; n++) {
+        await publish(ConduitEvents.turnDelta, 'chat-a', 'main', n);
+      }
+      await watch(<String>['chat-b']);
+      // The answer completes unwatched; watched again, its catch-up comes.
+      await publish(ConduitEvents.turnCompleted, 'chat-a', 'main', 'done');
+      await watch(<String>['chat-a', 'chat-b']);
+      events.sendTo(
+        'phone',
+        ConduitEvents.turnCompleted,
+        scope: 'chat-a',
+        payload: <String, dynamic>{'messageId': 'main', 'n': 'caught up later'},
+      );
+      await catchUp();
+      final answer = [
+        for (final e in phone.events)
+          if (e.payload['messageId'] == 'main') e.payload['n'],
+      ];
+      expect(answer.last, 'caught up later');
+      expect(answer, isNot(contains(10)));
+      phone.expectNumberedWithoutGaps();
+    });
+
+    test('a chat remapped while frames are held gets them under its new id, '
+        'and none under the old one after the remap', () async {
+      await watch(<String>['local:tide', 'tide', 'chat-b']);
+      phone.holdAcknowledgements();
+      for (var n = 1; n <= 10; n++) {
+        await publish(ConduitEvents.turnDelta, 'local:tide', 'main', n);
+      }
+      events.emit(
+        ConduitEventSpecs.routeRemap,
+        const RouteRemap(fromId: 'local:tide', toId: 'tide'),
+      );
+      await Future<void>(() {});
+      await catchUp();
+      final remappedAt = phone.events.indexWhere(
+        (e) => e.event == ConduitEvents.routeRemap,
+      );
+      final after = phone.events.skip(remappedAt + 1);
+      expect(after.where((e) => e.scope == 'local:tide'), isEmpty);
+      final last = after.lastWhere((e) => e.event == ConduitEvents.turnDelta);
+      expect(last.scope, 'tide');
+      expect(last.payload['chatId'], 'tide');
+      expect(last.payload['n'], 10);
+    });
+
+    test('a session closed with frames held sends nothing more', () async {
+      phone.holdAcknowledgements();
+      for (var n = 1; n <= 10; n++) {
+        await publish(ConduitEvents.turnDelta, 'chat-a', 'main', n);
+      }
+      final heard = phone.events.length;
+      await phone.session.close();
+      phone.releaseAcknowledgements();
+      await Future<void>(() {});
+      expect(phone.events, hasLength(heard));
+    });
   });
 
   group('byte routes over frames', () {

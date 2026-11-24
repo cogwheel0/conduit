@@ -48,19 +48,17 @@ void main() {
     expect(bus.lastSeqFor('b'), 3);
   });
 
-  test("an event a session's transport refuses is not numbered, and a "
-      'direct send is not asked', () {
+  test("an event a session's gate refuses is not numbered; the gate is told "
+      'of a direct send before it goes, and of a change of filter', () {
     seen['a'] = <EventEnvelope>[];
-    bus.attach(
-      'a',
-      seen['a']!.add,
-      admit: (event, scope, payload) => payload['keep'] == true,
-    );
+    final gate = _Gate(seen['a']!);
+    bus.attach('a', seen['a']!.add, gate: gate);
     bus.subscribe('a', const EventSubscription(scopes: <String>['chat_1']));
     open(
       'b',
       subscription: const EventSubscription(scopes: <String>['chat_1']),
     );
+    expect(gate.filterChanges, 1);
 
     bus
       ..publish(
@@ -73,10 +71,12 @@ void main() {
         scope: 'chat_1',
         payload: <String, dynamic>{'keep': true},
       )
-      ..sendTo('a', ConduitEvents.turnDelta, scope: 'chat_1');
+      ..sendTo('a', ConduitEvents.turnCompleted, scope: 'chat_1');
 
     expect(seqs('a'), <int>[1, 2]);
     expect(seen['a']!.first.payload, <String, dynamic>{'keep': true});
+    // Told before it was numbered.
+    expect(gate.directs, <String>['${ConduitEvents.turnCompleted} 1']);
     // Another session is not asked: it gets both.
     expect(seqs('b'), <int>[1, 2]);
   });
@@ -130,4 +130,25 @@ void main() {
     expect(seqs('a'), <int>[1]);
     expect(seqs('b'), <int>[1, 2]);
   });
+}
+
+/// Takes a published event when its payload says to keep it, and notes
+/// what it is told, with how many events [delivered] then held.
+final class _Gate implements EventGate {
+  _Gate(this.delivered);
+
+  final List<EventEnvelope> delivered;
+  int filterChanges = 0;
+  final List<String> directs = <String>[];
+
+  @override
+  bool admit(String event, String? scope, Map<String, dynamic> payload) =>
+      payload['keep'] == true;
+
+  @override
+  void direct(String event, String? scope, Map<String, dynamic> payload) =>
+      directs.add('$event ${delivered.length}');
+
+  @override
+  void filterChanged() => filterChanges++;
 }

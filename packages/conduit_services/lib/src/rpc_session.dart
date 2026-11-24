@@ -208,9 +208,9 @@ class RpcSession {
     required EventBus events,
     required CoreServices Function() services,
     void Function(bool online)? reportNetwork,
-    EventAdmission? admitEvent,
+    EventGate? eventGate,
   }) : _events = events,
-       _admitEvent = admitEvent,
+       _eventGate = eventGate,
        _reportNetwork = reportNetwork,
        _services = services,
        _system = system,
@@ -222,9 +222,9 @@ class RpcSession {
   final EventBus _events;
   final SystemService _system;
 
-  /// What the transport may refuse before an event is numbered (its
-  /// backpressure); everything the filter wants without it.
-  final EventAdmission? _admitEvent;
+  /// The transport's backpressure ([EventBus.attach]); everything the
+  /// filter wants goes without it.
+  final EventGate? _eventGate;
 
   /// The daemon's services as they are now: null until the core is up. A
   /// session can exist before then -- the window opens while the daemon is
@@ -380,7 +380,7 @@ class RpcSession {
   }
 
   void _register() {
-    _events.attach(sessionId, admit: _admitEvent, (envelope) {
+    _events.attach(sessionId, gate: _eventGate, (envelope) {
       // A closed peer still sitting in the bus is a bug, but dropping the
       // event is better than tearing down every other window's fan-out.
       if (_peer.isClosed) return;

@@ -38,16 +38,23 @@ the event bus last, so work still in flight after that tells no client.
 ## Backpressure
 
 A platform channel has none, so each session counts the messages its client
-has not yet acknowledged. Past the limit, a chat's `turn.delta` and
-`turn.blocks` frames are held back, each replaced by the next: every frame
-carries the whole state so far. Nothing else is ever held or dropped.
+has not yet acknowledged. Past the limit, an answer's `turn.delta` and
+`turn.blocks` frames are held back, each replaced by the next for the same
+answer (chat and `messageId`: a comparison streams several in one chat). Every
+frame carries the whole state so far. Nothing else is ever held or dropped.
 
 A held frame is refused before the bus numbers it (`EventBus.attach`'s
-`admit`), so the client sees no gap in `seq`. A gap means "refetch" to a
+`EventGate`), so the client sees no gap in `seq`. A gap means "refetch" to a
 client (the Mac's stores do), so dropping an already numbered frame would
-trade a few stale frames for a refetch storm. What is held goes out when the
-client catches up, and before any other event for the same chat, so a chat's
-final text always precedes its `turn.completed`.
+trade a few stale frames for a refetch storm.
+
+The rule that keeps this safe: a held frame is never sent after a newer state
+for the same answer, by any path. Whatever else reaches the client for a chat
+goes after what is held for it, whether published or sent straight to the
+session (`sendTo`, as a catch-up does), which is why the gate is told of
+direct sends as well as asked about published ones. A chat the client stops
+watching is owed nothing held, and frames held under a chat's old id move to
+its new one on `route.remap`.
 
 ## Byte routes
 
