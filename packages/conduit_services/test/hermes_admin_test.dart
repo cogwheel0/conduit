@@ -124,31 +124,6 @@ void main() {
     },
   );
 
-  test(
-    'renaming a saved mobile connection preserves its Tailscale route',
-    () async {
-      await saveHome();
-      final studio = await saveSecond('Studio');
-      final controller = runtime.container.read(hermesConfigProvider.notifier);
-      await controller.saveConnection(
-        connectionId: studio.id,
-        baseUrl: second.baseUrl,
-        useTailscale: true,
-      );
-      await admin.saveConnection(
-        HermesConnectionEdit(
-          id: studio.id,
-          name: 'Orchard',
-          baseUrl: second.baseUrl,
-        ),
-      );
-      expect(
-        (await controller.savedConnectionConfig(studio.id)).useTailscale,
-        isTrue,
-      );
-    },
-  );
-
   test('a second connection is saved beside it, then switched to', () async {
     await saveHome();
     var list = await admin.saveConnection(
@@ -161,7 +136,14 @@ void main() {
     expect(studio.active, isFalse);
     expect(studio.hasApiKey, isTrue);
 
-    // Renamed, its key kept (the same server).
+    final controller = runtime.container.read(hermesConfigProvider.notifier);
+    Future<void> setRoute(bool useTailscale) => controller.saveConnection(
+      connectionId: studio.id,
+      baseUrl: second.baseUrl,
+      useTailscale: useTailscale,
+    );
+    await setRoute(true);
+    // Renaming the same server keeps its key and route.
     list = await admin.saveConnection(
       HermesConnectionEdit(
         id: studio.id,
@@ -172,6 +154,13 @@ void main() {
     final renamed = list.connections.firstWhere((c) => c.id == studio.id);
     expect(renamed.name, 'Studio agent');
     expect(renamed.hasApiKey, isTrue);
+    expect(
+      (await controller.savedConnectionConfig(studio.id)).useTailscale,
+      isTrue,
+    );
+
+    // The synthetic jobs server below uses a direct loopback connection.
+    await setRoute(false);
 
     list = await admin.activate(studio.id);
     expect(list.activeId, studio.id);
