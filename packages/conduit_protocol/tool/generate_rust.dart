@@ -341,26 +341,9 @@ final class RustEmitter {
 
   // Default values -----------------------------------------------------------
 
-  /// Follows a constant reference to its value: `kDefaultUiFontSize`,
-  /// `Capabilities.none`. Enum values are left alone.
-  Expression _resolve(Expression node) {
-    for (var depth = 0; depth < 16; depth++) {
-      final next = switch (node) {
-        SimpleIdentifier(:final name) => source.topConsts[name],
-        PrefixedIdentifier(:final prefix, :final identifier)
-            when source.enumDef(prefix.name) == null =>
-          source.staticConsts['${prefix.name}.${identifier.name}'],
-        _ => null,
-      };
-      if (next == null) return node;
-      node = next;
-    }
-    throw GeneratorError('constant cycle at $node');
-  }
-
   /// Whether [node] is what Rust's `Default::default()` gives [type].
   bool _isRustDefault(Expression node, TypeRef type) {
-    final value = _resolve(node);
+    final value = source.resolve(node);
     return switch (value) {
       BooleanLiteral(value: false) => true,
       IntegerLiteral(:final value) => value == 0,
@@ -373,23 +356,15 @@ final class RustEmitter {
       MethodInvocation(:final argumentList) ||
       InstanceCreationExpression(
         :final argumentList,
-      ) => argumentList.arguments.isEmpty && _constructed(value) == type.name,
+      ) =>
+        argumentList.arguments.isEmpty && constructedType(value) == type.name,
       _ => false,
     };
   }
 
-  String? _constructed(Expression node) => switch (node) {
-    MethodInvocation(:final target, :final methodName) when target == null =>
-      methodName.name,
-    InstanceCreationExpression(:final constructorName)
-        when constructorName.name == null =>
-      constructorName.type.name.lexeme,
-    _ => null,
-  };
-
   /// [node] as a Rust expression of [type]'s Rust type.
   String _value(Expression node, TypeRef type, String where) {
-    final value = _resolve(node);
+    final value = source.resolve(node);
     if (value is NullLiteral) {
       if (!type.nullable) throw GeneratorError('$where: null for $type');
       return 'None';
@@ -449,12 +424,8 @@ final class RustEmitter {
       fail();
     }
     final dto = source.dto(type.name);
-    if (dto == null || _constructed(value) != dto.name) fail();
-    final args = switch (value) {
-      MethodInvocation(:final argumentList) => argumentList.arguments,
-      InstanceCreationExpression(:final argumentList) => argumentList.arguments,
-      _ => fail(),
-    };
+    if (dto == null || constructedType(value) != dto.name) fail();
+    final args = constructorArguments(value) ?? fail();
     if (args.isEmpty) return '${dto.name}::default()';
     final fields = <String>[];
     for (final arg in args) {
