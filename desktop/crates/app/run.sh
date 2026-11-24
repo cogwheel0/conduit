@@ -133,9 +133,13 @@ if [ "$(uname -s)" = Linux ]; then
         # config folder's; older xdg-utils, the applications folder's):
         # taken out there, a copy of the list kept beside the entry.
         config_home="${XDG_CONFIG_HOME:-${HOME:+$HOME/.config}}"
-        for list in ${config_home:+"$config_home/mimeapps.list"} "$apps/mimeapps.list"; do
-          if [ -f "$list" ] && grep -q "^x-scheme-handler/conduit=.*$entry_name" "$list"; then
-            cp "$list" "target/app/unregistered-$stamp-$(basename "$(dirname "$list")")-mimeapps.list"
+        for where in config data; do
+          case "$where" in
+            config) list="${config_home:+$config_home/mimeapps.list}" ;;
+            data) list="$apps/mimeapps.list" ;;
+          esac
+          if [ -n "$list" ] && [ -f "$list" ] && grep -q "^x-scheme-handler/conduit=.*$entry_name" "$list"; then
+            cp "$list" "target/app/unregistered-$stamp-$where-mimeapps.list"
             python3 -I packaging/winlinux.py forget-handler "$list" x-scheme-handler/conduit "$entry_name" ||
               echo "$list still names $entry_name for conduit://" >&2
           fi
