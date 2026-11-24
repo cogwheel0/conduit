@@ -187,6 +187,13 @@ impl ApprovalsView {
     /// its own.
     fn sync(&mut self, top: &UiRequest, window: &mut Window, cx: &mut Context<Self>) {
         if self.for_request.as_deref() == Some(top.request_id.as_str()) {
+            // Raised again without the decision its editor is open for: the
+            // editor closes, deciding nothing.
+            if let Card::LibreChatTool(t) = card(top)
+                && self.compose.is_some_and(|d| !t.allowed.contains(&d))
+            {
+                self.close_compose(cx);
+            }
             if let Card::HermesClarify { questions, .. } = card(top) {
                 let open: Vec<_> = questions.iter().filter(|q| !q.locked).collect();
                 self.clarify_inputs
@@ -648,7 +655,9 @@ impl ApprovalsView {
             Card::HermesClarify { .. } | Card::LibreChatQuestion(_) => return false,
             Card::LibreChatTool(t) => {
                 // An open Edit or Respond closes, deciding nothing.
-                if self.for_request.as_deref() == Some(request_id) && self.compose.is_some() {
+                if self.for_request.as_deref() == Some(request_id)
+                    && self.compose.is_some_and(|d| t.allowed.contains(&d))
+                {
                     self.close_compose(cx);
                     return true;
                 }
@@ -735,7 +744,7 @@ impl ApprovalsView {
     ) -> bool {
         let id = request.request_id.as_str();
         let drawn = self.for_request.as_deref() == Some(id);
-        let compose = self.compose.filter(|_| drawn);
+        let compose = self.compose.filter(|d| drawn && tool.allowed.contains(d));
         let answer = match compose {
             None if tool.allowed.contains(&LibreChatDecision::Approve) => {
                 Answer::new(LibreChatDecision::Approve.wire())
@@ -2575,6 +2584,25 @@ mod librechat_tests {
             assert!(v.compose_invalid);
             assert_eq!(v.compose_text.read(cx).value(), "[2]");
         });
+    }
+
+    /// The same card raised again without Edit closes the editor it had
+    /// open: Approve approves, rather than sending the edit.
+    #[gpui_kit::test]
+    fn a_card_raised_again_without_edit_closes_its_editor(cx: &mut TestAppContext) {
+        let (b, vcx) = bench(cx);
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_request(tool_call("p", &["approve", "edit"], json!({})), cx)
+        });
+        open(&b, "chat-a", vcx);
+        compose(&b, "p", LibreChatDecision::Edit, vcx);
+        b.stores.ui_requests.update(vcx, |u, cx| {
+            u.on_request(tool_call("p", &["approve", "reject"], json!({})), cx)
+        });
+        open(&b, "chat-a", vcx);
+        b.view.read_with(vcx, |v, _| assert_eq!(v.compose, None));
+        b.view.update(vcx, |v, cx| assert!(v.allow(cx)));
+        assert_eq!(sent(&b, vcx), [("approve".to_string(), None)]);
     }
 
     /// Respond takes words and cannot be sent empty; Cancel closes it,
