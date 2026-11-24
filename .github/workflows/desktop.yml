@@ -8,6 +8,7 @@ on:
     paths:
       - 'desktop/**'
       - 'packages/conduit_protocol/**'
+      - 'ios/ConduitProtocol/**'
       # The app's strings are generated from the ARBs (crates/app/build.rs),
       # and the release bundle carries conduitd, with the services, core and
       # markdown packages it is built from.
@@ -27,6 +28,7 @@ on:
     paths:
       - 'desktop/**'
       - 'packages/conduit_protocol/**'
+      - 'ios/ConduitProtocol/**'
       # The app's strings are generated from the ARBs (crates/app/build.rs),
       # and the release bundle carries conduitd, with the services, core and
       # markdown packages it is built from.
@@ -127,9 +129,10 @@ jobs:
             echo "packages=$packages"
           } >> "$GITHUB_OUTPUT"
 
-  # desktop/crates/protocol/src/generated.rs must be exactly what the
-  # generator writes from the Dart DTOs. The generator formats with the
-  # pinned rustfmt, so this job needs both Dart and Rust.
+  # desktop/crates/protocol/src/generated.rs and the Swift types in
+  # ios/ConduitProtocol must be exactly what the generators write from the
+  # Dart DTOs. The Rust one formats with the pinned rustfmt, so this job
+  # needs both Dart and Rust; the Swift one needs Dart alone.
   protocol-codegen:
     name: Protocol codegen drift
     runs-on: ubuntu-latest
@@ -156,6 +159,13 @@ jobs:
         run: |
           git diff --exit-code -- desktop/crates/protocol/src/generated.rs || {
             echo "::error::generated.rs is stale: run 'dart run tool/generate_rust.dart' in packages/conduit_protocol and commit it."
+            exit 1
+          }
+      - name: Fail if the Swift protocol types drifted from the Dart source
+        working-directory: packages/conduit_protocol
+        run: |
+          dart run tool/generate_swift.dart --check || {
+            echo "::error::Generated.swift is stale: run 'dart run tool/generate_swift.dart' in packages/conduit_protocol and commit it."
             exit 1
           }
 

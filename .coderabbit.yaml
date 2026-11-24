@@ -21,6 +21,8 @@ reviews:
     - "!packages/conduit_protocol/goldens/**"
     # The protocol's Rust types, written by its generate_rust tool.
     - "!desktop/crates/protocol/src/generated.rs"
+    # The protocol's Swift types, written by its generate_swift tool.
+    - "!ios/ConduitProtocol/Sources/ConduitProtocol/Generated.swift"
     - "!**/pubspec.lock"
     - "!**/Podfile.lock"
     - "!**/Cargo.lock"
