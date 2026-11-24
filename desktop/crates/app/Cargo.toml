@@ -75,6 +75,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rustls-native-certs = "0.8"
 ring = "0.17"
 roxmltree = "0.21"
+# Settings › About's notices in the desktop's plain-text app, as its file
+# manager picks one (shell::notices): the version wry's GTK already links.
+gio = "0.18"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
