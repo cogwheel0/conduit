@@ -68,7 +68,7 @@ mod linux {
     use gio::prelude::*;
 
     /// Launches the desktop's plain-text app (GIO's choice, as the file
-    /// manager's) on `path`.
+    /// manager's) on `path`, and waits until it has it.
     pub fn open(path: &Path) -> Result<(), String> {
         let apps: Vec<gio::AppInfo> = gio::AppInfo::default_for_type("text/plain", false)
             .into_iter()
@@ -79,8 +79,19 @@ mod linux {
             .map(|app| app.id().map(|id| id.to_string()).unwrap_or_default())
             .collect();
         let i = super::plain_text_app(&ids).ok_or("no app but Conduit opens plain text")?;
-        apps[i]
-            .launch(&[gio::File::for_path(path)], None::<&gio::AppLaunchContext>)
+        // The asynchronous launch, run to its end on a main context of this
+        // thread's own: the blocking one reports success once a D-Bus
+        // activated app's Open is queued, so a failed activation would
+        // never reach the fallback.
+        let uri = gio::File::for_path(path).uri();
+        let context = gio::glib::MainContext::new();
+        context
+            .with_thread_default(|| {
+                context.block_on(
+                    apps[i].launch_uris_future(&[uri.as_str()], None::<&gio::AppLaunchContext>),
+                )
+            })
+            .map_err(|e| e.to_string())?
             .map_err(|e| format!("{}: {e}", ids[i]))
     }
 }
