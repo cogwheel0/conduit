@@ -367,9 +367,9 @@ class PullSync {
   /// the merge can tell a copy read before this device stored a turn.
   final _localTurnVersionsAtFetch = Expando<int>();
 
-  /// [ChatsDao.titleWriteVersion] when each raw response was requested, so
+  /// [ChatsDao.localTitleClock] when each raw response was requested, so
   /// the merge can tell a copy read before this device wrote the title.
-  final _titleWriteVersionsAtFetch = Expando<int>();
+  final _titleClocksAtFetch = Expando<int>();
 
   /// How many times a pull reads a chat whose copy comes back older than a
   /// push of it, or a turn stored here, which stores none of it
@@ -474,6 +474,8 @@ class PullSync {
     // keeps the cycle going for already-collected chats, but success=false
     // freezes the watermark.
     var archivedListFailed = false;
+    // A chat renamed here while the list is read keeps its new title.
+    final titleSince = _db.chatsDao.localTitleClock;
     final archivedChanged = <_ChangedItem>[];
     final archivedChangedIds = <String>{};
     try {
@@ -539,6 +541,7 @@ class PullSync {
               archived: true,
               lastReadAt: item.lastReadAt,
               readStateSince: readStateSince,
+              titleSince: titleSince,
             );
           });
         }
@@ -729,7 +732,7 @@ class PullSync {
     final modelListVersion = _db.chatsDao.modelListVersion(id);
     final pushVersion = _db.chatsDao.pushVersion(id);
     final localTurnVersion = _db.chatsDao.localTurnVersion(id);
-    final titleWriteVersion = _db.chatsDao.titleWriteVersion(id);
+    final titleClock = _db.chatsDao.localTitleClock;
     final generation = _locks.generation;
     final response = await _client.getChatRaw(id);
     if (response != null) {
@@ -737,7 +740,7 @@ class PullSync {
       _modelListVersionsAtFetch[response] = modelListVersion;
       _pushVersionsAtFetch[response] = pushVersion;
       _localTurnVersionsAtFetch[response] = localTurnVersion;
-      _titleWriteVersionsAtFetch[response] = titleWriteVersion;
+      _titleClocksAtFetch[response] = titleClock;
       _generationsAtFetch[response] = generation;
     }
     return response;
@@ -1019,7 +1022,7 @@ class PullSync {
     // lock we already hold.
     final pushedAtFetch = _pushVersionsAtFetch[resp];
     final turnsAtFetch = _localTurnVersionsAtFetch[resp];
-    final titlesAtFetch = _titleWriteVersionsAtFetch[resp];
+    final titlesAtFetch = _titleClocksAtFetch[resp];
     final write = await _db.chatsDao.mergeServerChat(
       server: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
@@ -1034,7 +1037,7 @@ class PullSync {
           (turnsAtFetch != null &&
               turnsAtFetch != _db.chatsDao.localTurnVersion(id)) ||
           (titlesAtFetch != null &&
-              titlesAtFetch != _db.chatsDao.titleWriteVersion(id)),
+              _db.chatsDao.titleWrittenSince(id, titlesAtFetch)),
     );
 
     // A stored copy stored the checklist events kept for the chat, or a

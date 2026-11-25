@@ -19,6 +19,7 @@ import 'package:conduit_core/sync/backoff.dart';
 import 'package:conduit_core/sync/chat_adapter.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
+import 'package:conduit_core/sync/deletion_reconcile.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
@@ -103,18 +104,41 @@ final class _NoConversations extends Conversations {
   Future<List<Conversation>> build() async => const [];
 }
 
-/// Holds the first read of a chat once the server has answered it.
+/// Holds a read of a chat, of the chat list or of the archived list once
+/// the server has answered it.
 final class _HeldReadClient extends FakeSyncApiClient {
   _HeldReadClient(super.server);
 
   Future<void>? readGate;
   Completer<void> read = Completer<void>();
+  Future<void>? listGate;
+  Future<void>? archivedListGate;
+  Completer<void> listRead = Completer<void>();
 
   @override
   Future<Map<String, dynamic>?> getChatRaw(String id) async {
     final answer = await super.getChatRaw(id);
     if (!read.isCompleted) read.complete();
     await readGate;
+    return answer;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getChatListPage(int page) =>
+      _held(super.getChatListPage(page), listGate);
+
+  @override
+  Future<List<Map<String, dynamic>>> getArchivedChatListPage(int page) =>
+      _held(super.getArchivedChatListPage(page), archivedListGate);
+
+  Future<List<Map<String, dynamic>>> _held(
+    Future<List<Map<String, dynamic>>> page,
+    Future<void>? gate,
+  ) async {
+    final answer = await page;
+    if (gate == null) return answer;
+    if (!listRead.isCompleted) listRead.complete();
+    await gate;
     return answer;
   }
 }
@@ -279,6 +303,100 @@ void main() {
       expect(serverTitle(), _renamed);
     });
   }
+
+  test('an archived chat listed before the rename does not get the old title '
+      'back, and the rest of the list applies', () async {
+    const archivedId = 'chat-archived';
+    const otherId = 'chat-archived-elsewhere';
+    for (final (id, title) in [
+      (archivedId, _title),
+      (otherId, 'Renamed elsewhere'),
+    ]) {
+      server.seedChat(
+        id: id,
+        blob: {'title': title},
+        createdAt: 100,
+        updatedAt: 100,
+        archived: true,
+      );
+      await db.chatsDao.upsertEnvelopeStub(
+        id: id,
+        title: _title,
+        createdAt: 100,
+        updatedAt: 100,
+        archived: true,
+      );
+    }
+    final released = Completer<void>();
+    client.archivedListGate = released.future;
+    final pulling = pull.run();
+    await client.listRead.future;
+
+    await renameOpenWebUiConversation(container, archivedId, _renamed);
+    released.complete();
+    await pulling;
+
+    expect((await db.chatsDao.getChat(archivedId))!.title, _renamed);
+    expect((await db.chatsDao.getChat(otherId))!.title, 'Renamed elsewhere');
+  });
+
+  test(
+    'the full list read before the rename does not put the old title '
+    'back, nor does the next save, and the rest of the list applies',
+    () async {
+      const otherId = 'chat-elsewhere';
+      server.seedChat(
+        id: otherId,
+        blob: {'title': _title},
+        createdAt: 100,
+        updatedAt: 100,
+      );
+      await pull.pullChat(otherId);
+      server.updateChat(otherId, {'title': 'Renamed elsewhere'});
+      final released = Completer<void>();
+      client.listGate = released.future;
+      final reconciling = DeletionReconcile(
+        client: client,
+        db: db,
+        locks: locks,
+        clock: _Clock(),
+      ).run(ReconcileReason.manualRefresh);
+      await client.listRead.future;
+
+      await renameOpenWebUiConversation(container, _chatId, _renamed);
+      released.complete();
+      await reconciling;
+
+      expect((await db.chatsDao.getChat(otherId))!.title, 'Renamed elsewhere');
+      expect(await storedTitle(), _renamed);
+      expect(await storedServerTitle(), _renamed);
+      await queueSave();
+      await drainer.drain();
+      expect(serverTitle(), _renamed);
+    },
+  );
+
+  test('a copy of the chat read before the rename and shown in the chat list '
+      'does not put the old title back', () async {
+    final chats = container.read(conversationsProvider.notifier);
+    await container.read(conversationsProvider.future);
+    final readBefore = Conversation(
+      id: _chatId,
+      title: _title,
+      createdAt: DateTime.utc(2026, 11, 1),
+      updatedAt: DateTime.utc(2026, 11, 1),
+    );
+    Future<void> written() => locks.runExclusive(_chatId, () async {});
+
+    await renameOpenWebUiConversation(container, _chatId, _renamed);
+    chats.upsertConversation(readBefore);
+    await written();
+    expect(await storedTitle(), _renamed);
+
+    chats.updateConversation(_chatId, (_) => readBefore);
+    await written();
+    expect(await storedTitle(), _renamed);
+  });
 
   test('a save of the chat on its way when it is renamed lands first, and '
       'the rename stays', () async {

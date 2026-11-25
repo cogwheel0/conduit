@@ -922,6 +922,7 @@ class Conversations extends _$Conversations {
               lastReadAt: lastReadAt == null
                   ? null
                   : _epochSecondsOf(lastReadAt),
+              keepTitleWrittenHere: true,
             );
           })
           .then((_) => folderConversationRefresh.bumpIfMounted())
@@ -967,6 +968,7 @@ class Conversations extends _$Conversations {
                     pinned: Value(conversation.pinned),
                     archived: Value(conversation.archived),
                     updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
+                    keepTitleWrittenHere: true,
                   );
           })
           .then((_) => folderConversationRefresh.bumpIfMounted())

@@ -293,20 +293,36 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     _localTurnVersions[chatId] = localTurnVersion(chatId) + 1;
   }
 
-  final _titleWriteVersions = <String, int>{};
+  int _titleClock = 0;
+  final _titleWrittenAt = <String, int>{};
+  final _titlesWrittenHere = <String, String>{};
 
-  /// Counts the titles of chat [chatId] this device wrote on the server
-  /// ([noteTitleWritten]). A fetch takes it before it reads the chat, so a
-  /// copy read before a rename landed does not put the old title back, nor
-  /// the old title in the copy a later save sends.
-  int titleWriteVersion(String chatId) => _titleWriteVersions[chatId] ?? 0;
+  /// Advances whenever this device writes a chat's title on the server
+  /// ([noteTitleWritten]). A reader of the server's chats, one chat or a
+  /// whole list, takes it before its request, and keeps the stored title of
+  /// a chat whose title was written since ([titleWrittenSince]): what it
+  /// read may be the title the server held before.
+  int get localTitleClock => _titleClock;
 
-  /// This device wrote a title of chat [chatId] on the server: a rename, or
-  /// a title it had generated. Called in the chat's lock, once the server
-  /// took the title.
-  void noteTitleWritten(String chatId) {
-    _titleWriteVersions[chatId] = titleWriteVersion(chatId) + 1;
+  bool titleWrittenSince(String chatId, int since) =>
+      (_titleWrittenAt[chatId] ?? 0) > since;
+
+  /// This device wrote [title] as chat [chatId]'s title on the server: a
+  /// rename, or a title it had generated. Called in the chat's lock, once
+  /// the server took the title.
+  void noteTitleWritten(String chatId, String title) {
+    _titleWrittenAt[chatId] = ++_titleClock;
+    _titlesWrittenHere[chatId] = title;
   }
+
+  /// Whether [title], from a copy of chat [chatId] read at a time not known
+  /// here, would replace [storedTitle] while it is still the title this
+  /// device last wrote. A pull, which knows when it read, decides instead.
+  bool _replacesTitleWrittenHere(
+    String chatId,
+    String storedTitle,
+    String title,
+  ) => title != storedTitle && _titlesWrittenHere[chatId] == storedTitle;
 
   /// The model list stored with chat [chatId], or null when it has none.
   Future<List<Object?>?> storedChatModels(String chatId) async {
@@ -636,7 +652,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     /// The copy was read before a push of this chat landed
     /// ([pushVersion]), before this device stored a turn of its own
     /// ([localTurnVersion]), or before it wrote the chat's title on the
-    /// server ([titleWriteVersion]): older than any of them, whatever its
+    /// server ([titleWrittenSince]): older than any of them, whatever its
     /// `updated_at` says.
     bool readBeforeLocalWrite = false,
   }) {
@@ -1262,6 +1278,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     /// [localReadStateClock] when the list carrying [lastReadAt] was
     /// requested; null when [lastReadAt] is not from a list.
     int? readStateSince,
+
+    /// [localTitleClock] when the list carrying [title] was requested.
+    int? titleSince,
+
+    /// [title] is from a copy shown here, read at a time not known: it does
+    /// not replace the title this device last wrote.
+    bool keepTitleWrittenHere = false,
   }) {
     return transaction(() async {
       final existing = await getChat(id);
@@ -1282,9 +1305,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         );
         return;
       }
+      final keepsTitle =
+          existing.dirty ||
+          (titleSince != null && titleWrittenSince(id, titleSince)) ||
+          (keepTitleWrittenHere &&
+              _replacesTitleWrittenHere(id, existing.title, title));
       await (update(chats)..where((t) => t.id.equals(id))).write(
         ChatsCompanion(
-          title: existing.dirty ? const Value.absent() : Value(title),
+          title: keepsTitle ? const Value.absent() : Value(title),
           createdAt: Value(createdAt),
           updatedAt: existing.dirty ? const Value.absent() : Value(updatedAt),
           pinned: pinned == null ? const Value.absent() : Value(pinned),
@@ -1301,6 +1329,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   /// Partial server-confirmed envelope update; affects 0 rows when id absent.
+  /// With [keepTitleWrittenHere], [title] is from a copy shown here, read at
+  /// a time not known: it does not replace the title this device last
+  /// wrote. Caller holds the chat lock.
   Future<int> updateEnvelope(
     String chatId, {
     Value<String> title = const Value.absent(),
@@ -1308,11 +1339,20 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     Value<bool> pinned = const Value.absent(),
     Value<bool> archived = const Value.absent(),
     Value<int> updatedAt = const Value.absent(),
-  }) {
+    bool keepTitleWrittenHere = false,
+  }) async {
     noteEnvelopeChanged(chatId);
+    var keptTitle = title;
+    if (keepTitleWrittenHere && title.present) {
+      final stored = await getChat(chatId);
+      if (stored != null &&
+          _replacesTitleWrittenHere(chatId, stored.title, title.value)) {
+        keptTitle = const Value.absent();
+      }
+    }
     return (update(chats)..where((t) => t.id.equals(chatId))).write(
       ChatsCompanion(
-        title: title,
+        title: keptTitle,
         folderId: folderId,
         pinned: pinned,
         archived: archived,

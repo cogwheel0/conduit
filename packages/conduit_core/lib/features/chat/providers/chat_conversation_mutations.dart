@@ -257,7 +257,7 @@ Future<bool> renameOpenWebUiConversation(
       () => chatLocks.runExclusive(rawId, () async {
         if (!current()) throw const OpenWebUiAccountChangedException();
         await api.updateConversation(rawId, title: title);
-        database?.chatsDao.noteTitleWritten(rawId);
+        database?.chatsDao.noteTitleWritten(rawId, title);
         await database?.chatsDao.updateServerGeneratedTitle(
           rawId,
           title,
