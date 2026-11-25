@@ -300,10 +300,26 @@ class UpdateInstall(unittest.TestCase):
         # CloseApplications, which shuts down every program and service
         # with those files open.
         self.assertIn("\nCloseApplications=no\n", text)
-        self.assertIn("CloseRunningApp;", pascal_body(text, "procedure CurUninstallStepChanged("))
         prepare = pascal_body(text, "function PrepareToInstall(")
         self.assertIn("FindRunningApp(", prepare)
-        self.assertIn("CloseProcesses(", prepare)
+        # A Conduit that didn't end stops the install: files in use can't be
+        # replaced.
+        self.assertRegex(prepare, r"if not CloseProcesses\(Ours\) then\s+Result := SetupMessage\(msgErrorCloseApplications\)")
+        # The uninstall stops before removing anything unless Conduit ended:
+        # Inno's own running-app question (OK tries again), then Abort,
+        # which ends Uninstall from usUninstall.
+        uninstall = pascal_body(text, "procedure CurUninstallStepChanged(")
+        for used in ("usUninstall", "if CloseProcesses(Ours) then", "SetupMessage(msgUninstallAppRunningError)",
+                     "MB_OKCANCEL, IDCANCEL", "Abort;"):
+            self.assertIn(used, uninstall)
+        # Closing succeeds only once each process has really ended, waited
+        # on by handle, a reused pid told apart by its start time.
+        close = pascal_body(text, "function CloseProcesses(")
+        self.assertIn("): Boolean;", close.splitlines()[0])
+        self.assertIn("ProcessEnded(", close)
+        ended = pascal_body(text, "function ProcessEnded(")
+        for used in ("WaitForSingleObject(", "GetProcessTimes(", "StartTimeLow", "ERROR_ACCESS_DENIED"):
+            self.assertIn(used, ended)
         # Run by hand, Setup asks first, in Inno's own translated words (its
         # Preparing to Install page's); No stops it with Inno's message.
         for used in ("not WizardSilent", "SuppressibleMsgBox(", "SetupMessage(msgApplicationsFound)",
@@ -311,8 +327,12 @@ class UpdateInstall(unittest.TestCase):
             self.assertIn(used, prepare)
         # RmShutdown runs only in a session that registers Conduit's own
         # processes, never the files.
-        self.assertNotIn("RmShutdown(", pascal_body(text, "procedure FindRunningApp("))
-        close = pascal_body(text, "procedure CloseProcesses(")
+        find = pascal_body(text, "procedure FindRunningApp(")
+        self.assertNotIn("RmShutdown(", find)
+        # Conduit's processes are the ones running from its folder, whatever
+        # Restart Manager calls them: to an unelevated Setup, an elevated
+        # Conduit is "critical", and leaving it alone let the uninstall go on.
+        self.assertNotIn("AppType <>", find)
         self.assertIn("RmShutdown(", close)
         self.assertIn("RmRegisterProcess(", close)
         self.assertNotIn("RmRegisterFiles(", close)
@@ -325,7 +345,8 @@ class UpdateInstall(unittest.TestCase):
         shown += re.findall(r"Result := (.*?);", pascal_body(code, "function PrepareToInstall("), re.S)
         self.assertGreaterEqual(len(shown), 2)
         for text in shown:
-            self.assertIsNone(re.search(r"'[^']*[A-Za-z][^']*'", text), text)
+            # A preprocessor value ('{#AppName}') is the product's name.
+            self.assertIsNone(re.search(r"'(?!\{#\w+\}')[^']*[A-Za-z][^']*'", text), text)
 
 
 class PeImports(unittest.TestCase):

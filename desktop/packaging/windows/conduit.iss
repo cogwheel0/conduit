@@ -40,10 +40,11 @@
 ; an upgrade replaces): never changed once a version has shipped, or an
 ; upgrade installs a second copy beside the first. smoke.ps1 reads it here.
 #define AppGuid "536D4CBE-1A63-41FD-94E6-E05B2555BECC"
+#define AppName "Conduit"
 
 [Setup]
 AppId={{{#AppGuid}}
-AppName=Conduit
+AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisherURL=https://github.com/cogwheel0/conduit
 AppSupportURL=https://github.com/cogwheel0/conduit/issues
@@ -173,6 +174,10 @@ type
     StartTimeHigh: DWORD;
   end;
   TRmUniqueProcesses = array of TRmUniqueProcess;
+  TRmFileTime = record
+    Low: DWORD;
+    High: DWORD;
+  end;
 
 const
   CCH_RM_SESSION_KEY = 32;
@@ -186,10 +191,12 @@ const
   RmNameAt = 12;
   RmNameChars = 256;
   RmTypeAt = 652;
-  RmService = 3;
-  RmExplorer = 4;
-  RmCritical = 1000;
   PROCESS_QUERY_LIMITED_INFORMATION = $1000;
+  SYNCHRONIZE = $100000;
+  WAIT_OBJECT_0 = 0;
+  ERROR_ACCESS_DENIED = 5;
+  // How long each of Conduit's processes may take to end once shut down.
+  EndWait = 10000;
 
 function RmStartSession(var SessionHandle: DWORD; SessionFlags: DWORD; SessionKey: String): DWORD;
   external 'RmStartSession@rstrtmgr.dll stdcall delayload';
@@ -212,6 +219,10 @@ function QueryFullProcessImageName(Process: THandle; Flags: DWORD; ExeName: Stri
   external 'QueryFullProcessImageNameW@kernel32.dll stdcall';
 function CloseHandle(Handle: THandle): BOOL;
   external 'CloseHandle@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: DWORD): DWORD;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function GetProcessTimes(Process: THandle; var Created, Exited, Kernel, User: TRmFileTime): BOOL;
+  external 'GetProcessTimes@kernel32.dll stdcall';
 
 // The .exe and .dll files under Dir, the uninstaller's own left out.
 procedure AddRunnableFiles(const Dir: String; var Files: TArrayOfString);
@@ -270,10 +281,11 @@ begin
   end;
 end;
 
-// Conduit's running processes: the ones whose image is in the app's folder
-// and that have its .exe or .dll files open (never services, critical
-// processes or Explorer), with Restart Manager's name for each, a line
-// each. The other holders are logged and left alone.
+// Conduit's running processes: the ones that run from the app's folder and
+// have its .exe or .dll files open, with Restart Manager's name for each, a
+// line each. The other holders are logged and left alone. Their kind
+// doesn't decide: to an unelevated Setup, an elevated Conduit is a
+// "critical" process Restart Manager can't shut down, and still Conduit.
 procedure FindRunningApp(var Ours: TRmUniqueProcesses; var Names: String);
 var
   Session, Status, Reasons: DWORD;
@@ -322,8 +334,7 @@ begin
       Pid := BufferDword(Infos, At);
       AppType := BufferDword(Infos, At + RmTypeAt);
       Image := ProcessImage(Pid);
-      if (AppType <> RmService) and (AppType <> RmExplorer) and (AppType <> RmCritical) and (Image <> '') and
-         (CompareText(Copy(Image, 1, Length(AppDir) + 1), AddBackslash(AppDir)) = 0) then
+      if (Image <> '') and (CompareText(Copy(Image, 1, Length(AppDir) + 1), AddBackslash(AppDir)) = 0) then
       begin
         Found := GetArrayLength(Ours);
         SetArrayLength(Ours, Found + 1);
@@ -344,16 +355,44 @@ begin
   end;
 end;
 
+// Whether Process has ended, waiting up to Milliseconds for it. Its pid
+// running a later-started program counts as ended; a process this can't
+// open for lack of access counts as running.
+function ProcessEnded(const Process: TRmUniqueProcess; Milliseconds: DWORD): Boolean;
+var
+  Handle: THandle;
+  Created, Exited, Kernel, User: TRmFileTime;
+begin
+  Handle := OpenProcess(SYNCHRONIZE or PROCESS_QUERY_LIMITED_INFORMATION, False, Process.ProcessId);
+  if Handle = 0 then
+  begin
+    Result := DLLGetLastError <> ERROR_ACCESS_DENIED;
+    Exit;
+  end;
+  try
+    Result := False;
+    if GetProcessTimes(Handle, Created, Exited, Kernel, User) then
+      Result := (Created.Low <> Process.StartTimeLow) or (Created.High <> Process.StartTimeHigh);
+    if not Result then
+      Result := WaitForSingleObject(Handle, Milliseconds) = WAIT_OBJECT_0;
+  finally
+    CloseHandle(Handle);
+  end;
+end;
+
 // Shuts Ours down through a session that registers only them, forced if
-// they don't close.
-procedure CloseProcesses(const Ours: TRmUniqueProcesses);
+// they don't close; True once every one of them has ended. RmShutdown's
+// status doesn't say that: it reports success for processes it didn't
+// recognise.
+function CloseProcesses(const Ours: TRmUniqueProcesses): Boolean;
 var
   Session, Status, Reasons: DWORD;
   Needed, Count: Cardinal;
   SessionKey: String;
   Process: TRmUniqueProcess;
-  I: Integer;
+  I, Running: Integer;
 begin
+  Result := True;
   if GetArrayLength(Ours) = 0 then
   begin
     Log('Restart Manager: no Conduit process has the app''s files open');
@@ -370,8 +409,6 @@ begin
         Process := Ours[I];
         Status := RmRegisterProcess(Session, 0, 0, 1, Process, 0, 0);
       end;
-    // How many of them Restart Manager sees running: RmShutdown also
-    // reports success for processes it didn't recognise.
     Count := 0;
     if Status = 0 then
       Status := RmGetList(Session, Needed, Count, '', Reasons);
@@ -382,17 +419,22 @@ begin
   finally
     RmEndSession(Session);
   end;
-  // Status 0: they have ended (smoke.ps1 reads this line).
-  Log(Format('Restart Manager closed %d Conduit processes: status %d', [Integer(Needed), Status]));
-end;
-
-procedure CloseRunningApp;
-var
-  Ours: TRmUniqueProcesses;
-  Names: String;
-begin
-  FindRunningApp(Ours, Names);
-  CloseProcesses(Ours);
+  Running := 0;
+  for I := 0 to GetArrayLength(Ours) - 1 do
+  begin
+    Process := Ours[I];
+    if not ProcessEnded(Process, EndWait) then
+    begin
+      Running := Running + 1;
+      Log(Format('Restart Manager: pid %d still runs', [Integer(Process.ProcessId)]));
+    end;
+  end;
+  Result := Running = 0;
+  if Result then
+    // smoke.ps1 reads this line.
+    Log(Format('Restart Manager closed %d Conduit processes: status %d', [GetArrayLength(Ours), Status]))
+  else
+    Log(Format('Restart Manager: %d of Conduit''s %d processes still run (status %d)', [Running, GetArrayLength(Ours), Status]));
 end;
 
 // Run by hand, Setup asks before it closes a running Conduit, in Inno's own
@@ -418,11 +460,27 @@ begin
       Exit;
     end;
   end;
-  CloseProcesses(Ours);
+  // Files in use can't be replaced.
+  if not CloseProcesses(Ours) then
+    Result := SetupMessage(msgErrorCloseApplications);
 end;
 
+// Before anything is removed: Conduit closes, or the uninstall stops (Inno's
+// own running-app question: OK tries again, Cancel, as a silent uninstall
+// answers, stops it).
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Ours: TRmUniqueProcesses;
+  Names: String;
 begin
-  if CurUninstallStep = usUninstall then
-    CloseRunningApp;
+  if CurUninstallStep <> usUninstall then
+    Exit;
+  repeat
+    FindRunningApp(Ours, Names);
+    if CloseProcesses(Ours) then
+      Exit;
+  until SuppressibleMsgBox(FmtMessage(SetupMessage(msgUninstallAppRunningError), ['{#AppName}']),
+          mbError, MB_OKCANCEL, IDCANCEL) <> IDOK;
+  Log('Restart Manager: Conduit still runs; Uninstall stops before removing anything');
+  Abort;
 end;
