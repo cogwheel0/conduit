@@ -254,6 +254,19 @@ function Get-ProcessAt([string]$Path) {
     Where-Object { $_.Path -eq $Path })
 }
 
+# The executable a process this smoke holds runs, once it reads: Path is its
+# main module's file, which a process only just started may not report yet.
+# Tried for up to 5 s; nothing (and the check after it fails) if it never reads.
+function Get-StartedPath([System.Diagnostics.Process]$Process) {
+  foreach ($try in 1..50) {
+    $Process.Refresh()
+    $path = $Process.Path
+    if ($path) { return $path }
+    Start-Sleep -Milliseconds 100
+  }
+  return $null
+}
+
 function Assert-Installed {
   & python $winlinux layout $app --os windows
   Expect ((Get-RegValue $uninstallKey 'InstallLocation') -eq "$app\") "Installed apps names $(Get-RegValue $uninstallKey 'InstallLocation'), not $app\"
@@ -370,13 +383,7 @@ try {
 $runningDaemon = Get-Process -Id $daemonId -ErrorAction SilentlyContinue
 Expect ([bool]$runningDaemon) "the running app's conduitd (pid $daemonId) has already ended"
 $null = $runningDaemon.Handle
-# Its path reads once it has started up.
-$daemonPath = $null
-foreach ($try in 1..50) {
-  $daemonPath = $runningDaemon.Path
-  if ($daemonPath) { break }
-  Start-Sleep -Milliseconds 100
-}
+$daemonPath = Get-StartedPath $runningDaemon
 Expect ($daemonPath -eq $daemon) "the running app's conduitd (pid $daemonId) is $daemonPath, not $daemon"
 $updateArgs = @((& python $feedTool installer-arguments) -split ' ')
 Log "installing again over the running app (pid $($running.Id)) and its conduitd (pid $daemonId), as WinSparkle runs an update ($($updateArgs -join ' '))"
@@ -444,12 +451,14 @@ $again = Get-Process -Id $relaunched -ErrorAction SilentlyContinue
 Expect ([bool]$again) "the app the update started (pid $relaunched) has already ended"
 $null = $again.Handle
 $script:toStop.Add($again)
-Expect ($again.Path -eq $exe) "the update started $($again.Path) (pid $relaunched), not $exe"
+$againPath = Get-StartedPath $again
+Expect ($againPath -eq $exe) "the update started $againPath (pid $relaunched), not $exe"
 $againDaemon = Get-Process -Id $relaunchedDaemon -ErrorAction SilentlyContinue
 Expect ([bool]$againDaemon) "the started app's conduitd (pid $relaunchedDaemon) has already ended"
 $null = $againDaemon.Handle
 $script:toStop.Add($againDaemon)
-Expect ($againDaemon.Path -eq $daemon) "the started app ran $($againDaemon.Path) (pid $relaunchedDaemon), not $daemon"
+$againDaemonPath = Get-StartedPath $againDaemon
+Expect ($againDaemonPath -eq $daemon) "the started app ran $againDaemonPath (pid $relaunchedDaemon), not $daemon"
 Assert-Installed
 Show-RestartManager $log
 Expect ([bool](Select-String -LiteralPath $log -Pattern 'Restart Manager closed [1-9]\d* Conduit processes: status 0$' -Quiet)) `
