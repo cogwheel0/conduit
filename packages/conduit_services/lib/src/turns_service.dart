@@ -3460,13 +3460,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
         : libreChatPendingActionFor(session.scope.container, answer.id);
     final actionId = libreChat?.actionId;
     // The pause a card waits on was answered elsewhere (a resumed stream no
-    // longer has it) or gave way to another: its card goes now, before the
-    // next is put.
+    // longer has it) or gave way to another: its card is settled here, in
+    // this step, before the next is put.
     final waiting = session.libreChatPause;
     if (waiting != null &&
         waiting.messageId == answer.id &&
         waiting.actionId != actionId) {
-      waiting.leave();
+      session.libreChatPause = null;
+      waiting.withdraw();
     }
     if (libreChat != null &&
         actionId != null &&
@@ -3499,10 +3500,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
       (_, _) => leave(),
     );
     unawaited(turn.ended.future.then((_) => leave(), onError: (_) => leave()));
+    final chatId = session.chatId ?? turn.chatId;
     final pause = (
       messageId: messageId,
       actionId: action.actionId,
-      leave: leave,
+      withdraw: () {
+        _uiRequests?.withdrawLibreChatCards(chatId);
+        leave();
+      },
     );
     session.libreChatPause = pause;
     // The turn that asked still runs, and still waits on this pause: a card
@@ -3518,7 +3523,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       await answerLibreChatPause(
         action,
         windows: _uiRequests,
-        chatId: session.chatId ?? turn.chatId,
+        chatId: chatId,
         asking: asking,
         until: gone.future,
         resume: ({decisions, answers}) {
@@ -4885,8 +4890,9 @@ final class _ChatSession {
   final Set<String> asked = <String>{};
 
   /// The LibreChat pause a card waits on: the answer it paused, and how to
-  /// take its card back once that answer no longer waits on it.
-  ({String messageId, String? actionId, void Function() leave})? libreChatPause;
+  /// take its card back, at once, once that answer no longer waits on it.
+  ({String messageId, String? actionId, void Function() withdraw})?
+  libreChatPause;
 
   /// The queue as `queue.changed` last published it.
   QueueState? lastQueue;

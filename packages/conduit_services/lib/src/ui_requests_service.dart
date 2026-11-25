@@ -503,6 +503,29 @@ final class UiRequestsService implements UiRequestPort {
     );
   }
 
+  /// Takes back, now, the cards of a paused LibreChat reply in [chatId]
+  /// still waiting, each answered with its default (which decides nothing):
+  /// every window is told before anything the caller puts next.
+  void withdrawLibreChatCards(String chatId) {
+    final waiting = [
+      for (final open in _pending.values)
+        if ((open.request.kind == UiRequestKind.libreChatToolCall ||
+                open.request.kind == UiRequestKind.libreChatQuestion) &&
+            open.request.messageArgs['chatId'] == chatId)
+          open,
+    ];
+    for (final open in waiting) {
+      final id = open.request.requestId;
+      _pending.remove(id);
+      _publishSettled(id);
+      if (!open.answer.isCompleted) {
+        open.answer.complete(
+          UiResponse(requestId: id, choice: open.request.defaultChoice),
+        );
+      }
+    }
+  }
+
   /// Tells every window the question is settled, so the ones that did not
   /// answer close their card instead of offering a choice that no longer
   /// counts.

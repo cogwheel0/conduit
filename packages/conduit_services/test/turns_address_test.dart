@@ -624,49 +624,81 @@ void main() {
       expect(libreChat.resumes, isEmpty);
     });
 
-    test(
-      'a LibreChat pause answered elsewhere takes its card back when the '
-      'resumed stream no longer has it, before the next pause is put',
-      () async {
-        final (
-          :windows,
-          :libreChat,
-          :signedIn,
-          :turn,
-          :card,
-          :withdrawn,
-          :seen,
-          :cards,
-        ) = await pausedTide();
-        // Answered on another device while the stream was away: the resumed
-        // stream's snapshot has no pause, and the reply goes on to the next.
-        libreChat.resumedWithoutPause();
-        final next = cards.first;
-        libreChat.paused({
-          'actionId': 'act-weather',
+    test('a LibreChat pause answered elsewhere takes its card back when the '
+        'resumed stream no longer has it, or has another in its place, before '
+        'the next pause is put', () async {
+      final (
+        :windows,
+        :libreChat,
+        :signedIn,
+        :turn,
+        :card,
+        :withdrawn,
+        :seen,
+        :cards,
+      ) = await pausedTide();
+      // Answered on another device while the stream was away: the resumed
+      // stream's snapshot has no pause, and the reply goes on to the next.
+      libreChat.resumed();
+      final next = cards.first;
+      libreChat.paused({
+        'actionId': 'act-weather',
+        'conversationId': 'conv-ridge',
+        'payload': {
+          'type': 'tool_approval',
+          'action_requests': [
+            {'tool_call_id': 'call-weather', 'name': 'lookup_weather'},
+          ],
+          'review_configs': [
+            {
+              'tool_call_id': 'call-weather',
+              'allowed_decisions': ['approve', 'reject'],
+            },
+          ],
+        },
+      });
+      await clock.during(next);
+      expect(seen, ['put lookup_tide', 'settled', 'put lookup_weather']);
+      expect(await clock.during(withdrawn), card.requestId);
+      expect(windows.pending.map((r) => r.messageArgs['title']), [
+        'lookup_weather',
+      ]);
+
+      // Replaced outright: the resumed stream's snapshot carries the next
+      // pause where this one was. Its card is settled before the next is
+      // put.
+      final third = cards.first;
+      libreChat.resumed(
+        pause: {
+          'actionId': 'act-wind',
           'conversationId': 'conv-ridge',
           'payload': {
             'type': 'tool_approval',
             'action_requests': [
-              {'tool_call_id': 'call-weather', 'name': 'lookup_weather'},
+              {'tool_call_id': 'call-wind', 'name': 'lookup_wind'},
             ],
             'review_configs': [
               {
-                'tool_call_id': 'call-weather',
+                'tool_call_id': 'call-wind',
                 'allowed_decisions': ['approve', 'reject'],
               },
             ],
           },
-        });
-        await clock.during(next);
-        expect(seen, ['put lookup_tide', 'settled', 'put lookup_weather']);
-        expect(await clock.during(withdrawn), card.requestId);
-        expect(windows.pending.map((r) => r.messageArgs['title']), [
-          'lookup_weather',
-        ]);
-        expect(libreChat.resumes, isEmpty);
-      },
-    );
+        },
+      );
+      await clock.during(third);
+      expect(seen, [
+        'put lookup_tide',
+        'settled',
+        'put lookup_weather',
+        'settled',
+        'put lookup_wind',
+      ]);
+      expect(windows.pending.map((r) => r.messageArgs['title']), [
+        'lookup_wind',
+      ]);
+      expect(libreChat.resumes, isEmpty);
+    });
   });
 
   // 0.13.4 passes both on to the provider instead of reading them. The core
