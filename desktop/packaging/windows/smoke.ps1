@@ -46,6 +46,20 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
+# What the smoke started: its jobs (Start-InJob) and the app the update
+# starts again, which Setup starts outside the setup's job, with its
+# conduitd (each held by pid and handle). On a failure they end before the
+# script does: the failure upload can't zip logs the app still holds open.
+$script:toStop = [System.Collections.Generic.List[object]]::new()
+trap {
+  foreach ($held in $script:toStop) {
+    try {
+      if ($held.PSObject.Methods['Terminate']) { $held.Terminate() }
+      elseif (-not $held.HasExited) { $held.Kill(); $null = $held.WaitForExit(10000) }
+    } catch { }
+  }
+  break
+}
 
 $packaging = Split-Path -Parent $PSScriptRoot
 $winlinux = Join-Path $packaging 'winlinux.py'
@@ -136,37 +150,86 @@ function Show-Stuck([string]$Log) {
   } | Tee-Object -FilePath (Join-Path $Work 'stuck.txt') | ForEach-Object { Write-Host $_ }
 }
 
-# Starts $Path and waits for it and every process it starts, as
-# Start-Process -Wait does, at most $Minutes; returns its exit code. The
-# tree is the started process and, by parent pid, each process started from
-# one of the tree since (a setup's second phase, the app's conduitd). Past
-# the limit it shows what may hold it up ($Log among it), ends that tree,
-# through the process objects it holds, and fails.
-function Invoke-Bounded([string]$Path, [string[]]$Arguments, [int]$Minutes, [string]$Log) {
-  $root = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
-  $null = $root.Handle
-  $tree = @{ [int]$root.Id = $root }
-  $deadline = [DateTime]::UtcNow.AddMinutes($Minutes)
-  while ($true) {
-    foreach ($process in @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CreationDate)) {
-      $id = [int]$process.ProcessId
-      $parent = $tree[[int]$process.ParentProcessId]
-      # Not one already held, and started by a member while it ran (its pid
-      # may have gone to another program since).
-      if ($tree.ContainsKey($id) -or -not $parent -or $process.CreationDate -lt $parent.StartTime -or
-        ($parent.HasExited -and $process.CreationDate -gt $parent.ExitTime)) { continue }
-      $child = Get-Process -Id $id -ErrorAction SilentlyContinue
-      if ($child) { $null = $child.Handle; $tree[$id] = $child }
+# Starts $Path in a job object of its own, suspended until it is in the job,
+# as Start-Process -Wait does: what it starts is in the job too, so the job
+# is waited for and ended as one. The exception is the app an update's
+# Setup starts again, which runs outside the setup's job. WaitForAll waits
+# for the whole job, WaitForExit for the started process alone, and
+# Terminate ends the job.
+function Start-InJob([string]$Path, [string[]]$Arguments) {
+  if (-not ('SmokeJob' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System; using System.ComponentModel; using System.Runtime.InteropServices; using System.Text; using System.Threading;
+public sealed class SmokeJob {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  struct StartupInfo { public int cb; public string reserved, desktop, title;
+    public int x, y, xSize, ySize, xChars, yChars, fill, flags; public short show, reserved2;
+    public IntPtr reserved3, stdIn, stdOut, stdErr; }
+  [StructLayout(LayoutKind.Sequential)] struct ProcessInfo { public IntPtr process, thread; public int pid, tid; }
+  [StructLayout(LayoutKind.Sequential)] struct Accounting { public long user, kernel, periodUser, periodKernel; public uint faults, total, active, terminated; }
+  [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+  [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool CreateProcess(string app, StringBuilder cmd,
+    IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string dir, ref StartupInfo si, out ProcessInfo pi);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool QueryInformationJobObject(IntPtr job, int cls, out Accounting info, int size, IntPtr ret);
+  [DllImport("kernel32.dll")] static extern bool TerminateJobObject(IntPtr job, uint code);
+  [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr process, uint code);
+  [DllImport("kernel32.dll")] static extern uint ResumeThread(IntPtr thread);
+  [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
+  [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  readonly IntPtr job, process;
+  public readonly int Id;
+  public SmokeJob(string commandLine, string directory) {
+    job = CreateJobObject(IntPtr.Zero, null);
+    if (job == IntPtr.Zero) throw new Win32Exception();
+    var si = new StartupInfo(); si.cb = Marshal.SizeOf(typeof(StartupInfo));
+    ProcessInfo pi;
+    // CREATE_SUSPENDED | CREATE_NEW_CONSOLE, as Start-Process.
+    if (!CreateProcess(null, new StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, false, 0x14, IntPtr.Zero, directory, ref si, out pi))
+      throw new Win32Exception();
+    if (!AssignProcessToJobObject(job, pi.process)) {
+      var error = new Win32Exception();
+      TerminateProcess(pi.process, 1);
+      throw error;
     }
-    if (@($tree.Values | Where-Object { -not $_.HasExited }).Count -eq 0) { return $root.ExitCode }
-    if ([DateTime]::UtcNow -ge $deadline) { break }
-    Start-Sleep -Milliseconds 250
+    ResumeThread(pi.thread);
+    CloseHandle(pi.thread);
+    process = pi.process;
+    Id = pi.pid;
   }
-  Show-Stuck $Log
-  foreach ($process in $tree.Values) {
-    if (-not $process.HasExited) { $process.Kill(); $null = $process.WaitForExit(10000) }
+  public int Active { get {
+    Accounting a;
+    if (!QueryInformationJobObject(job, 1, out a, Marshal.SizeOf(typeof(Accounting)), IntPtr.Zero)) throw new Win32Exception();
+    return (int)a.active;
+  } }
+  public bool WaitForAll(int ms) {
+    var end = DateTime.UtcNow.AddMilliseconds(ms);
+    while (Active > 0) { if (DateTime.UtcNow >= end) return false; Thread.Sleep(250); }
+    return true;
   }
-  throw "smoke: $(Split-Path -Leaf $Path) $($Arguments -join ' ') didn't end within $Minutes minutes (it and the $($tree.Count - 1) processes it started are stopped)"
+  public bool WaitForExit(int ms) { return WaitForSingleObject(process, (uint)ms) == 0; }
+  public int ExitCode { get { uint code; GetExitCodeProcess(process, out code); return (int)code; } }
+  public void Terminate() { TerminateJobObject(job, 1); WaitForAll(10000); }
+}
+'@
+  }
+  $job = [SmokeJob]::new("`"$Path`" $($Arguments -join ' ')", (Get-Location).ProviderPath)
+  if ($null -ne $script:toStop) { $script:toStop.Add($job) }
+  $job
+}
+
+# Starts $Path and waits for it and every process it starts (its job), at
+# most $Minutes; returns its exit code. Past the limit it shows what may
+# hold it up ($Log among it), ends the whole job, and fails.
+function Invoke-Bounded([string]$Path, [string[]]$Arguments, [int]$Minutes, [string]$Log) {
+  $job = Start-InJob $Path $Arguments
+  if (-not $job.WaitForAll($Minutes * 60 * 1000)) {
+    Show-Stuck $Log
+    $job.Terminate()
+    throw "smoke: $(Split-Path -Leaf $Path) $($Arguments -join ' ') didn't end within $Minutes minutes; it and every process it started are ended"
+  }
+  $job.ExitCode
 }
 
 # Runs the installer or uninstaller silently and waits for it, its second
@@ -281,21 +344,43 @@ if ($UpdateFeed) {
 # 3. Install again over the running app.
 $env:CONDUIT_USER_DATA = Join-Path $Work 'running\user-data'
 $env:CONDUIT_LOGS = Join-Path $Work 'running\logs'
-# The app's conduitd starting is the event to wait for (process start
+# The app's conduitd starting is the event to wait for: the start trace of
+# a conduitd whose parent is the app this smoke started (process start
 # traces need an administrator, which CI's runner is).
 Register-CimIndicationEvent -SourceIdentifier ConduitdStarted `
   -Query "SELECT * FROM Win32_ProcessStartTrace WHERE ProcessName = 'conduitd.exe'"
 try {
-  $running = Start-Process -FilePath $exe -PassThru
-  $started = Wait-Event -SourceIdentifier ConduitdStarted -Timeout 120
-  Expect ([bool]$started) "the app (pid $($running.Id)) started no conduitd in 2 minutes"
+  $running = Get-Process -Id (Start-InJob $exe @()).Id
+  $null = $running.Handle
+  $daemonId = $null
+  $deadline = [DateTime]::UtcNow.AddMinutes(2)
+  while (-not $daemonId -and [DateTime]::UtcNow -lt $deadline) {
+    $queued = Wait-Event -SourceIdentifier ConduitdStarted -Timeout 5
+    if ($queued) {
+      Remove-Event -EventIdentifier $queued.EventIdentifier
+      if ([int]$queued.SourceEventArgs.NewEvent.ParentProcessID -eq $running.Id) {
+        $daemonId = [int]$queued.SourceEventArgs.NewEvent.ProcessID
+      }
+    }
+  }
+  Expect ([bool]$daemonId) "the app (pid $($running.Id)) started no conduitd in 2 minutes"
 } finally {
   Unregister-Event -SourceIdentifier ConduitdStarted
 }
-Expect ((Get-ProcessAt $daemon).Count -eq 1) 'the running app has no conduitd from the install folder'
+$runningDaemon = Get-Process -Id $daemonId -ErrorAction SilentlyContinue
+Expect ([bool]$runningDaemon) "the running app's conduitd (pid $daemonId) has already ended"
+$null = $runningDaemon.Handle
+# Its path reads once it has started up.
+$daemonPath = $null
+foreach ($try in 1..50) {
+  $daemonPath = $runningDaemon.Path
+  if ($daemonPath) { break }
+  Start-Sleep -Milliseconds 100
+}
+Expect ($daemonPath -eq $daemon) "the running app's conduitd (pid $daemonId) is $daemonPath, not $daemon"
 $updateArgs = @((& python $feedTool installer-arguments) -split ' ')
-Log "installing again over the running app (pid $($running.Id)) and its conduitd, as WinSparkle runs an update ($($updateArgs -join ' '))"
-$oldDaemons = @(Get-ProcessAt $daemon)
+Log "installing again over the running app (pid $($running.Id)) and its conduitd (pid $daemonId), as WinSparkle runs an update ($($updateArgs -join ' '))"
+$oldDaemons = @($runningDaemon)
 # A process object reads its exit only through a handle opened while it ran.
 foreach ($p in @($running) + $oldDaemons) { $null = $p.Handle }
 # The app the update starts again is the setup's: setup.exe starts its .tmp,
@@ -309,13 +394,13 @@ $relaunched = $null
 $relaunchedDaemon = $null
 try {
   $log = Join-Path $Work 'reinstall.log'
-  # Not -Wait: that waits for the setup's descendants, and the app it
-  # starts again is one of them.
-  $setup = Start-Process -FilePath $Installer -PassThru -ArgumentList ($updateArgs + "/LOG=`"$log`"")
-  $null = $setup.Handle
+  # The setup alone is waited for: the app it starts again runs on. Past
+  # the limit its job ends: the setup and what it started there.
+  $setup = Start-InJob $Installer ($updateArgs + "/LOG=`"$log`"")
   if (-not $setup.WaitForExit(5 * 60 * 1000)) {
     Show-Stuck $log
-    throw "smoke: the update install (pid $($setup.Id)) didn't end within 5 minutes"
+    $setup.Terminate()
+    throw "smoke: the update install (pid $($setup.Id)) didn't end within 5 minutes; it and the processes in its job are ended"
   }
   if ($setup.ExitCode -ne 0) {
     Get-Content -LiteralPath $log -Tail 60 -ErrorAction SilentlyContinue
@@ -358,10 +443,12 @@ Expect ([bool]$relaunchedDaemon) "the app the update started (pid $relaunched) s
 $again = Get-Process -Id $relaunched -ErrorAction SilentlyContinue
 Expect ([bool]$again) "the app the update started (pid $relaunched) has already ended"
 $null = $again.Handle
+$script:toStop.Add($again)
 Expect ($again.Path -eq $exe) "the update started $($again.Path) (pid $relaunched), not $exe"
 $againDaemon = Get-Process -Id $relaunchedDaemon -ErrorAction SilentlyContinue
 Expect ([bool]$againDaemon) "the started app's conduitd (pid $relaunchedDaemon) has already ended"
 $null = $againDaemon.Handle
+$script:toStop.Add($againDaemon)
 Expect ($againDaemon.Path -eq $daemon) "the started app ran $($againDaemon.Path) (pid $relaunchedDaemon), not $daemon"
 Assert-Installed
 Show-RestartManager $log
