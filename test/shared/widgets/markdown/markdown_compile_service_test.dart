@@ -1164,4 +1164,86 @@ void main() {
       check(service.compileCalls).equals(3);
     },
   );
+
+  group('settled prepared memo', () {
+    test('retains oversized bodies beyond the historical length cap', () {
+      final service = MarkdownCompileService(workerManager: WorkerManager());
+      addTearDown(service.dispose);
+      final content = List<String>.filled(
+        2100,
+        'oversized settled body paragraph',
+      ).join(' ');
+      expect(content.length, greaterThan(65536));
+      final prepared = prepareMarkdownContent(content, streaming: false);
+
+      service.memoizeSettledPrepared(content, prepared);
+
+      expect(service.peekSettledPrepared(content), prepared);
+    });
+
+    test('evicts the oldest entries once the weight budget is exceeded', () {
+      final service = MarkdownCompileService(workerManager: WorkerManager());
+      addTearDown(service.dispose);
+      // 16 million combined weight, just under the budget.
+      service.memoizeSettledPrepared('1' * 4000000, '1p' * 2000000);
+      service.memoizeSettledPrepared('2' * 4000000, '2p' * 2000000);
+
+      // 2 million more weight crosses the budget and evicts the oldest
+      // entry.
+      service.memoizeSettledPrepared('3' * 1000000, '3p' * 500000);
+
+      expect(service.peekSettledPrepared('1' * 4000000), isNull);
+      expect(service.peekSettledPrepared('2' * 4000000), isNotNull);
+      expect(service.peekSettledPrepared('3' * 1000000), isNotNull);
+    });
+
+    test('refuses an entry heavier than the whole budget', () {
+      final service = MarkdownCompileService(workerManager: WorkerManager());
+      addTearDown(service.dispose);
+
+      service.memoizeSettledPrepared('x' * 17000000, 'y' * 1000);
+
+      expect(service.peekSettledPrepared('x' * 17000000), isNull);
+    });
+
+    test('re-memoizing an entry does not double-count its weight', () {
+      final service = MarkdownCompileService(workerManager: WorkerManager());
+      addTearDown(service.dispose);
+      // 9 million combined weight, just under the budget.
+      final key = 'k' * 8000000;
+      service.memoizeSettledPrepared(key, 'p' * 1000000);
+
+      // A replacement shrinks the entry; without the weight subtraction the
+      // stale 9 million plus the replacement exceeds the budget and evicts
+      // the entry itself.
+      service.memoizeSettledPrepared(key, 'p' * 1000);
+
+      expect(service.peekSettledPrepared(key), 'p' * 1000);
+    });
+
+    test('memory pressure clears the memo and its weight', () {
+      final service = MarkdownCompileService(workerManager: WorkerManager());
+      addTearDown(service.dispose);
+      service.memoizeSettledPrepared('1' * 8000000, '1p' * 1000000);
+
+      service.handleMemoryPressure();
+      expect(service.peekSettledPrepared('1' * 8000000), isNull);
+
+      // Without the weight reset, a stale 9 million plus this reinsertion
+      // exceeds the budget and evicts the fresh entry.
+      service.memoizeSettledPrepared('2' * 8000000, '2p' * 1000000);
+      expect(service.peekSettledPrepared('2' * 8000000), isNotNull);
+    });
+
+    test('still evicts by count once the entry cap is exceeded', () {
+      final service = MarkdownCompileService(workerManager: WorkerManager());
+      addTearDown(service.dispose);
+      for (var i = 0; i < 129; i++) {
+        service.memoizeSettledPrepared('entry-$i', 'prepared-$i');
+      }
+
+      expect(service.peekSettledPrepared('entry-0'), isNull);
+      expect(service.peekSettledPrepared('entry-128'), isNotNull);
+    });
+  });
 }
