@@ -10,6 +10,7 @@ use gpui_kit::{
     AnyElement, App, ElementId, Entity, FontWeight, Role, SharedString, Window, div, px, relative,
 };
 
+use crate::announce::{Priority, live_text};
 use crate::assets::IconName;
 use crate::strings::{ActiveStrings as _, fill};
 use crate::theme::{ActiveConduitTheme, mono_font, with_alpha};
@@ -181,6 +182,9 @@ pub struct ApprovalCard {
     on_option: Option<SelectHandler>,
     tile: Option<IconName>,
     note: Option<SharedString>,
+    /// The note is a problem to hear (an answer that did not go): an
+    /// alert, named by its text and announced when it shows.
+    note_alert: bool,
     /// A body the app draws itself, in place of the kind's (a form, cost
     /// chips under an approval).
     body: Option<AnyElement>,
@@ -206,6 +210,7 @@ impl ApprovalCard {
             on_option: None,
             tile: None,
             note: None,
+            note_alert: false,
             body: None,
         }
     }
@@ -240,6 +245,13 @@ impl ApprovalCard {
     /// A line under the body (an error, "Answered").
     pub fn note(mut self, note: impl Into<SharedString>) -> Self {
         self.note = Some(note.into());
+        self.note_alert = false;
+        self
+    }
+    /// A note that says something went wrong, heard as an alert.
+    pub fn alert(mut self, note: impl Into<SharedString>) -> Self {
+        self.note = Some(note.into());
+        self.note_alert = true;
         self
     }
     /// The app's own body, drawn in place of the kind's: a Hermes form, a
@@ -793,11 +805,22 @@ impl RenderOnce for ApprovalCard {
             )
             .when(has_body, |d| d.child(div().pl(px(40.)).child(body)))
             .when_some(self.note, |d, note| {
+                let alert = self.note_alert;
                 d.child(
                     div()
+                        .id(ElementId::Name(format!("approval-note-{id}").into()))
+                        .when(alert, |d| {
+                            d.role(Role::Alert)
+                                .aria_label(note.clone())
+                                .child(live_text(
+                                    "approval-note-live",
+                                    Some(note.clone()),
+                                    Priority::High,
+                                ))
+                        })
                         .pl(px(40.))
                         .text_size(px(m.small))
-                        .text_color(r.text_subtle)
+                        .text_color(if alert { r.danger } else { r.text_subtle })
                         .child(note),
                 )
             })

@@ -33,395 +33,307 @@ void main() {
   /// The next card the window is shown.
   Future<UiRequest> nextCard() => cards.stream.first;
 
-  test('a dismissed question stops only the turn that asked', () async {
-    var asking = true;
-    var stops = 0;
-    final card = nextCard();
-    final outcome = answerLibreChatPause(
-      _question,
-      windows: windows,
-      chatId: 'chat-1',
-      asking: () => asking,
-      resume: ({decisions, answers}) async {},
-      stop: () async => stops++,
-    );
-    final request = await card;
-    // The reply was stopped and another one runs in the chat when the old
-    // card is dismissed.
-    asking = false;
-    windows.respond(
-      UiResponse(requestId: request.requestId, choice: 'cancel'),
-    );
-    expect(await outcome, LibreChatPauseOutcome.left);
-    expect(stops, 0, reason: 'the newer reply was stopped');
-
-    // The card goes once its turn ends, and stops nothing.
-    final ended = Completer<void>();
-    final second = nextCard();
-    final withdrawn = answerLibreChatPause(
-      _question,
-      windows: windows,
-      chatId: 'chat-1',
-      asking: () => !ended.isCompleted,
-      until: ended.future,
-      resume: ({decisions, answers}) async {},
-      stop: () async => stops++,
-    );
-    await second;
-    ended.complete();
-    expect(await withdrawn, LibreChatPauseOutcome.left);
-    expect(stops, 0);
-  });
-
-  test('a resume that fails puts the card back, to be answered again', () async {
-    var resumes = 0;
-    final sent = <Map<String, String>?>[];
-    var card = nextCard();
-    final outcome = answerLibreChatPause(
-      _question,
-      windows: windows,
-      chatId: 'chat-1',
-      asking: () => true,
-      resume: ({decisions, answers}) async {
-        sent.add(answers);
-        if (++resumes == 1) throw StateError('the server could not be reached');
-      },
-      stop: () async => fail('nothing was to stop'),
-    );
-    final first = await card;
-    card = nextCard();
-    windows.respond(
-      UiResponse(requestId: first.requestId, choice: 'allow', text: 'Ridge'),
-    );
-    // The resume fails: the card comes back, or the pause is given up.
-    final again = await Future.any<UiRequest?>([
-      card,
-      outcome.then((_) => null),
-    ]);
-    expect(again, isNotNull, reason: 'the card was not put back');
-    windows.respond(
-      UiResponse(requestId: again!.requestId, choice: 'allow', text: 'Lake'),
-    );
-    expect(await outcome, LibreChatPauseOutcome.resumed);
-    expect(sent, [
-      {'call-1': 'Ridge'},
-      {'call-1': 'Lake'},
-    ]);
-
-    // Reject or respond only, and reject only: the first refusal goes out
-    // without a card, as the pause allows. When it fails, nothing more is
-    // sent until the window answers; each failure puts the card back once.
-    for (final allowed in const [
-      ['reject', 'respond'],
-      ['reject'],
-    ]) {
-      var refusals = 0;
-      var next = nextCard();
-      final refusing = answerLibreChatPause(
-        _toolCall(allowed),
-        windows: windows,
-        chatId: 'chat-1',
-        asking: () => true,
-        resume: ({decisions, answers}) async {
-          // Fails twice, then goes through (so a runaway loop ends too).
-          if (++refusals <= 2) {
-            throw StateError('the server could not be reached');
-          }
-        },
-        stop: () async => fail('nothing was to stop'),
-      );
-      for (final sentSoFar in [1, 2]) {
-        final card = await Future.any<UiRequest?>([
-          next,
-          refusing.then((_) => null),
-        ]);
-        expect(card, isNotNull, reason: '$allowed: refused with nobody asked');
-        expect(refusals, sentSoFar, reason: '$allowed: sent again unasked');
-        next = nextCard();
-        windows.respond(UiResponse(requestId: card!.requestId, choice: 'deny'));
-      }
-      expect(await refusing, LibreChatPauseOutcome.resumed);
-      expect(refusals, 3);
-      next.ignore(); // Sent: no further card comes.
-    }
-
-    // With no window to answer, a failed resume is given up at once (the
-    // turn offers the pause again later), not tried over and over.
-    var tries = 0;
-    final alone = await answerLibreChatPause(
-      _toolCall(const ['approve', 'reject']),
-      windows: UiRequestsService(EventBus()),
-      chatId: 'chat-1',
-      asking: () => true,
-      resume: ({decisions, answers}) async {
-        tries++;
-        throw StateError('the server could not be reached');
-      },
-      stop: () async => fail('nothing was to stop'),
-    );
-    expect(alone, LibreChatPauseOutcome.failed);
-    expect(tries, 1);
-  });
-
-  test('a failed resume with no window waits for one, and puts the card to it', () async {
-    var resumes = 0;
-    final sent = <Map<String, String>?>[];
-    final ended = Completer<void>();
+  /// Waits on [action] in chat-1 until [ended] completes, recording what
+  /// it resumes with.
+  ({
+    Future<LibreChatPauseOutcome> outcome,
+    List<Map<String, LibreChatToolDecisionInput>?> decisions,
+    List<Map<String, String>?> answers,
+  })
+  pause(
+    LibreChatPendingAction action, {
+    Completer<void>? ended,
+    Object? Function()? failWith,
+  }) {
+    final over = ended ?? Completer<void>();
     addTearDown(() {
-      if (!ended.isCompleted) ended.complete();
+      if (!over.isCompleted) over.complete();
     });
-    var card = nextCard();
+    final sent = <Map<String, LibreChatToolDecisionInput>?>[];
+    final sentAnswers = <Map<String, String>?>[];
     final outcome = answerLibreChatPause(
-      _question,
+      action,
       windows: windows,
-      chatId: 'chat-1',
-      asking: () => !ended.isCompleted,
-      until: ended.future,
-      resume: ({decisions, answers}) async {
-        sent.add(answers);
-        if (++resumes == 1) {
-          // The window goes away (a reconnect) as the send fails.
-          events.detach('w1');
-          throw StateError('the server could not be reached');
-        }
-      },
-      stop: () async => fail('nothing was to stop'),
-    );
-    final first = await card;
-    card = nextCard();
-    windows.respond(
-      UiResponse(requestId: first.requestId, choice: 'allow', text: 'Ridge'),
-    );
-    // The resume fails with nobody to ask: the pause waits for a window,
-    // still pending. The window comes back: the pause is put to it, rather
-    // than left with no card to answer.
-    await events.waiting;
-    expect(await _settledYet(outcome), isFalse, reason: 'the pause gave up');
-    events.attach('w2', (envelope) {
-      if (envelope.event != ConduitEvents.uiRequest) return;
-      cards.add(UiRequest.fromJson(envelope.payload));
-    });
-    final again = await Future.any<UiRequest?>([
-      card,
-      outcome.then((_) => null),
-    ]);
-    expect(again, isNotNull, reason: 'the pause was given up');
-    windows.respond(
-      UiResponse(requestId: again!.requestId, choice: 'allow', text: 'Lake'),
-    );
-    expect(await outcome, LibreChatPauseOutcome.resumed);
-    expect(sent, [
-      {'call-1': 'Ridge'},
-      {'call-1': 'Lake'},
-    ]);
-
-    // The turn ends while no window is there: the wait ends with it, and
-    // leaves nothing waiting for a window.
-    events
-      ..detach('w2')
-      ..rearm();
-    final over = Completer<void>();
-    var tries = 0;
-    final waiting = answerLibreChatPause(
-      _toolCall(const ['approve', 'reject']),
-      windows: windows,
-      chatId: 'chat-1',
+      chatId: () => 'chat-1',
       asking: () => !over.isCompleted,
       until: over.future,
       resume: ({decisions, answers}) async {
-        tries++;
-        throw StateError('the server could not be reached');
+        sent.add(decisions);
+        sentAnswers.add(answers);
+        final failure = failWith?.call();
+        if (failure != null) throw failure;
       },
-      stop: () async => fail('nothing was to stop'),
     );
-    await events.waiting;
-    expect(tries, 1);
-    expect(await _settledYet(waiting), isFalse, reason: 'it did not wait');
-    over.complete();
-    expect(await waiting, LibreChatPauseOutcome.failed);
-    expect(tries, 1);
-    expect(events.attachWaiters, 0, reason: 'a wait was left behind');
+    return (outcome: outcome, decisions: sent, answers: sentAnswers);
+  }
+
+  void answer(UiRequest card, String choice, [String? text]) => expect(
+    windows.respond(
+      UiResponse(requestId: card.requestId, choice: choice, text: text),
+    ),
+    isTrue,
+  );
+
+  test("a question is answered with its options' values, never their "
+      "labels: by label (as the phone answers), or by place (as the Mac does: "
+      "a padded label, several picked, two labels alike)", () async {
+    // Whether the pause went on with the answer, or put the card again.
+    Future<String> after(Future<LibreChatPauseOutcome> outcome) {
+      final again = nextCard();
+      return Future.any([
+        outcome.then((_) => 'resumed'),
+        again.then((card) => 'again: ${card.detail['refusal']}'),
+      ]);
+    }
+
+    final card = nextCard();
+    final (:outcome, :decisions, :answers) = pause(_valued);
+    final request = await card;
+    expect(request.kind, UiRequestKind.libreChatQuestion);
+    expect(request.detail['options'], [
+      {'label': 'North Ridge', 'value': 'north-ridge'},
+      {'label': 'Lake Loop', 'value': 'lake-loop'},
+    ]);
+    // The window answers with the label it showed.
+    answer(request, 'answer', 'North Ridge');
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(answers, [
+      {'call-v': 'north-ridge'},
+    ]);
+
+    for (final (multi, picks, sent) in [
+      (false, '[0]', 'north-ridge'),
+      (true, '[0, 1]', 'north-ridge, lake-loop'),
+      (false, '[3]', 'ridge-south'),
+    ]) {
+      final card = nextCard();
+      final (:outcome, :decisions, :answers) = pause(_placed(multi: multi));
+      final shown = await card;
+      expect(shown.detail['options'], hasLength(4));
+      answer(shown, 'options', picks);
+      expect(await after(outcome), 'resumed', reason: picks);
+      expect(answers, [
+        {'call-p': sent},
+      ], reason: picks);
+    }
+
+    // A place no option has is not taken: the card comes back.
+    final placed = nextCard();
+    final unknown = pause(_placed(multi: false));
+    answer(await placed, 'options', '[9]');
+    expect(await after(unknown.outcome), 'again: empty');
+    expect(unknown.answers, isEmpty);
   });
 
-  test('a card no window answered after a failed resume refuses nothing', () async {
-    final sent = <Map<String, LibreChatToolDecisionInput>?>[];
-    final ended = Completer<void>();
-    addTearDown(() {
-      if (!ended.isCompleted) ended.complete();
-    });
+  test(
+    'a tool call offers every decision its server allows, and only those',
+    () async {
+      var card = nextCard();
+      final (:outcome, :decisions, :answers) = pause(
+        _toolCall(const ['respond', 'reject'], arguments: '{"trail": "ridge"}'),
+      );
+      final first = await card;
+      expect(first.kind, UiRequestKind.libreChatToolCall);
+      expect(first.messageArgs['chatId'], 'chat-1');
+      expect(first.detail['allowedDecisions'], ['respond', 'reject']);
+      expect(first.detail['arguments'], '{"trail": "ridge"}');
+
+      // Approve is not one of them: the card comes back saying so.
+      card = nextCard();
+      answer(first, 'approve');
+      final refused = await card;
+      expect(refused.detail['refusal'], 'notAllowed');
+      // Nor is an empty response taken.
+      card = nextCard();
+      answer(refused, 'respond', '   ');
+      final empty = await card;
+      expect(empty.detail['refusal'], 'empty');
+      expect(decisions, isEmpty);
+
+      answer(empty, 'respond', ' Closed for the season. ');
+      expect(await outcome, LibreChatPauseOutcome.resumed);
+      final decided = decisions.single!['call-2']!;
+      expect(decided.decision, LibreChatToolDecision.respond);
+      expect(decided.responseText, 'Closed for the season.');
+    },
+  );
+
+  test('an edit that is not a JSON object comes back with the reason and '
+      'what was typed; an object runs the call with it', () async {
     var card = nextCard();
-    final outcome = answerLibreChatPause(
-      _toolCall(const ['approve', 'reject']),
-      windows: windows,
-      chatId: 'chat-1',
-      asking: () => !ended.isCompleted,
-      until: ended.future,
-      resume: ({decisions, answers}) async {
-        sent.add(decisions);
-        if (sent.length == 1) {
-          throw StateError('the server could not be reached');
-        }
-      },
-      stop: () async => fail('nothing was to stop'),
+    final (:outcome, :decisions, :answers) = pause(
+      _toolCall(const ['approve', 'edit'], arguments: '{"trail": "ridge"}'),
     );
     final first = await card;
+    expect(first.detail['editableArguments'], '{\n  "trail": "ridge"\n}');
     card = nextCard();
-    windows.respond(UiResponse(requestId: first.requestId, choice: 'allow'));
-    // The send fails; the card is put back, and the window goes away (a
-    // reconnect) before answering it: it settles with its default.
-    await card;
-    events.rearm();
-    card = nextCard();
-    events.detach('w1');
-    windows.onWindowsChanged();
-    await Future.any<Object?>([events.waiting, outcome]);
-    expect(sent, hasLength(1), reason: 'a refusal went out nobody gave');
-    expect(await _settledYet(outcome), isFalse, reason: 'the pause gave up');
+    answer(first, 'edit', '["lake"]');
+    final again = await card;
+    expect(again.detail['refusal'], 'invalidArguments');
+    expect(again.detail['typed'], '["lake"]');
+    expect(decisions, isEmpty);
 
-    // A window comes back: the card is put to it, and its answer is sent.
+    answer(again, 'edit', '{"trail": "lake"}');
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    final decided = decisions.single!['call-2']!;
+    expect(decided.decision, LibreChatToolDecision.edit);
+    expect(decided.editedArguments, {'trail': 'lake'});
+  });
+
+  test('a question the window dismisses waits: its card comes back, and '
+      'nothing is sent or stopped', () async {
+    var card = nextCard();
+    final (:outcome, :decisions, :answers) = pause(_question);
+    final first = await card;
+    card = nextCard();
+    answer(first, 'cancel');
+    final again = await card;
+    expect(again.detail['refusal'], 'empty');
+    expect(await _settledYet(outcome), isFalse, reason: 'the pause ended');
+    answer(again, 'answer', 'Lake');
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(answers, [
+      {'call-1': 'Lake'},
+    ]);
+  });
+
+  test('a resume that fails puts the last card back, marked, to be answered '
+      'again', () async {
+    var failing = true;
+    var card = nextCard();
+    final (:outcome, :decisions, :answers) = pause(
+      _question,
+      failWith: () => failing ? StateError('unreachable') : null,
+    );
+    final first = await card;
+    expect(first.detail.containsKey('failed'), isFalse);
+    card = nextCard();
+    answer(first, 'answer', 'Ridge');
+    final again = await card;
+    expect(again.detail['failed'], isTrue);
+    failing = false;
+    answer(again, 'answer', 'Lake');
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(answers, [
+      {'call-1': 'Ridge'},
+      {'call-1': 'Lake'},
+    ]);
+  });
+
+  test('with no window the pause waits for one, refusing nothing, and puts '
+      'its card to the first that comes', () async {
+    events.detach('w1');
+    final card = nextCard();
+    final (:outcome, :decisions, :answers) = pause(
+      _toolCall(const ['approve', 'reject']),
+    );
+    await events.waiting;
+    expect(await _settledYet(outcome), isFalse, reason: 'it did not wait');
+    expect(decisions, isEmpty, reason: 'something was decided unasked');
     events.attach('w2', (envelope) {
       if (envelope.event != ConduitEvents.uiRequest) return;
       cards.add(UiRequest.fromJson(envelope.payload));
     });
-    final again = await card;
-    windows.respond(UiResponse(requestId: again.requestId, choice: 'allow'));
+    answer(await card, 'approve');
     expect(await outcome, LibreChatPauseOutcome.resumed);
-    expect(sent.map((d) => d?['call-2']?.decision), [
+    expect(
+      decisions.single!['call-2']!.decision,
       LibreChatToolDecision.approve,
-      LibreChatToolDecision.approve,
-    ]);
+    );
   });
 
-  test('a tool call is refused only where the pause allows refusing', () async {
-    // Approve only: the window says no, and no `reject` goes out; the
-    // reply stops instead.
-    final sent = <Map<String, LibreChatToolDecisionInput>?>[];
-    var stops = 0;
+  test('a card every window closed decides nothing, and comes back when a '
+      'window does', () async {
+    var card = nextCard();
+    final (:outcome, :decisions, :answers) = pause(
+      _toolCall(const ['approve', 'reject']),
+    );
+    final first = await card;
+    events
+      ..detach('w1')
+      ..rearm();
+    windows.onWindowsChanged();
+    await events.waiting;
+    expect(decisions, isEmpty);
+    expect(
+      windows.respond(UiResponse(requestId: first.requestId, choice: 'reject')),
+      isFalse,
+      reason: 'the closed card still took an answer',
+    );
+    card = nextCard();
+    events.attach('w2', (envelope) {
+      if (envelope.event != ConduitEvents.uiRequest) return;
+      cards.add(UiRequest.fromJson(envelope.payload));
+    });
+    answer(await card, 'reject');
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(decisions.single!['call-2']!.decision, LibreChatToolDecision.reject);
+  });
+
+  test('the card goes when its turn ends, and an answer after that sends '
+      'nothing', () async {
+    final ended = Completer<void>();
     final card = nextCard();
-    final approveOnly = answerLibreChatPause(
-      _toolCall(const ['approve']),
-      windows: windows,
-      chatId: 'chat-1',
-      asking: () => true,
-      resume: ({decisions, answers}) async => sent.add(decisions),
-      stop: () async => stops++,
+    final (:outcome, :decisions, :answers) = pause(_question, ended: ended);
+    final shown = await card;
+    ended.complete();
+    expect(await outcome, LibreChatPauseOutcome.left);
+    expect(windows.pending, isEmpty);
+    expect(
+      windows.respond(
+        UiResponse(requestId: shown.requestId, choice: 'answer', text: 'Lake'),
+      ),
+      isFalse,
     );
-    final request = await card;
-    windows.respond(UiResponse(requestId: request.requestId, choice: 'deny'));
-    expect(await approveOnly, LibreChatPauseOutcome.stopped);
-    // A reply to write (respond only): no card here can answer it.
-    final respondOnly = await answerLibreChatPause(
-      _toolCall(const ['respond']),
-      windows: windows,
-      chatId: 'chat-1',
-      asking: () => true,
-      resume: ({decisions, answers}) async => sent.add(decisions),
-      stop: () async => stops++,
-    );
-    expect(respondOnly, LibreChatPauseOutcome.stopped);
-    expect(sent, isEmpty, reason: 'a decision the pause does not allow went out');
-    expect(stops, 2);
+    expect(answers, isEmpty);
   });
 
-  test('a pause with nothing to ask ends once, never sent over and over', () async {
-    // The fake gives up failing after a few sends, so a loop ends (and
-    // fails the test) rather than hanging it.
-    var sends = 0;
-    Future<void> failing({decisions, answers}) async {
-      if (++sends <= 3) throw ArgumentError('nothing to answer');
-    }
+  test('several tool calls are put one at a time, numbered, and sent '
+      'together', () async {
+    var card = nextCard();
+    final (:outcome, :decisions, :answers) = pause(_twoCalls);
+    final first = await card;
+    expect(first.messageArgs['progress'], '1/2');
+    card = nextCard();
+    answer(first, 'approve');
+    final second = await card;
+    expect(second.messageArgs['progress'], '2/2');
+    expect(second.messageArgs['title'], 'weather');
+    expect(decisions, isEmpty);
+    answer(second, 'reject');
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(decisions.single!.keys, ['call-a', 'call-b']);
+  });
 
-    // A question action with no questions: the reply stops, as when a
-    // question goes unanswered; nothing is sent.
-    var stops = 0;
-    final empty = await answerLibreChatPause(
+  test('a pause whose turn ended while it still reads as asking ends, '
+      'never putting its card over and over', () async {
+    final ended = Completer<void>()..complete();
+    var checks = 0;
+    final outcome = answerLibreChatPause(
+      _question,
+      windows: windows,
+      chatId: () => 'chat-1',
+      // Bounded, so a loop that never stops fails rather than starving the
+      // event loop.
+      asking: () => checks++ < 50,
+      until: ended.future,
+      resume: ({decisions, answers}) async => fail('sent for an ended turn'),
+    );
+    expect(await outcome, LibreChatPauseOutcome.left);
+    expect(checks, lessThan(5), reason: 'put over and over');
+    expect(windows.pending, isEmpty);
+  });
+
+  test('a pause with nothing to ask puts no card and sends nothing', () async {
+    final (:outcome, :decisions, :answers) = pause(
       const LibreChatPendingAction(<String, dynamic>{
-        'actionId': 'act-3',
+        'actionId': 'act-0',
         'payload': <String, dynamic>{'type': 'ask_user_question'},
       }),
-      windows: windows,
-      chatId: 'chat-1',
-      asking: () => true,
-      resume: failing,
-      stop: () async => stops++,
     );
-    expect(empty, LibreChatPauseOutcome.stopped);
-    expect((sends, stops), (0, 1));
-
-    // A failed send with no card put to anyone is not tried again on its
-    // own: only a window's answer sends again.
-    final nothingAsked = await answerLibreChatPause(
-      const LibreChatPendingAction(<String, dynamic>{
-        'actionId': 'act-4',
-        'payload': <String, dynamic>{'type': 'tool_approval'},
-      }),
-      windows: windows,
-      chatId: 'chat-1',
-      asking: () => true,
-      resume: failing,
-      stop: () async => fail('nothing was to stop'),
-    );
-    expect(nothingAsked, LibreChatPauseOutcome.failed);
-    expect(sends, 1, reason: 'sent over and over with nobody asked');
+    expect(await outcome, LibreChatPauseOutcome.left);
     expect(asked, isEmpty);
-  });
-
-  test('a card that cannot be put up ends the reply once, never spinning', () async {
-    // Each round checks the turn; a loop that never waits runs out of
-    // checks and ends (failing the test) rather than hanging it.
-    var checks = 0;
-    bool asking() => ++checks < 50;
-
-    // Arguments that decode but cannot be pretty-printed (an infinite
-    // number): the card shows them as sent, and the answer goes out.
-    var sends = 0;
-    final card = nextCard();
-    final infinite = answerLibreChatPause(
-      _toolCall(const ['approve', 'reject'], arguments: '{"limit":1e999}'),
-      windows: windows,
-      chatId: 'chat-1',
-      asking: asking,
-      resume: ({decisions, answers}) async => sends++,
-      stop: () async => fail('nothing was to stop'),
-    );
-    final shown = await Future.any<UiRequest?>([
-      card,
-      infinite.then((_) => null),
-    ]);
-    expect(shown, isNotNull, reason: 'no card for arguments it could not format');
-    expect(shown!.detail['arguments'], '{"limit":1e999}');
-    windows.respond(UiResponse(requestId: shown.requestId, choice: 'allow'));
-    expect(await infinite, LibreChatPauseOutcome.resumed);
-    expect(sends, 1);
-
-    // Anything else that throws before a card is up ends the reply once,
-    // and is not tried again.
-    checks = 0;
-    var stops = 0;
-    final broken = await answerLibreChatPause(
-      LibreChatPendingAction(<String, dynamic>{
-        'actionId': 'act-5',
-        'payload': <String, dynamic>{
-          'type': 'ask_user_question',
-          'tool_call_id': 'call-5',
-          'question': <String, dynamic>{
-            'question': 'Which trail?',
-            'options': [
-              {'label': _Unreadable()},
-            ],
-          },
-        },
-      }),
-      windows: windows,
-      chatId: 'chat-1',
-      asking: asking,
-      resume: ({decisions, answers}) async => sends++,
-      stop: () async => stops++,
-    );
-    expect(broken, LibreChatPauseOutcome.stopped);
-    expect(stops, 1);
-    expect(checks, lessThan(5), reason: 'tried over and over with no card up');
-    expect(sends, 1, reason: 'something went out for a card never shown');
+    expect(answers, isEmpty);
   });
 }
 
@@ -453,12 +365,6 @@ Future<bool> _settledYet(Future<Object?> future) async {
   return settled;
 }
 
-/// A value whose text cannot be read (any throw before a card is up).
-final class _Unreadable {
-  @override
-  String toString() => throw StateError('unreadable');
-}
-
 /// A run paused on one question.
 const _question = LibreChatPendingAction(<String, dynamic>{
   'actionId': 'act-1',
@@ -480,18 +386,79 @@ LibreChatPendingAction _toolCall(
   List<String> allowed, {
   String arguments = '{}',
 }) => LibreChatPendingAction(<String, dynamic>{
-      'actionId': 'act-2',
+  'actionId': 'act-2',
+  'payload': <String, dynamic>{
+    'type': 'tool_approval',
+    'action_requests': <Map<String, dynamic>>[
+      {'tool_call_id': 'call-2', 'name': 'trail_map', 'arguments': arguments},
+    ],
+    'review_configs': <Map<String, dynamic>>[
+      {'tool_call_id': 'call-2', 'allowed_decisions': allowed},
+    ],
+  },
+});
+
+/// A run paused on two tool calls.
+const _twoCalls = LibreChatPendingAction(<String, dynamic>{
+  'actionId': 'act-3',
+  'payload': <String, dynamic>{
+    'type': 'tool_approval',
+    'action_requests': <Map<String, dynamic>>[
+      {'tool_call_id': 'call-a', 'name': 'trail_map'},
+      {'tool_call_id': 'call-b', 'name': 'weather'},
+    ],
+    'review_configs': <Map<String, dynamic>>[
+      {
+        'tool_call_id': 'call-a',
+        'allowed_decisions': ['approve', 'reject'],
+      },
+      {
+        'tool_call_id': 'call-b',
+        'allowed_decisions': ['approve', 'reject'],
+      },
+    ],
+  },
+});
+
+/// A run paused on one question whose labels a window could confuse: one
+/// padded, and two alike once trimmed.
+LibreChatPendingAction _placed({required bool multi}) =>
+    LibreChatPendingAction(<String, dynamic>{
+      'actionId': 'act-p',
       'payload': <String, dynamic>{
-        'type': 'tool_approval',
-        'action_requests': <Map<String, dynamic>>[
-          {
-            'tool_call_id': 'call-2',
-            'name': 'trail_map',
-            'arguments': arguments,
-          },
-        ],
-        'review_configs': <Map<String, dynamic>>[
-          {'tool_call_id': 'call-2', 'allowed_decisions': allowed},
-        ],
+        'type': 'ask_user_question',
+        'tool_call_id': 'call-p',
+        'question': <String, dynamic>{
+          'question': 'Which trail?',
+          'multiSelect': multi,
+          'options': <Object>[
+            // Nothing to pick by, ahead of the rest: the card never offers
+            // them, so places count only what it shows.
+            '',
+            {'label': '  ', 'value': 'blank'},
+            {'label': 7, 'value': 'seven'},
+            {'label': ' North Ridge ', 'value': 'north-ridge'},
+            {'label': 'Lake Loop', 'value': 'lake-loop'},
+            {'label': 'Ridge', 'value': 'ridge-north'},
+            {'label': ' Ridge ', 'value': 'ridge-south'},
+          ],
+        },
       },
     });
+
+/// A run paused on one question whose options answer with values unlike
+/// their labels.
+const _valued = LibreChatPendingAction(<String, dynamic>{
+  'actionId': 'act-v',
+  'payload': <String, dynamic>{
+    'type': 'ask_user_question',
+    'tool_call_id': 'call-v',
+    'question': <String, dynamic>{
+      'question': 'Which trail?',
+      'options': <Map<String, dynamic>>[
+        {'label': 'North Ridge', 'value': 'north-ridge'},
+        {'label': 'Lake Loop', 'value': 'lake-loop'},
+      ],
+    },
+  },
+});

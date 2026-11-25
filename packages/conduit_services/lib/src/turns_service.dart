@@ -1225,9 +1225,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     var reserved = false;
     _Claim? claim;
     try {
-      if (isRunning(chatId()) ||
-          session.merge != null ||
-          session.deleting) {
+      if (isRunning(chatId()) || session.merge != null || session.deleting) {
         throw const RpcError(
           code: ConduitErrorCodes.conflict,
           debugMessage: 'that chat is still answering',
@@ -1638,6 +1636,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// then the turn is finished.
   Future<void> _stopTurn(_ChatSession session, _Turn turn) async {
     turn.stopped = true;
+    _withdrawLibreChatPause(session);
     if (turn.clientOwned) {
       await _stopClientRun(session, turn);
     } else {
@@ -3048,10 +3047,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       final removed = await session.scope.container
           .read(queuedCompletionActionsProvider)
           .cancel(info);
-      _queuedCompletions?.followed(
-        session.chatId ?? ref.chatId,
-        ref.messageId,
-      );
+      _queuedCompletions?.followed(session.chatId ?? ref.chatId, ref.messageId);
       // Removed before its hand-off was seen: the send waiting for it ends.
       final pending = session.pending;
       if (pending != null &&
@@ -3459,11 +3455,30 @@ final class TurnsService implements ChatTurns, AddressReplies {
         ? null
         : libreChatPendingActionFor(session.scope.container, answer.id);
     final actionId = libreChat?.actionId;
+    // The pause a card waits on was answered elsewhere (a resumed stream no
+    // longer has it) or gave way to another: its card is settled here, in
+    // this step, before the next is put.
+    final waiting = session.libreChatPause;
+    if (waiting != null &&
+        waiting.messageId == answer.id &&
+        waiting.actionId != actionId) {
+      session.libreChatPause = null;
+      waiting.withdraw();
+    }
     if (libreChat != null &&
         actionId != null &&
         session.asked.add('librechat:$actionId')) {
       unawaited(_answerLibreChatAction(session, answer.id, libreChat));
     }
+  }
+
+  /// Takes back, now, the card of the LibreChat pause [session]'s turn
+  /// waits on: Stop ends the pause at the press, though the server holds the
+  /// run until its aborted frame comes.
+  void _withdrawLibreChatPause(_ChatSession session) {
+    final waiting = session.libreChatPause;
+    session.libreChatPause = null;
+    waiting?.withdraw();
   }
 
   /// Puts what a LibreChat run paused on to the windows and resumes it
@@ -3476,33 +3491,68 @@ final class TurnsService implements ChatTurns, AddressReplies {
     final scope = session.scope;
     final turn = session.turn;
     if (turn == null) return;
+    // The pause is the account's that was in charge when it arrived: its
+    // card goes as soon as another account takes charge, and no answer to
+    // it is sent under that one.
+    final account = AccountScope.capture(_container);
+    final gone = Completer<void>();
+    void leave() {
+      if (!gone.isCompleted) gone.complete();
+    }
+
+    final switches = _container.listen<int>(
+      accountSwitchCountProvider,
+      (_, _) => leave(),
+    );
+    unawaited(turn.ended.future.then((_) => leave(), onError: (_) => leave()));
+    // Read where it is used: the chat the card is shown in, and taken back
+    // from, is the chat's id as it is then.
+    String chatId() => session.chatId ?? turn.chatId;
+    final pausedIn = chatId();
+    final pause = (
+      messageId: messageId,
+      actionId: action.actionId,
+      withdraw: () {
+        for (final id in {pausedIn, chatId()}) {
+          _uiRequests?.withdrawLibreChatCards(id);
+        }
+        leave();
+      },
+    );
+    session.libreChatPause = pause;
     // The turn that asked still runs, and still waits on this pause: a card
-    // answered or dismissed later touches no newer reply in the chat.
+    // answered later touches no newer reply in the chat.
     bool asking() =>
+        account.isCurrent &&
         !turn.finished &&
+        !turn.stopped &&
         identical(session.turn, turn) &&
         !scope.isDisposed &&
         libreChatPendingActionFor(scope.container, messageId)?.actionId ==
             action.actionId;
-    final outcome = await answerLibreChatPause(
-      action,
-      windows: _uiRequests,
-      chatId: session.chatId ?? turn.chatId,
-      asking: asking,
-      until: turn.ended.future,
-      resume: ({decisions, answers}) => resolveLibreChatPendingAction(
-        scope.container,
-        messageId,
-        decisions: decisions,
-        answers: answers,
-      ),
-      stop: () => stop(session.chatId ?? turn.chatId),
-    );
-    // Not sent, and nobody to ask (the pause waited for a window while its
-    // turn ran): not left marked as asked, so the answer's next projection
-    // offers it again.
-    if (outcome == LibreChatPauseOutcome.failed) {
-      session.asked.remove('librechat:${action.actionId}');
+    try {
+      await answerLibreChatPause(
+        action,
+        windows: _uiRequests,
+        chatId: chatId,
+        asking: asking,
+        until: gone.future,
+        resume: ({decisions, answers}) {
+          account.require('the LibreChat pause is answered');
+          return resolveLibreChatPendingAction(
+            scope.container,
+            messageId,
+            decisions: decisions,
+            answers: answers,
+          );
+        },
+      );
+    } finally {
+      switches.close();
+      leave();
+      if (session.libreChatPause?.actionId == pause.actionId) {
+        session.libreChatPause = null;
+      }
     }
   }
 
@@ -4208,6 +4258,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   Future<void> _closeAfterStop(_ChatSession session, _Turn turn) async {
     await Future<void>.value();
     turn.stopped = true;
+    _withdrawLibreChatPause(session);
     await _stopClientRun(session, turn);
     if (!session.scope.isDisposed) _project(session);
     if (!turn.finished) {
@@ -4849,6 +4900,11 @@ final class _ChatSession {
 
   /// Approvals already put to the user, so each is asked once.
   final Set<String> asked = <String>{};
+
+  /// The LibreChat pause a card waits on: the answer it paused, and how to
+  /// take its card back, at once, once that answer no longer waits on it.
+  ({String messageId, String? actionId, void Function() withdraw})?
+  libreChatPause;
 
   /// The queue as `queue.changed` last published it.
   QueueState? lastQueue;

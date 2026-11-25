@@ -633,6 +633,8 @@ impl SidebarView {
             cx.observe(&stores.navigation, |_, _, cx| cx.notify()),
             cx.observe(&stores.areas, |_, _, cx| cx.notify()),
             cx.observe(&stores.hermes_rooms, |_, _, cx| cx.notify()),
+            // A paused LibreChat reply's row is marked while its card waits.
+            cx.observe(&stores.ui_requests, |_, _, cx| cx.notify()),
             cx.observe(&stores.hermes_admin, |_, _, cx| cx.notify()),
             cx.observe(&stores.sections, |_, _, cx| cx.notify()),
             // Each account keeps its own sections.
@@ -2301,6 +2303,8 @@ impl SidebarView {
             dates::Dated::Alone
         };
         let (time, spoken) = dates::stamp_in(chat.updated_at_ms, now, dated, l);
+        // A paused reply waits on a card that shows in this chat only.
+        let waits = self.stores.ui_requests.read(cx).waits_in_chat(&chat.id);
         let row = ChatRow {
             id: id.clone().into(),
             title: display_title(&chat.title, l),
@@ -2314,8 +2318,12 @@ impl SidebarView {
             // Another user's chat in a shared folder: opened and read,
             // nothing else (the server refuses every change to it).
             note: chat.read_only.then(|| l.read_only().into()),
-            unread: self.shows_unread(chat, cx),
-            unread_spoken: Some(l.desktop_unread().into()),
+            unread: waits || self.shows_unread(chat, cx),
+            unread_spoken: Some(if waits {
+                l.hermes_room_needs_you().into()
+            } else {
+                l.desktop_unread().into()
+            }),
         };
         let state = RowState {
             selected: self.is_selection(&KeyRow::Chat(id.clone())),

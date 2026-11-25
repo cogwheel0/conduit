@@ -131,9 +131,9 @@ final class LibreChatQuestionCard extends LibreChatPauseCard {
   final bool multiSelect;
 
   /// The answer to send for what was [picked]: a choice's label becomes its
-  /// value. Several choices come as a JSON list of labels, and LibreChat
-  /// takes one answer per question, the values joined with ", ". Typed text
-  /// goes as it is.
+  /// value. Several choices come as a JSON list of labels (one may also
+  /// come alone), and LibreChat takes one answer per question, the values
+  /// joined with ", ". Typed text goes as it is.
   String answerFor(String picked) {
     String valueOf(String label) =>
         choices.where((choice) => choice.label == label).firstOrNull?.value ??
@@ -145,9 +145,23 @@ final class LibreChatQuestionCard extends LibreChatPauseCard {
         return decoded.map((label) => valueOf('$label')).join(', ');
       }
     } on FormatException {
-      // Typed text, not a list of choices.
+      // A label alone, or typed text, not a list of choices.
     }
-    return picked;
+    return valueOf(picked);
+  }
+
+  /// The answer for the choices at [places] in [choices], by their values
+  /// (several joined with ", ", in the choices' order). A window that shows
+  /// the choices answers by place, so no label has to be matched back. Null
+  /// when nothing is picked, a place has no choice, or a single-choice
+  /// question gets several.
+  String? answerForPlaces(Iterable<int> places) {
+    final picked = places.toSet().toList()..sort();
+    if (picked.isEmpty || (!multiSelect && picked.length > 1)) return null;
+    if (picked.any((place) => place < 0 || place >= choices.length)) {
+      return null;
+    }
+    return picked.map((place) => choices[place].value).join(', ');
   }
 }
 
@@ -315,13 +329,17 @@ final class LibreChatPauseController {
 String? _nonEmpty(String? text) => text == null || text.isEmpty ? null : text;
 
 /// A question's choices, which LibreChat sends as labels or as
-/// `{label, value, description}`.
+/// `{label, value, description}`: the one list a host shows, numbered as it
+/// is ([LibreChatQuestionCard.answerForPlaces]). An option with no label to
+/// pick it by (blank, or not text) is never a choice, here or on any host.
 List<({String label, String value})> _choices(Object? options) => [
   if (options is List)
     for (final option in options)
-      if (option is String && option.isNotEmpty)
+      if (option is String && option.trim().isNotEmpty)
         (label: option, value: option)
-      else if (option is Map && option['label'] is String)
+      else if (option is Map &&
+          option['label'] is String &&
+          (option['label'] as String).trim().isNotEmpty)
         (
           label: option['label'] as String,
           value: option['value'] is String

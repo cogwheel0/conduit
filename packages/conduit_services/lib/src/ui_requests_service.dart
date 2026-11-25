@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/librechat/services/librechat_pause_controller.dart';
 import 'package:conduit_core/ports/ui_request_port.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:uuid/uuid.dart';
@@ -182,75 +183,71 @@ final class UiRequestsService implements UiRequestPort {
     return _events.attachBefore(until);
   }
 
-  /// Asks whether a LibreChat run may go on with tool [toolName]: a run that
-  /// paused for approval. Unanswered, it is rejected; [until] completing
-  /// (the turn that asked ended) takes the card back. [answered] says
-  /// whether a window answered, rather than the card being settled with
-  /// its default (nobody there, every window gone, the turn over).
-  Future<({bool allow, bool answered})> askLibreChatToolApproval({
+  /// Puts [card], one card of a paused LibreChat run in [chatId], to the
+  /// windows: a tool call with the decisions its server allows, or a
+  /// question with its choices. [failed] says the answers could not be
+  /// sent; [refusal] why the last answer was not taken, with what was
+  /// [typed]. [until] completing (the turn ended, another account in charge)
+  /// takes the card back. [answered] says whether a window answered, rather
+  /// than the card being settled with its default, which decides nothing.
+  Future<({String choice, String? text, bool answered})> askLibreChatPause({
     required String chatId,
-    required String toolName,
-    String? description,
-    String? argumentsJson,
+    required LibreChatPauseCard card,
+    bool failed = false,
+    LibreChatPauseStep? refusal,
+    String? typed,
     Future<void>? until,
   }) async {
-    final (:response, :answered) = await _askReadingWho(
-      UiRequestKind.toolApproval,
-      messageCode: 'librechat.toolApproval',
-      args: <String, String>{
-        'title': toolName,
-        'message': description ?? '',
-        'chatId': chatId,
-      },
-      detail: <String, dynamic>{
-        'backend': 'libreChat',
-        'arguments': ?argumentsJson,
-      },
-      defaultChoice: 'deny',
-      until: until,
-    );
-    return (allow: response.choice == 'allow', answered: answered);
-  }
-
-  /// Puts a LibreChat agent's question to the user: its options, or words
-  /// of their own. [text] is null when it was cancelled (or nobody could be
-  /// asked); [until] completing (the turn that asked ended) takes the card
-  /// back. [answered] says whether a window answered, rather than the card
-  /// being settled with its default.
-  Future<({String? text, bool answered})> askLibreChatQuestion({
-    required String chatId,
-    required String question,
-    String? description,
-    List<Map<String, String>> options = const <Map<String, String>>[],
-    bool multiSelect = false,
-    String? progress,
-    Future<void>? until,
-  }) async {
-    final (:response, :answered) = await _askReadingWho(
-      UiRequestKind.libreChatQuestion,
-      messageCode: 'librechat.question',
-      args: <String, String>{
-        'title': question,
-        'chatId': chatId,
-        'progress': ?progress,
-      },
-      detail: <String, dynamic>{
-        'question': question,
-        'description': ?description,
-        'options': options,
-        'multiSelect': multiSelect,
-      },
-      defaultChoice: 'cancel',
-      until: until,
-    );
-    // The window's question card answers `allow` with the text (the same
-    // card as any server's question); `answer` is the plain word for it.
-    final text = response.text?.trim();
-    final given = response.choice == 'answer' || response.choice == 'allow';
-    if (!given || text == null || text.isEmpty) {
-      return (text: null, answered: answered);
-    }
-    return (text: text, answered: answered);
+    final progress = card.count > 1 ? '${card.index + 1}/${card.count}' : null;
+    final marks = <String, dynamic>{
+      if (failed) 'failed': true,
+      'refusal': ?refusal?.name,
+      'typed': ?typed,
+    };
+    final (:response, :answered) = switch (card) {
+      LibreChatToolCard() => await _askReadingWho(
+        UiRequestKind.libreChatToolCall,
+        messageCode: 'librechat.toolCall',
+        args: <String, String>{
+          'title': card.request.name,
+          'message': card.request.description ?? '',
+          'chatId': chatId,
+          'progress': ?progress,
+        },
+        detail: <String, dynamic>{
+          'arguments': ?card.argumentsText,
+          'editableArguments': card.editableArguments,
+          'allowedDecisions': [
+            for (final decision in card.allowed) decision.name,
+          ],
+          ...marks,
+        },
+        defaultChoice: 'none',
+        until: until,
+      ),
+      LibreChatQuestionCard() => await _askReadingWho(
+        UiRequestKind.libreChatQuestion,
+        messageCode: 'librechat.question',
+        args: <String, String>{
+          'title': card.question,
+          'chatId': chatId,
+          'progress': ?progress,
+        },
+        detail: <String, dynamic>{
+          'question': card.question,
+          'description': ?card.description,
+          'options': [
+            for (final choice in card.choices)
+              <String, String>{'label': choice.label, 'value': choice.value},
+          ],
+          'multiSelect': card.multiSelect,
+          ...marks,
+        },
+        defaultChoice: 'none',
+        until: until,
+      ),
+    };
+    return (choice: response.choice, text: response.text, answered: answered);
   }
 
   /// Asks whether an MCP App in a chat may call one of its server's tools,
@@ -504,6 +501,29 @@ final class UiRequestsService implements UiRequestPort {
         },
       ),
     );
+  }
+
+  /// Takes back, now, the cards of a paused LibreChat reply in [chatId]
+  /// still waiting, each answered with its default (which decides nothing):
+  /// every window is told before anything the caller puts next.
+  void withdrawLibreChatCards(String chatId) {
+    final waiting = [
+      for (final open in _pending.values)
+        if ((open.request.kind == UiRequestKind.libreChatToolCall ||
+                open.request.kind == UiRequestKind.libreChatQuestion) &&
+            open.request.messageArgs['chatId'] == chatId)
+          open,
+    ];
+    for (final open in waiting) {
+      final id = open.request.requestId;
+      _pending.remove(id);
+      _publishSettled(id);
+      if (!open.answer.isCompleted) {
+        open.answer.complete(
+          UiResponse(requestId: id, choice: open.request.defaultChoice),
+        );
+      }
+    }
   }
 
   /// Tells every window the question is settled, so the ones that did not

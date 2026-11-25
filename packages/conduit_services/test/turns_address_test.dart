@@ -19,6 +19,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
+import 'package:conduit_services/src/account_scope.dart'
+    show accountSwitchCountProvider;
 import 'package:test/test.dart';
 
 import 'support/fake_librechat_chat.dart';
@@ -459,6 +461,264 @@ void main() {
       await clock.during(turns.stopAddressAnswers());
       expect(turns.isRunning(ridge.chatId), isTrue);
       expect(libreChat.aborts, isEmpty);
+    });
+
+    /// A LibreChat reply paused on a tool call, its card put to a window
+    /// ([seen] says, in order, which cards were put and settled).
+    Future<
+      ({
+        UiRequestsService windows,
+        TurnsService pausing,
+        FakeLibreChatChat libreChat,
+        LibreChatSignInResult signedIn,
+        SendTurnAccepted turn,
+        UiRequest card,
+        Future<String> withdrawn,
+        List<String> seen,
+        Stream<UiRequest> cards,
+      })
+    >
+    pausedTide() async {
+      final windows = UiRequestsService(events);
+      final pausing = TurnsService(
+        runtime.container,
+        events,
+        uiRequests: windows,
+        now: clock.now,
+        pause: clock.pause,
+      );
+      addTearDown(pausing.dispose);
+      final asked = Completer<UiRequest>();
+      final withdrawn = Completer<String>();
+      final seen = <String>[];
+      final cards = StreamController<UiRequest>.broadcast();
+      addTearDown(cards.close);
+      events.attach('window-1', (envelope) {
+        if (envelope.event == ConduitEvents.uiRequest) {
+          final card = UiRequest.fromJson(envelope.payload);
+          seen.add('put ${card.messageArgs['title']}');
+          cards.add(card);
+          if (!asked.isCompleted) asked.complete(card);
+        }
+        if (envelope.event == ConduitEvents.uiSettled) {
+          seen.add('settled');
+          if (!withdrawn.isCompleted) {
+            withdrawn.complete('${envelope.payload['requestId']}');
+          }
+        }
+      });
+      addTearDown(() => events.detach('window-1'));
+      events.subscribe(
+        'window-1',
+        const EventSubscription(
+          events: [ConduitEvents.uiRequest, ConduitEvents.uiSettled],
+        ),
+      );
+
+      final libreChat = await FakeLibreChatChat.start();
+      addTearDown(libreChat.close);
+      libreChat.fake.addUser(email: 'avery@example.com', password: 'pw-avery');
+      final signedIn = await clock.during(
+        LibreChatService(
+          runtime.container,
+          events: events,
+          accounts: accounts,
+        ).signIn(
+          LibreChatSignIn(
+            url: libreChat.url,
+            email: 'avery@example.com',
+            password: 'pw-avery',
+          ),
+        ),
+      );
+      expect(signedIn.outcome, LibreChatSignInOutcome.signedIn);
+      await clock.during(
+        readSettled(runtime.container, libreChatModelCatalogProvider.future),
+      );
+
+      final sending = pausing.send(
+        const SendTurn(model: FakeLibreChatChat.model, text: 'Check the tide'),
+      );
+      await clock.during(Future.any([libreChat.streamOpened, sending]));
+      libreChat
+        ..created('question-tide', 'Check the tide')
+        ..text('answer-tide', 'Looking');
+      final turn = await clock.during(sending);
+      libreChat.paused({
+        'actionId': 'act-tide',
+        'conversationId': 'conv-ridge',
+        'payload': {
+          'type': 'tool_approval',
+          'action_requests': [
+            {
+              'tool_call_id': 'call-tide',
+              'name': 'lookup_tide',
+              'arguments': {'harbour': 'Port Wren'},
+            },
+          ],
+          'review_configs': [
+            {
+              'tool_call_id': 'call-tide',
+              'allowed_decisions': ['approve', 'reject'],
+            },
+          ],
+        },
+      });
+      final card = await clock.during(asked.future);
+      expect(card.messageArgs['chatId'], turn.chatId);
+      return (
+        windows: windows,
+        pausing: pausing,
+        libreChat: libreChat,
+        signedIn: signedIn,
+        turn: turn,
+        card: card,
+        withdrawn: withdrawn.future,
+        seen: seen,
+        cards: cards.stream,
+      );
+    }
+
+    test('a LibreChat pause belongs to the account it came under: a change '
+        'of the account in charge takes its card back, and an answer given '
+        'as it changes sends nothing', () async {
+      final (
+        :windows,
+        :pausing,
+        :libreChat,
+        :signedIn,
+        :turn,
+        :card,
+        :withdrawn,
+        :seen,
+        :cards,
+      ) = await pausedTide();
+      // A window answers in the instant the account changes, before the
+      // reply it paused has heard of the change.
+      final answerAtTheChange = runtime.container.listen<int>(
+        accountSwitchCountProvider,
+        (_, _) => windows.respond(
+          UiResponse(requestId: card.requestId, choice: 'approve'),
+        ),
+      );
+      addTearDown(answerAtTheChange.close);
+
+      // Open WebUI takes charge of the chats again.
+      await clock.during(
+        accounts.switchTo(
+          AccountRef(
+            accountId: openWebUiAccount,
+            force: true,
+            askedOver: signedIn.accountId,
+          ),
+        ),
+      );
+      expect(await clock.during(withdrawn), card.requestId);
+      // Not put to a window of the next account that connects now.
+      expect(windows.pending, isEmpty);
+      // An answer that comes later is taken by nothing.
+      expect(
+        windows.respond(
+          UiResponse(requestId: card.requestId, choice: 'reject'),
+        ),
+        isFalse,
+      );
+      await clock.during(pumpEventQueue());
+      expect(libreChat.resumes, isEmpty);
+    });
+
+    test('a LibreChat pause answered elsewhere takes its card back when the '
+        'resumed stream no longer has it, or has another in its place, before '
+        'the next pause is put, and when Stop is pressed', () async {
+      final (
+        :windows,
+        :pausing,
+        :libreChat,
+        :signedIn,
+        :turn,
+        :card,
+        :withdrawn,
+        :seen,
+        :cards,
+      ) = await pausedTide();
+      // Answered on another device while the stream was away: the resumed
+      // stream's snapshot has no pause, and the reply goes on to the next.
+      libreChat.resumed();
+      final next = cards.first;
+      libreChat.paused({
+        'actionId': 'act-weather',
+        'conversationId': 'conv-ridge',
+        'payload': {
+          'type': 'tool_approval',
+          'action_requests': [
+            {'tool_call_id': 'call-weather', 'name': 'lookup_weather'},
+          ],
+          'review_configs': [
+            {
+              'tool_call_id': 'call-weather',
+              'allowed_decisions': ['approve', 'reject'],
+            },
+          ],
+        },
+      });
+      await clock.during(next);
+      expect(seen, ['put lookup_tide', 'settled', 'put lookup_weather']);
+      expect(await clock.during(withdrawn), card.requestId);
+      expect(windows.pending.map((r) => r.messageArgs['title']), [
+        'lookup_weather',
+      ]);
+
+      // Replaced outright: the resumed stream's snapshot carries the next
+      // pause where this one was. Its card is settled before the next is
+      // put.
+      final third = cards.first;
+      libreChat.resumed(
+        pause: {
+          'actionId': 'act-wind',
+          'conversationId': 'conv-ridge',
+          'payload': {
+            'type': 'tool_approval',
+            'action_requests': [
+              {'tool_call_id': 'call-wind', 'name': 'lookup_wind'},
+            ],
+            'review_configs': [
+              {
+                'tool_call_id': 'call-wind',
+                'allowed_decisions': ['approve', 'reject'],
+              },
+            ],
+          },
+        },
+      );
+      await clock.during(third);
+      expect(seen, [
+        'put lookup_tide',
+        'settled',
+        'put lookup_weather',
+        'settled',
+        'put lookup_wind',
+      ]);
+      expect(windows.pending.map((r) => r.messageArgs['title']), [
+        'lookup_wind',
+      ]);
+
+      // Stop pressed while the server still holds the run (its abort
+      // held): the card goes at the press, and an answer given then is
+      // taken by nothing.
+      final wind = windows.pending.single;
+      libreChat.abortHold = Completer<void>();
+      final stopping = pausing.stop(turn.chatId);
+      expect(seen.last, 'settled', reason: 'the card outlived the Stop');
+      expect(
+        windows.respond(
+          UiResponse(requestId: wind.requestId, choice: 'approve'),
+        ),
+        isFalse,
+      );
+      await clock.during(libreChat.abortAsked.future);
+      libreChat.abortHold!.complete();
+      await clock.during(stopping);
+      expect(libreChat.resumes, isEmpty);
     });
   });
 
