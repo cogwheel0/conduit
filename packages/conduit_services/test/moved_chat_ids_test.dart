@@ -65,6 +65,10 @@ void main() {
     // Serves chats, so a chat made here reaches the server and moves to its
     // id.
     owui.models = const <String>['harbor-model'];
+    // A chat made here reaches the server only when a test lets it
+    // ([reachServer]): the outbox drains on its own after a turn, and a chat
+    // stored then would move whenever that drain happened to run.
+    owui.chats.holdNewChats = Completer<void>();
     final provider = await ScriptedOpenAi.start();
     addTearDown(provider.close);
     events = EventBus();
@@ -162,6 +166,14 @@ void main() {
     return old;
   }
 
+  /// Lets chats made here reach the server: a drain under way stores the one
+  /// it holds, and the next drain any that wait.
+  void reachServer() {
+    final held = owui.chats.holdNewChats;
+    owui.chats.holdNewChats = null;
+    if (held != null && !held.isCompleted) held.complete();
+  }
+
   /// The id [old] moves to, once the windows are told (`route.remap`).
   Future<String> remapOf(String old) {
     final moved = Completer<String>();
@@ -178,6 +190,7 @@ void main() {
   /// [old] stored by the server, and so moved to its id: that id.
   Future<String> move(String old) async {
     final moved = remapOf(old);
+    reachServer();
     await runtime.container.read(syncEngineProvider.notifier).drainNow();
     final now = await moved;
     expect(now, isNot(old));
@@ -441,21 +454,26 @@ void main() {
     ]);
   });
 
-  step('a delete that stores a chat made here, and so moves it, tells the '
-      'windows under its current id', () async {
-    await signIn('ada@example.com', 'pw-ada');
-    final old = await localChat();
-    final answer = (await chats.get(old))!.messages.last;
-    final moved = remapOf(old);
+  test('a delete whose chat moves while it waits for the chat to settle '
+      'tells the windows under its current id', () async {
+    await clock.during(signIn('ada@example.com', 'pw-ada'));
+    final old = await clock.during(localChat());
+    final answer = (await clock.during(chats.get(old)))!.messages.last;
     final told = toldChanged();
 
-    await turns.deleteMessages(
+    // Outside a step the turns' clock stands still: the delete, which came
+    // under `old`, waits there for the chat to settle while it moves.
+    final settling = clock.nextPause();
+    final deleting = turns.deleteMessages(
       DeleteMessages(chatId: old, messageIds: <String>[answer.id]),
     );
-    final now = await moved;
+    await settling;
+    final now = await move(old);
+    await clock.during(deleting);
+
     expect(told.last, now);
     expect(
-      (await chats.get(now))!.messages.map((m) => m.id),
+      (await clock.during(chats.get(now)))!.messages.map((m) => m.id),
       isNot(contains(answer.id)),
     );
   });
@@ -467,6 +485,8 @@ void main() {
     final transcript = (await chats.get(old))!.messages;
     final answer = transcript.last;
     final moved = remapOf(old);
+    // Its own drain stores the chat, which moves it.
+    reachServer();
     final told = toldChanged();
     // The server shows another message as the chat's current one at the
     // first check (a pull from before the switch, another device): the

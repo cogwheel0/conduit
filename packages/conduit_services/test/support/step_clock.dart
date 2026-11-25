@@ -17,7 +17,21 @@ final class StepClock {
 
   DateTime now() => _now;
 
+  final List<Completer<void>> _asked = [];
+
+  /// Completes once a pause is next asked for: outside a step, what asked
+  /// for it waits there until a step runs.
+  Future<void> nextPause() {
+    final asked = Completer<void>();
+    _asked.add(asked);
+    return asked.future;
+  }
+
   Future<void> pause(Duration duration) {
+    for (final asked in _asked) {
+      asked.complete();
+    }
+    _asked.clear();
     final done = Completer<void>();
     if (duration < const Duration(seconds: 1)) {
       _paused.add((end: _now.add(duration), done: done));
