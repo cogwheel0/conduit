@@ -404,11 +404,21 @@ void main() {
         await seedServerChat('c1');
         await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
         final gate = Completer<void>();
+        final entered = Completer<void>();
 
         final draining = buildDrainer(
-          testGate: held ? () => gate.future : null,
+          testGate: held
+              ? () {
+                  entered.complete();
+                  return gate.future;
+                }
+              : null,
         ).drain();
         if (held) {
+          // The drain is at the gate. The turns after that are not a wait
+          // for anything: they are room for a drain that did not stop there
+          // to send.
+          await entered.future;
           await pumpEventQueue();
           check(client.calls).isEmpty();
           check(
