@@ -9,8 +9,10 @@ import 'package:conduit_core/database/chat_database_repository.dart'
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show renameOpenWebUiConversation;
 import 'package:conduit_core/providers/app_providers.dart'
-    show modelsProvider;
+    show modelsProvider, refreshConversationsCache;
 import 'package:conduit_core/providers/storage_providers.dart'
     show optimizedStorageServiceProvider;
 import 'package:conduit_core/sync/sync_engine.dart' show syncEngineProvider;
@@ -542,6 +544,156 @@ void main() {
     expect(owui.chats.stored[now]!['title'], 'The shelf question');
     expect(owui.chats.stored[now]!['archived'], isTrue);
   });
+
+  group('a rename of an Open WebUI chat and a save of the chat it overlaps',
+      () {
+    const renamed = 'The shelf question';
+
+    /// A Direct answer stored in [chatId]: the save of the chat that
+    /// carries it goes out next.
+    Future<void> answerIn(String chatId) async {
+      final next = await turns.send(
+        SendTurn(model: model, text: 'And the drawer?', chatId: chatId),
+      );
+      await finished(chatId, messageId: next.assistantMessageId);
+    }
+
+    /// That save, held at the server once it is on its way (it read the
+    /// chat, title included, under the chat's lock): what lets it land.
+    Future<Completer<void>> saveOnItsWay(String chatId) async {
+      final held = owui.chats.holdChatSaves = Completer<void>();
+      owui.chats.chatSaveAsked = Completer<void>();
+      await answerIn(chatId);
+      await owui.chats.chatSaveAsked.future;
+      // Only that save: the rename's own write goes through.
+      owui.chats.holdChatSaves = null;
+      return held;
+    }
+
+    Future<String?> listed(String chatId) async => (await chats.list()).chats
+        .where((c) => c.id == chatId)
+        .firstOrNull
+        ?.title;
+
+    // Order 1: the save read the old title before the rename.
+    step('a save on its way when the user renames lands first, and the '
+        'rename stays', () async {
+      await signIn('ada@example.com', 'pw-ada');
+      final (_, now) = await movedChat();
+      final save = await saveOnItsWay(now);
+
+      final renaming = chats.rename(now, renamed);
+      save.complete();
+      await renaming;
+
+      expect(owui.chats.stored[now]!['title'], renamed);
+      expect((await chats.get(now))!.summary.title, renamed);
+      expect(await listed(now), renamed);
+    });
+
+    // Order 2: the save waits in the outbox while the user renames.
+    step('a save queued when the user renames sends the new title, which '
+        'shows at once', () async {
+      await signIn('ada@example.com', 'pw-ada');
+      final (_, now) = await movedChat();
+      outbox.close();
+      await answerIn(now);
+
+      final stored = Completer<void>();
+      final untap = events.tap((event, _, payload) {
+        if (event == ConduitEvents.chatsChanged &&
+            payload['chatId'] == now &&
+            !stored.isCompleted) {
+          stored.complete();
+        }
+      });
+      addTearDown(untap);
+      final renaming = chats.rename(now, renamed);
+      await stored.future;
+      expect((await chats.get(now))!.summary.title, renamed);
+
+      reachServer();
+      await renaming;
+      await runtime.container.read(syncEngineProvider.notifier).drainNow();
+      expect(owui.chats.stored[now]!['title'], renamed);
+      expect(await listed(now), renamed);
+    });
+
+    // Order 3: the phone's rename, then its refresh, which drains the
+    // outbox before it pulls.
+    step('a rename as the phone makes it, then its refresh, keeps the title '
+        'over a queued save', () async {
+      await signIn('ada@example.com', 'pw-ada');
+      final (_, now) = await movedChat();
+      outbox.close();
+      await answerIn(now);
+
+      await renameOpenWebUiConversation(runtime.container, now, renamed);
+      refreshConversationsCache(runtime.container);
+      reachServer();
+      final sync = runtime.container.read(syncEngineProvider.notifier);
+      await sync.drainNow();
+      await sync.pullChatNow(now);
+
+      expect(owui.chats.stored[now]!['title'], renamed);
+      expect((await chats.get(now))!.summary.title, renamed);
+    });
+
+    step('a rename that waited for the chat while another account took '
+        'charge is refused, and the chat keeps its title', () async {
+      await signIn('ada@example.com', 'pw-ada');
+      final (_, now) = await movedChat();
+      final title = owui.chats.stored[now]!['title'];
+      final save = await saveOnItsWay(now);
+
+      final renaming = chats.rename(now, renamed);
+      final switched = Completer<void>();
+      final watch = runtime.container.listen<int>(
+        accountSwitchCountProvider,
+        (_, _) {
+          if (!switched.isCompleted) switched.complete();
+        },
+      );
+      final bob = signIn('bob@example.com', 'pw-bob');
+      await switched.future;
+      watch.close();
+      save.complete();
+
+      await expectLater(
+        renaming,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
+      await bob;
+      expect(owui.chats.stored[now]!['title'], title);
+    });
+
+    step('a rename the server refuses leaves the chat its old title',
+        () async {
+      await signIn('ada@example.com', 'pw-ada');
+      final (_, now) = await movedChat();
+      final title = (await chats.get(now))!.summary.title;
+      final refused = owui.chats.holdChatSaves = Completer<void>();
+      owui.chats
+        ..chatSaveAsked = Completer<void>()
+        ..dropHeldChats = true;
+
+      final renaming = chats.rename(now, renamed);
+      await owui.chats.chatSaveAsked.future;
+      owui.chats.holdChatSaves = null;
+      refused.complete();
+      await expectLater(renaming, throwsA(anything));
+      owui.chats.dropHeldChats = false;
+
+      expect((await chats.get(now))!.summary.title, title);
+      expect(owui.chats.stored[now]!['title'], title);
+    });
+  });
 }
 
 /// Holds the lookups of a chat's move (its `chat_remap:` row) while [held]
@@ -586,13 +738,18 @@ final class _MoveLookups extends QueryInterceptor {
 }
 
 /// What every outbox drain waits for in these tests
-/// ([outboxDrainGateProvider]): closed until [open], then open for good.
+/// ([outboxDrainGateProvider]): closed until [open], and again after
+/// [close].
 final class _DrainGate {
-  final Completer<void> _opened = Completer<void>();
+  Completer<void> _opened = Completer<void>();
 
   Future<void> wait() => _opened.future;
 
   void open() {
     if (!_opened.isCompleted) _opened.complete();
+  }
+
+  void close() {
+    if (_opened.isCompleted) _opened = Completer<void>();
   }
 }

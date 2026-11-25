@@ -1339,7 +1339,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///
   /// The caller holds `ChatLocks.runExclusive(chatId)`. This is a
   /// server-origin write, so it deliberately leaves dirty/outbox state alone.
-  Future<String?> updateServerGeneratedTitle(String chatId, String title) {
+  ///
+  /// [renamedHere]: a rename this device just wrote to the server, which
+  /// replaces a pending local title too: it is the newer of the two.
+  Future<String?> updateServerGeneratedTitle(
+    String chatId,
+    String title, {
+    bool renamedHere = false,
+  }) {
     return transaction(() async {
       final existing = await getChat(chatId);
       if (existing == null) return null;
@@ -1359,6 +1366,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       // body/message edits and can safely accept the generated title.
       final blobHadTitle = blobMeta['blobHadTitle'] == true;
       final hasPendingLocalTitle =
+          !renamedHere &&
           existing.dirty &&
           (!blobHadTitle || blobMeta['blobTitleValue'] != existing.title);
       final persistedTitle = hasPendingLocalTitle ? existing.title : title;

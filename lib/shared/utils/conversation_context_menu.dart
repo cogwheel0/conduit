@@ -6,7 +6,6 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/services/connectivity_service.dart'
     show isOnlineProvider;
-import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -827,17 +826,7 @@ Future<void> _saveConversationTitle(
   String conversationId,
   String title,
 ) async {
-  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
-  final api = ref.read(apiServiceProvider);
-  if (api == null) throw Exception('No API service');
-  // A title being generated for this chat waits for the rename, and keeps
-  // it.
-  await ref
-      .read(chatTitleLocksProvider)
-      .runExclusive(
-        rawConversationId,
-        () => api.updateConversation(rawConversationId, title: title),
-      );
+  await chat.renameOpenWebUiConversation(ref, conversationId, title);
   _showConversationTitle(ref, conversationId, title);
 }
 

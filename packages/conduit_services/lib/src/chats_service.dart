@@ -5,7 +5,9 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         archiveConversation,
         copyLibreChatConversation,
         pinConversation,
+        OpenWebUiAccountChangedException,
         renameLibreChatConversation,
+        renameOpenWebUiConversation,
         captureChatMutationOwner,
         chatActionAvailability,
         chatMenuAvailability,
@@ -883,7 +885,19 @@ final class ChatsService {
       await renameLibreChatConversation(_container, id, trimmed);
       return _refresh();
     }
-    await _api.updateConversation(id, title: trimmed);
+    // Refused while signed out, as the other Open WebUI writes here are.
+    final _ = _api;
+    try {
+      // In the chat's lock, so a save of the chat under way cannot put back
+      // the title it read before.
+      await renameOpenWebUiConversation(_container, id, trimmed);
+    } on OpenWebUiAccountChangedException {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the account changed before the chat was renamed',
+      );
+    }
     await _afterEnvelopeChange(id);
     return _refresh();
   }
