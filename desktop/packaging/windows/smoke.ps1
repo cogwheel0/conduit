@@ -136,19 +136,37 @@ function Show-Stuck([string]$Log) {
   } | Tee-Object -FilePath (Join-Path $Work 'stuck.txt') | ForEach-Object { Write-Host $_ }
 }
 
-# Starts $Path and waits for it and its descendants (Start-Process -Wait), at
-# most $Minutes (a thread job holds the unbounded wait); returns its exit
-# code. Past the limit it shows what may hold it up ($Log among it) and fails.
+# Starts $Path and waits for it and every process it starts, as
+# Start-Process -Wait does, at most $Minutes; returns its exit code. The
+# tree is the started process and, by parent pid, each process started from
+# one of the tree since (a setup's second phase, the app's conduitd). Past
+# the limit it shows what may hold it up ($Log among it), ends that tree,
+# through the process objects it holds, and fails.
 function Invoke-Bounded([string]$Path, [string[]]$Arguments, [int]$Minutes, [string]$Log) {
-  $job = Start-ThreadJob -ArgumentList $Path, $Arguments -ScriptBlock {
-    param($Path, $Arguments)
-    (Start-Process -FilePath $Path -ArgumentList $Arguments -Wait -PassThru).ExitCode
+  $root = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
+  $null = $root.Handle
+  $tree = @{ [int]$root.Id = $root }
+  $deadline = [DateTime]::UtcNow.AddMinutes($Minutes)
+  while ($true) {
+    foreach ($process in @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CreationDate)) {
+      $id = [int]$process.ProcessId
+      $parent = $tree[[int]$process.ParentProcessId]
+      # Not one already held, and started by a member while it ran (its pid
+      # may have gone to another program since).
+      if ($tree.ContainsKey($id) -or -not $parent -or $process.CreationDate -lt $parent.StartTime -or
+        ($parent.HasExited -and $process.CreationDate -gt $parent.ExitTime)) { continue }
+      $child = Get-Process -Id $id -ErrorAction SilentlyContinue
+      if ($child) { $null = $child.Handle; $tree[$id] = $child }
+    }
+    if (@($tree.Values | Where-Object { -not $_.HasExited }).Count -eq 0) { return $root.ExitCode }
+    if ([DateTime]::UtcNow -ge $deadline) { break }
+    Start-Sleep -Milliseconds 250
   }
-  if (-not (Wait-Job -Job $job -Timeout ($Minutes * 60))) {
-    Show-Stuck $Log
-    throw "smoke: $(Split-Path -Leaf $Path) $($Arguments -join ' ') didn't end within $Minutes minutes"
+  Show-Stuck $Log
+  foreach ($process in $tree.Values) {
+    if (-not $process.HasExited) { $process.Kill(); $null = $process.WaitForExit(10000) }
   }
-  Receive-Job -Job $job -Wait -AutoRemoveJob -ErrorAction Stop
+  throw "smoke: $(Split-Path -Leaf $Path) $($Arguments -join ' ') didn't end within $Minutes minutes (it and the $($tree.Count - 1) processes it started are stopped)"
 }
 
 # Runs the installer or uninstaller silently and waits for it, its second
