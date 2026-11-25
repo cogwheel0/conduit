@@ -240,6 +240,11 @@ T _locksOf<T extends ChatLocks>(
   T Function() create,
 ) => database == null ? create() : byDatabase[database] ??= create();
 
+/// The chat locks of [database], the same for every reader while it lives:
+/// for work that keeps a database of its own past an account switch.
+ConversationLocks chatLocksOf(AppDatabase database) =>
+    _locksOf(_chatLocksByDatabase, database, ConversationLocks.new);
+
 /// The chat locks of the signed-in account's database; see
 /// [_chatLocksByDatabase].
 @Riverpod(keepAlive: true)
