@@ -92,9 +92,10 @@ final class _ScriptedChat {
           'status': 'started',
         });
       })
-      ..on('POST', '/api/agents/chat/abort', (request, match) {
+      ..on('POST', '/api/agents/chat/abort', (request, match) async {
         aborts.add(Map<String, dynamic>.from(request.data as Map));
         _abortSeen.add(null);
+        await abortHold?.future;
         emit({
           'final': true,
           'aborted': true,
@@ -152,6 +153,10 @@ final class _ScriptedChat {
   final FakeLibreChatServer fake;
   final List<Map<String, dynamic>> starts = <Map<String, dynamic>>[];
   final List<Map<String, dynamic>> aborts = <Map<String, dynamic>>[];
+
+  /// Holds the server's answer to an abort, and its aborted frame, until it
+  /// completes.
+  Completer<void>? abortHold;
 
   final _streamOpened = StreamController<void>.broadcast(sync: true);
   final _abortSeen = StreamController<void>.broadcast(sync: true);
@@ -1883,7 +1888,8 @@ void main() {
       await _until(() => !visible().last.isStreaming);
     });
 
-    test('a paused tool is approved through the paused turn\'s settings',
+    test('a paused tool is approved through the paused turn\'s settings, '
+        'and takes no answer once Stop is pressed',
         () async {
       final resumes = <Map<String, dynamic>>[];
       fake.on('POST', '/api/agents/chat/resume', (request, match) {
@@ -1946,7 +1952,55 @@ void main() {
         visible().last.metadata?.containsKey(kLibreChatPendingActionKey),
       ).equals(false);
       check(libreChatPendingActionFor(container, replyId)).isNull();
-      chat.finish('a-srv', 'hi');
+
+      // Paused again, then stopped. Until the server lets the run go (its
+      // abort held), the pause is gone, and an answer is refused and sent
+      // nowhere.
+      chat.emit({
+        'event': 'on_pending_action',
+        'data': {
+          'actionId': 'act_2',
+          'conversationId': 'conv-new',
+          'payload': {
+            'type': 'tool_approval',
+            'action_requests': [
+              {'name': 'echo_mcp_everything', 'tool_call_id': 'call_two'},
+            ],
+            'review_configs': [
+              {
+                'tool_call_id': 'call_two',
+                'allowed_decisions': ['approve', 'reject'],
+              },
+            ],
+          },
+        },
+      });
+      await _until(
+        () => libreChatPendingActionFor(container, replyId) != null,
+      );
+      chat.abortHold = Completer<void>();
+      final aborted = chat.nextAbort;
+      container.read(stopGenerationProvider)();
+      await aborted;
+      check(libreChatPendingActionFor(container, replyId)).isNull();
+      // The reply no longer carries it, so no card (the phone's overlay
+      // included) offers it.
+      check(
+        visible().last.metadata?.containsKey(kLibreChatPendingActionKey),
+      ).equals(false);
+      await check(
+        resolveLibreChatPendingAction(
+          container,
+          replyId,
+          decisions: {
+            'call_two': const LibreChatToolDecisionInput(
+              LibreChatToolDecision.approve,
+            ),
+          },
+        ),
+      ).throws<StateError>();
+      check(resumes).length.equals(1);
+      chat.abortHold!.complete();
       await send;
     });
 

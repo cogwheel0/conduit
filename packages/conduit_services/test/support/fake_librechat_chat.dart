@@ -49,8 +49,10 @@ final class FakeLibreChatChat {
           'status': 'started',
         });
       })
-      ..on('POST', '/api/agents/chat/abort', (request, match) {
+      ..on('POST', '/api/agents/chat/abort', (request, match) async {
         aborts.add(request.data);
+        if (!abortAsked.isCompleted) abortAsked.complete();
+        await abortHold?.future;
         if (!_streams.last.isClosed) {
           _emit({
             'final': true,
@@ -95,6 +97,13 @@ final class FakeLibreChatChat {
   /// The bodies of the aborts asked for (LibreChat's Stop). Each ends the
   /// reply stream with the server's aborted final frame.
   final List<Object?> aborts = <Object?>[];
+
+  /// Completes once the first abort is asked for.
+  final Completer<void> abortAsked = Completer<void>();
+
+  /// Holds the server's answer to an abort, and its aborted frame, until it
+  /// completes.
+  Completer<void>? abortHold;
 
   /// The bodies `POST /api/agents/chat/resume` took: the answers to a
   /// paused run ([paused]).

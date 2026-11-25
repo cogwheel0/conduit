@@ -1638,6 +1638,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// then the turn is finished.
   Future<void> _stopTurn(_ChatSession session, _Turn turn) async {
     turn.stopped = true;
+    _withdrawLibreChatPause(session);
     if (turn.clientOwned) {
       await _stopClientRun(session, turn);
     } else {
@@ -3476,6 +3477,15 @@ final class TurnsService implements ChatTurns, AddressReplies {
     }
   }
 
+  /// Takes back, now, the card of the LibreChat pause [session]'s turn
+  /// waits on: Stop ends the pause at the press, though the server holds the
+  /// run until its aborted frame comes.
+  void _withdrawLibreChatPause(_ChatSession session) {
+    final waiting = session.libreChatPause;
+    session.libreChatPause = null;
+    waiting?.withdraw();
+  }
+
   /// Puts what a LibreChat run paused on to the windows and resumes it
   /// ([answerLibreChatPause]), for the turn writing [messageId].
   Future<void> _answerLibreChatAction(
@@ -3515,6 +3525,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     bool asking() =>
         account.isCurrent &&
         !turn.finished &&
+        !turn.stopped &&
         identical(session.turn, turn) &&
         !scope.isDisposed &&
         libreChatPendingActionFor(scope.container, messageId)?.actionId ==
@@ -4247,6 +4258,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   Future<void> _closeAfterStop(_ChatSession session, _Turn turn) async {
     await Future<void>.value();
     turn.stopped = true;
+    _withdrawLibreChatPause(session);
     await _stopClientRun(session, turn);
     if (!session.scope.isDisposed) _project(session);
     if (!turn.finished) {

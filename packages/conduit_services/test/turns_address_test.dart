@@ -468,6 +468,7 @@ void main() {
     Future<
       ({
         UiRequestsService windows,
+        TurnsService pausing,
         FakeLibreChatChat libreChat,
         LibreChatSignInResult signedIn,
         SendTurnAccepted turn,
@@ -567,6 +568,7 @@ void main() {
       expect(card.messageArgs['chatId'], turn.chatId);
       return (
         windows: windows,
+        pausing: pausing,
         libreChat: libreChat,
         signedIn: signedIn,
         turn: turn,
@@ -582,6 +584,7 @@ void main() {
         'as it changes sends nothing', () async {
       final (
         :windows,
+        :pausing,
         :libreChat,
         :signedIn,
         :turn,
@@ -626,9 +629,10 @@ void main() {
 
     test('a LibreChat pause answered elsewhere takes its card back when the '
         'resumed stream no longer has it, or has another in its place, before '
-        'the next pause is put', () async {
+        'the next pause is put, and when Stop is pressed', () async {
       final (
         :windows,
+        :pausing,
         :libreChat,
         :signedIn,
         :turn,
@@ -697,6 +701,23 @@ void main() {
       expect(windows.pending.map((r) => r.messageArgs['title']), [
         'lookup_wind',
       ]);
+
+      // Stop pressed while the server still holds the run (its abort
+      // held): the card goes at the press, and an answer given then is
+      // taken by nothing.
+      final wind = windows.pending.single;
+      libreChat.abortHold = Completer<void>();
+      final stopping = pausing.stop(turn.chatId);
+      expect(seen.last, 'settled', reason: 'the card outlived the Stop');
+      expect(
+        windows.respond(
+          UiResponse(requestId: wind.requestId, choice: 'approve'),
+        ),
+        isFalse,
+      );
+      await clock.during(libreChat.abortAsked.future);
+      libreChat.abortHold!.complete();
+      await clock.during(stopping);
       expect(libreChat.resumes, isEmpty);
     });
   });

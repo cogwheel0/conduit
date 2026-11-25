@@ -267,6 +267,15 @@ final class LibreChatRunRegistry {
   Future<void> stop(LibreChatRun run) async {
     if (run.isDone) return;
     run._stopRequested = true;
+    // A pause the run waits on is over from the press: its card goes now,
+    // not when the server's aborted frame comes.
+    if (run.pendingAction != null) {
+      final assistant = run.assistant;
+      if (assistant != null) run.assistant = _withoutPendingAction(assistant);
+      _ref
+          .read(chatMessagesProvider.notifier)
+          .updateMessageById(run.assistantMessageId, _withoutPendingAction);
+    }
     final fallback = Timer(_ref.read(libreChatStopFallbackProvider), () {
       if (run.isDone) return;
       DebugLogger.warning('stop-fallback', scope: 'librechat/turn');
@@ -1455,7 +1464,10 @@ LibreChatPendingAction? libreChatPendingActionFor(
 ) {
   final registry =
       ref.read(libreChatRunRegistryProvider) as LibreChatRunRegistry;
-  final action = registry.forMessage(messageId)?.pendingAction;
+  final run = registry.forMessage(messageId);
+  // Once Stop is pressed the pause is over, though the server still holds
+  // it until its aborted frame comes: nothing more is put to the user.
+  final action = run == null || run._stopRequested ? null : run.pendingAction;
   return action == null ? null : LibreChatPendingAction(action);
 }
 
@@ -1478,7 +1490,9 @@ Future<void> resolveLibreChatPendingAction(
       ref.read(libreChatStreamClientProvider) as LibreChatStreamClient?;
   final run = registry.forMessage(messageId);
   final raw = run?.pendingAction;
-  if (run == null || raw == null || streams == null) {
+  // A run the user stopped takes no answer, though the server has not let
+  // it go yet: it would carry on past the Stop.
+  if (run == null || raw == null || streams == null || run._stopRequested) {
     throw StateError('The paused LibreChat reply is no longer running.');
   }
   final answering = run._answering;
