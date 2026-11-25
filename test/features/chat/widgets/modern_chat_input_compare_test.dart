@@ -9,6 +9,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/features/chat/composer/composer_draft_store.dart';
+import 'package:conduit_core/features/chat/composer/composer_recording_store.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -103,6 +105,7 @@ void main() {
     draftHost,
     bool hostsComparison = true,
     List<Model>? savedComparison,
+    ComposerDraftStore? draftStore,
   }) async {
     sends = [];
     ordinarySends = [];
@@ -111,6 +114,21 @@ void main() {
     }
     final container = ProviderContainer(
       overrides: [
+        if (draftStore != null)
+          composerDraftContextProvider.overrideWith(
+            (ref) => (
+              owner: (
+                backend: 'account',
+                account: 'synthetic',
+                principal: '',
+                session: null,
+              ),
+              scope: 'chat',
+              chatId: chatId!,
+              store: draftStore,
+              temporary: false,
+            ),
+          ),
         selectedModelProvider.overrideWith(() => _Selected(alpha)),
         activeConversationProvider.overrideWith(
           () => _Active(chatId == null ? null : _stored(chatId)),
@@ -273,6 +291,41 @@ void main() {
     });
     await settle(tester);
   }
+
+  composerTest('accepted input clears before local draft cleanup finishes', (
+    tester,
+  ) async {
+    final cleanup = _DelayedDraftStore(db);
+    late ProviderContainer container;
+    container = await pump(
+      tester,
+      draftStore: cleanup,
+      draftHost: (_, _, onPrepared) async {
+        final handle = chatSendPlaceholderHandleForTest(
+          assistantMessageId: 'synthetic-reply',
+          ref: container,
+          owner: container.read(activeConversationProvider),
+        );
+        onPrepared(handle);
+        return handle;
+      },
+    );
+    await tester.enterText(find.byType(TextField), 'Send this once');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await tester.pump();
+    expect(cleanup.started.isCompleted, isTrue);
+    await cleanup.started.future;
+    try {
+      expect(composerText(tester), isEmpty);
+      await tester.enterText(find.byType(TextField), 'Keep the next draft');
+    } finally {
+      cleanup.finish.completeError(StateError('Synthetic disk failure'));
+      await tester.pump();
+      await cleanup.finished.future;
+    }
+    expect(composerText(tester), 'Keep the next draft');
+  });
 
   composerTest('a refused ordinary send retains its text and audio draft', (
     tester,
@@ -747,3 +800,42 @@ final class _SignInEpoch extends Notifier<Object> {
 }
 
 final _signInEpoch = NotifierProvider<_SignInEpoch, Object>(_SignInEpoch.new);
+
+class _DelayedDraftStore extends ComposerDraftStore {
+  _DelayedDraftStore(super.database);
+  String? _content;
+  @override
+  final recordings = _EmptyRecordings();
+  @override
+  Future<String?> read(String scope, String chatId) async => _content;
+  @override
+  Future<void> save(String scope, String chatId, String content) async {
+    _content = content;
+  }
+
+  @override
+  Future<void> flush() async {}
+
+  final started = Completer<void>();
+  final finish = Completer<void>();
+  final finished = Completer<void>();
+  @override
+  Future<void> clearIfUnchanged(
+    String scope,
+    String chatId,
+    String content,
+  ) async {
+    started.complete();
+    try {
+      await finish.future;
+    } finally {
+      finished.complete();
+    }
+  }
+}
+
+class _EmptyRecordings extends Fake implements ComposerRecordingStore {
+  @override
+  Stream<List<ComposerRecording>> watch(String scope, String chatId) =>
+      Stream.value(const []);
+}

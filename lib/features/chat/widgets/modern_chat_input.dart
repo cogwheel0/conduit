@@ -1703,8 +1703,28 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       files,
       (handle) => _draftSendOwner = handle,
     );
+    // Start retiring the captured snapshot before clearing the visible input.
+    final retireDraft = committed == null
+        ? null
+        : _draftBinding?.markSent(originDraft, sentSnapshot);
+    // Clear only the composer that sent the turn: same account, showing the
+    // chat the turn went into, and not edited since.
+    if (committed != null &&
+        sameAccount() &&
+        committed.ownsActiveChat(ref) &&
+        draftGeneration == _editGeneration) {
+      _controller.clearMentions();
+      _controller.clear();
+      _focusNode.unfocus();
+      unawaited(_hideAttachmentPanels());
+      try {
+        SystemChannels.textInput.invokeMethod('TextInput.hide');
+      } catch (_) {
+        // Silently handle if keyboard dismissal fails
+      }
+    }
     if (committed != null) {
-      await _draftBinding?.markSent(originDraft, sentSnapshot);
+      await retireDraft;
       try {
         for (final id in recordings) {
           await originDraft.store?.recordings.discard(id);
@@ -1718,23 +1738,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           );
         }
       }
-    }
-    // Clear only the composer that sent the turn: same account, showing the
-    // chat the turn went into, and not edited since.
-    if (committed == null ||
-        !sameAccount() ||
-        !committed.ownsActiveChat(ref) ||
-        draftGeneration != _editGeneration) {
-      return;
-    }
-    _controller.clearMentions();
-    _controller.clear();
-    _focusNode.unfocus();
-    unawaited(_hideAttachmentPanels());
-    try {
-      SystemChannels.textInput.invokeMethod('TextInput.hide');
-    } catch (_) {
-      // Silently handle if keyboard dismissal fails
     }
   }
 
