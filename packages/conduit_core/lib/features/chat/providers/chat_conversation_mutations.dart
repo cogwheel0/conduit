@@ -249,6 +249,7 @@ Future<bool> renameOpenWebUiConversation(
       databases.serverIdForDatabase(database) != null) {
     throw const OpenWebUiAccountChangedException();
   }
+  int? writtenAt;
   try {
     // A title being generated for this chat waits for the rename, and keeps
     // it.
@@ -258,6 +259,7 @@ Future<bool> renameOpenWebUiConversation(
         if (!current()) throw const OpenWebUiAccountChangedException();
         await api.updateConversation(rawId, title: title);
         database?.chatsDao.noteTitleWritten(rawId, title);
+        writtenAt = database?.chatsDao.localTitleClock;
         await database?.chatsDao.updateServerGeneratedTitle(
           rawId,
           title,
@@ -268,7 +270,15 @@ Future<bool> renameOpenWebUiConversation(
   } finally {
     await lease?.release();
   }
-  return current();
+  if (!current()) return false;
+  // Shown as stored, after a title written before it and applied later (one
+  // generated while the rename waited for the chat), unless one is written
+  // after it.
+  _readProvider(
+    ref,
+    conversationsProvider.notifier,
+  ).applyServerGeneratedTitle(rawId, title, titleSince: writtenAt);
+  return true;
 }
 
 /// Renames a LibreChat chat: locally at once, on the server when the outbox

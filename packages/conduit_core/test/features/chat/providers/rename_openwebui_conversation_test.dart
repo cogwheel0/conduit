@@ -87,8 +87,11 @@ final class _ServerApi extends ApiService {
   }) async {
     if (!titleAsked.isCompleted) titleAsked.complete();
     await titleGate?.future;
-    return _renamed;
+    return generatedTitle;
   }
+
+  /// The title the model writes.
+  String generatedTitle = _renamed;
 }
 
 /// The signed-in account's database, which a sign-in elsewhere replaces.
@@ -465,6 +468,81 @@ void main() {
     await pull.pullChat(_chatId);
     expect(serverTitle(), _renamed);
     expect(await storedTitle(), _renamed);
+  });
+
+  test('a rename that waited for a generated title is the title stored, '
+      'shown, and sent by the next save', () async {
+    const generated = 'Made by the model';
+    api
+      ..generatedTitle = generated
+      ..gate = Completer<void>();
+    final chats = container.read(conversationsProvider.notifier);
+    await container.read(conversationsProvider.future);
+    chats.upsertConversation(
+      Conversation(
+        id: _chatId,
+        title: _title,
+        createdAt: DateTime.utc(2026, 11, 1),
+        updatedAt: DateTime.utc(2026, 11, 1),
+      ),
+    );
+    final generating = generateConversationTitle(
+      container,
+      _chatId,
+      selectedModelId: 'llama3',
+    );
+    await api.asked.future;
+    // Behind the title generation's locks, which hold for its server write.
+    final renaming = renameOpenWebUiConversation(container, _chatId, _renamed);
+    api.gate!.complete();
+    await generating;
+    await renaming;
+    await locks.runExclusive(_chatId, () async {});
+
+    expect(serverTitle(), _renamed);
+    expect(await storedTitle(), _renamed);
+    expect(await storedServerTitle(), _renamed);
+    expect(
+      container.read(conversationsProvider).requireValue.single.title,
+      _renamed,
+    );
+    await queueSave();
+    await drainer.drain();
+    expect(serverTitle(), _renamed);
+  });
+
+  test('a title event received while a rename waits for the chat does not '
+      'replace the rename, stored or shown', () async {
+    final chats = container.read(conversationsProvider.notifier);
+    await container.read(conversationsProvider.future);
+    chats.upsertConversation(
+      Conversation(
+        id: _chatId,
+        title: _title,
+        createdAt: DateTime.utc(2026, 11, 1),
+        updatedAt: DateTime.utc(2026, 11, 1),
+      ),
+    );
+    final saving = Completer<void>();
+    final save = locks.runExclusive(_chatId, () => saving.future);
+    final renaming = renameOpenWebUiConversation(container, _chatId, _renamed);
+    await pumpEventQueue();
+
+    chats.applyServerGeneratedTitle(_chatId, 'Made by the server');
+    saving.complete();
+    await save;
+    await renaming;
+    await locks.runExclusive(_chatId, () async {});
+
+    expect(await storedTitle(), _renamed);
+    expect(await storedServerTitle(), _renamed);
+    expect(
+      container.read(conversationsProvider).requireValue.single.title,
+      _renamed,
+    );
+    await queueSave();
+    await drainer.drain();
+    expect(serverTitle(), _renamed);
   });
 
   test('a rename the server refuses leaves the chat its title', () async {

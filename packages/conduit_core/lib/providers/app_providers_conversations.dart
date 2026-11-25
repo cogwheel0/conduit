@@ -739,7 +739,16 @@ class Conversations extends _$Conversations {
   /// Title generation updates the server row and blob but does not advance the
   /// server watermark. Persist the event directly so a title cannot remain
   /// stale merely because the row is outside the loaded page.
-  void applyServerGeneratedTitle(String serverId, String title) {
+  ///
+  /// Written later, so [titleSince] is the [ChatsDao.localTitleClock] of the
+  /// write [title] comes from, or, by default, of the moment it arrived: a
+  /// title this device wrote since (a rename that waited for the chat) is
+  /// neither replaced nor hidden.
+  void applyServerGeneratedTitle(
+    String serverId,
+    String title, {
+    int? titleSince,
+  }) {
     final normalizedTitle = title.trim();
     final identity = ChatStorageIdentity.parse(serverId);
     final rawId = identity.rawId;
@@ -757,12 +766,17 @@ class Conversations extends _$Conversations {
       return;
     }
     final locks = ref.read(chatLocksProvider);
+    final since = titleSince ?? db.chatsDao.localTitleClock;
     unawaited(
       locks
           .runExclusive(
             rawId,
-            () =>
-                db.chatsDao.updateServerGeneratedTitle(rawId, normalizedTitle),
+            () async => db.chatsDao.titleWrittenSince(rawId, since)
+                ? null
+                : db.chatsDao.updateServerGeneratedTitle(
+                    rawId,
+                    normalizedTitle,
+                  ),
           )
           .then<void>((persistedTitle) {
             if (persistedTitle != null) {
