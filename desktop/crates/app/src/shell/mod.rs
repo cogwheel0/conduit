@@ -9,8 +9,9 @@
 //! aloud's voices and player ([`speech_engine`]) and Now Playing
 //! ([`now_playing`]); the desktop widget's snapshot ([`widget`]); the
 //! Share extension's inbox ([`share_inbox`]) and "Ask Conduit" in the
-//! Services menu ([`services`]); and Apple's on-device model
-//! ([`apple_models`]).
+//! Services menu ([`services`]); Apple's on-device model
+//! ([`apple_models`]); and the third-party notices in a plain-text app
+//! ([`notices`]).
 
 pub mod app_prompt;
 pub mod apple_models;
@@ -29,6 +30,7 @@ pub mod logger;
 pub mod login_item;
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod notices;
 #[cfg(target_os = "macos")]
 pub mod notifications;
 pub mod notify;

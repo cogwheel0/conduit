@@ -1212,6 +1212,7 @@ dependencies = [
  "conduit-desktop",
  "conduit-protocol",
  "futures",
+ "gio",
  "global-hotkey",
  "gpui-kit",
  "gpui-webview",

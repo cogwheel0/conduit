@@ -5,4 +5,5 @@ Exec=/usr/bin/conduit-desktop %U
 Icon=conduit-desktop
 Terminal=false
 Categories=Network;Chat;
-MimeType=x-scheme-handler/conduit;application/pdf;text/plain;text/markdown;text/csv;application/json;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.openxmlformats-officedocument.presentationml.presentation;image/png;image/jpeg;image/gif;image/webp;
+StartupWMClass=conduit-desktop
+MimeType=x-scheme-handler/conduit;application/pdf;text/plain;image/png;image/jpeg;image/gif;image/webp;

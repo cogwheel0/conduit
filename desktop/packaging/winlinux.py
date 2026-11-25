@@ -9,6 +9,9 @@ library only, so it runs on every build and test machine.
   winlinux.py types windows|linux  the file types the app opens: the Mac's
                                    CFBundleDocumentTypes (macos/Info.plist)
                                    as extensions or MIME types, one a line
+  winlinux.py types desktop-entry  the MIME types the Linux desktop entry
+                                   lists for them (never one whose parent
+                                   type would reach its default app)
   winlinux.py layout DIR --os windows|linux
                                    checks an install folder (or the staged
                                    one): the app, conduitd beside it as
@@ -41,6 +44,11 @@ library only, so it runs on every build and test machine.
                                    that OS (notices.sh --target)
   winlinux.py gone PATH...         fails, listing them, if any of the files
                                    or folders is still there (an uninstall)
+  winlinux.py forget-handler LIST TYPE ENTRY
+                                   takes desktop entry ENTRY out of TYPE's
+                                   lists in mimeapps.list LIST, written only
+                                   if it named it (crates/app/run.sh
+                                   --unregister-scheme)
   winlinux.py ico OUT PNG...       packs square PNGs of up to 256 px into OUT
 """
 
@@ -129,6 +137,33 @@ def windows_extensions(plist=INFO_PLIST):
 
 def linux_mime_types(plist=INFO_PLIST):
     return [mime for _, mimes in map_types(mac_document_types(plist)) for mime in mimes]
+
+
+# What the Linux desktop entry lists in place of a type whose parent type
+# reaches its default app (None: nothing). GIO, and so GNOME's file manager
+# and xdg-open, takes an app that lists a type itself before the default of
+# the type's parent, so listed themselves these would open in Conduit:
+# Markdown, CSV and JSON wherever only text/plain has a default (GNOME), the
+# Office formats wherever no office suite is installed (application/zip's
+# default, the Archive Manager, opens them otherwise). text/plain keeps
+# Conduit in the first three's Open With.
+LISTED_AS = {
+    "text/markdown": "text/plain",
+    "text/csv": "text/plain",
+    "application/json": "text/plain",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": None,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": None,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": None,
+}
+
+
+def desktop_entry_types(plist=INFO_PLIST):
+    listed = []
+    for mime in linux_mime_types(plist):
+        mime = LISTED_AS.get(mime, mime)
+        if mime is not None and mime not in listed:
+            listed.append(mime)
+    return listed
 
 
 # --- PE imports -------------------------------------------------------------
@@ -422,6 +457,23 @@ def leftovers(paths):
     return left
 
 
+def forget_handler(text, mime_type, entry):
+    """`text` (a mimeapps.list) with desktop entry `entry` taken out of
+    `mime_type`'s lists in every group, and a key left with none dropped."""
+    out = []
+    for line in text.splitlines(keepends=True):
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == mime_type:
+            entries = [e.strip() for e in value.strip().split(";") if e.strip()]
+            if entry in entries:
+                kept = [e for e in entries if e != entry]
+                if not kept:
+                    continue
+                line = f"{key}={';'.join(kept)};\n"
+        out.append(line)
+    return "".join(out)
+
+
 # --- icons ------------------------------------------------------------------
 
 
@@ -456,7 +508,7 @@ def main(argv):
     p.add_argument("version")
     p.add_argument("--windows", action="store_true")
     p = sub.add_parser("types")
-    p.add_argument("os", choices=["windows", "linux"])
+    p.add_argument("os", choices=["windows", "linux", "desktop-entry"])
     p = sub.add_parser("layout")
     p.add_argument("dir")
     p.add_argument("--os", required=True, choices=["windows", "linux"])
@@ -474,6 +526,10 @@ def main(argv):
     p.add_argument("dir")
     p = sub.add_parser("gone")
     p.add_argument("paths", nargs="+")
+    p = sub.add_parser("forget-handler")
+    p.add_argument("list")
+    p.add_argument("mime_type")
+    p.add_argument("entry")
     p = sub.add_parser("ico")
     p.add_argument("out")
     p.add_argument("pngs", nargs="+")
@@ -483,7 +539,9 @@ def main(argv):
         if args.command == "version":
             print(windows_file_version(args.version) if args.windows else check_version(args.version))
         elif args.command == "types":
-            print("\n".join(windows_extensions() if args.os == "windows" else linux_mime_types()))
+            types = {"windows": windows_extensions, "linux": linux_mime_types,
+                     "desktop-entry": desktop_entry_types}[args.os]()
+            print("\n".join(types))
         elif args.command == "layout":
             problems = layout_problems(args.dir, args.os)
             for problem in problems:
@@ -536,6 +594,14 @@ def main(argv):
             if left:
                 return 1
             print(f"none of the {len(args.paths)} paths is left")
+        elif args.command == "forget-handler":
+            path = Path(args.list)
+            if path.is_file():
+                text = path.read_text(encoding="utf-8")
+                kept = forget_handler(text, args.mime_type, args.entry)
+                if kept != text:
+                    path.write_text(kept, encoding="utf-8")
+                    print(f"{path}: {args.entry} is no longer listed for {args.mime_type}")
         elif args.command == "ico":
             Path(args.out).write_bytes(ico([Path(p).read_bytes() for p in args.pngs]))
     except ValueError as e:

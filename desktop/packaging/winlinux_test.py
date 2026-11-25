@@ -182,6 +182,41 @@ class FeedVersions(unittest.TestCase):
         )
 
 
+def pascal_body(text, signature):
+    """An Inno [Code] routine from its signature to its closing `end;`."""
+    body = text[text.index(signature):]
+    return body[:body.index("\nend;")]
+
+
+def pascal_call_args(text, name):
+    """The argument text of each call to `name` (it ends with "("), up to
+    its matching parenthesis, quotes skipped."""
+    calls, at = [], 0
+    while (at := text.find(name, at)) >= 0:
+        if at > 0 and (text[at - 1].isalnum() or text[at - 1] == "_"):
+            at += len(name)
+            continue
+        i, depth, quoted = at + len(name), 1, False
+        while depth:
+            c = text[i]
+            if c == "'":
+                quoted = not quoted
+            elif not quoted and c in "()":
+                depth += 1 if c == "(" else -1
+            i += 1
+        calls.append(text[at + len(name):i - 1])
+        at = i
+    return calls
+
+
+def entry_mime_types():
+    line = next(
+        l for l in DESKTOP_ENTRY.read_text(encoding="utf-8").splitlines()
+        if l.startswith("MimeType=")
+    )
+    return line[len("MimeType="):].rstrip(";").split(";")
+
+
 class FileTypes(unittest.TestCase):
     """The Mac's document types (Info.plist) are the source for Windows'
     Open With registrations and the Linux desktop entry's MIME types."""
@@ -207,14 +242,32 @@ class FileTypes(unittest.TestCase):
         self.assertEqual(supported, want)
 
     def test_the_desktop_entry_lists_the_scheme_and_the_mac_types(self):
-        line = next(
-            l for l in DESKTOP_ENTRY.read_text(encoding="utf-8").splitlines()
-            if l.startswith("MimeType=")
-        )
         self.assertEqual(
-            line[len("MimeType="):].rstrip(";").split(";"),
-            ["x-scheme-handler/conduit"] + winlinux.linux_mime_types(INFO_PLIST),
+            entry_mime_types(),
+            ["x-scheme-handler/conduit"] + winlinux.desktop_entry_types(INFO_PLIST),
         )
+
+    def test_the_desktop_entry_lists_no_type_a_parent_type_reaches(self):
+        # GIO (GNOME's file manager, and xdg-open there) takes an app that
+        # lists a type itself before its parent type's default. Listed,
+        # Markdown, CSV and JSON would open in Conduit wherever only
+        # text/plain has a default (GNOME), and Word, Excel and PowerPoint
+        # files wherever no office suite is installed (application/zip's
+        # default, the Archive Manager, opens them otherwise).
+        listed = entry_mime_types()
+        for parent_reaches in [
+            "text/markdown",
+            "text/csv",
+            "application/json",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ]:
+            self.assertIn(parent_reaches, winlinux.linux_mime_types(INFO_PLIST))
+            self.assertNotIn(parent_reaches, listed)
+        # Open With still offers Conduit for them: text/plain's apps are
+        # theirs too.
+        self.assertIn("text/plain", listed)
 
 
 class InstallerIdentity(unittest.TestCase):
@@ -241,8 +294,72 @@ class UpdateInstall(unittest.TestCase):
         self.assertIn('Filename: "{app}\\conduit-desktop.exe"', run)
         self.assertNotIn("skipifsilent", run)
         self.assertIn("ExpandConstant('{param:RELAUNCH|0}') = '1'", text)
-        # A running Conduit and its conduitd are closed first.
-        self.assertIn("\nCloseApplications=force\n", text)
+        # A running Conduit and its conduitd are closed first, before Setup
+        # replaces and Uninstall removes their files, by [Code] over the
+        # processes running from the app's folder: never Inno's
+        # CloseApplications, which shuts down every program and service
+        # with those files open.
+        self.assertIn("\nCloseApplications=no\n", text)
+        prepare = pascal_body(text, "function PrepareToInstall(")
+        # A listing Restart Manager couldn't make can't say Conduit isn't
+        # running: both gates stop on it as on a failed close.
+        self.assertTrue("function FindRunningApp(" in text, "FindRunningApp doesn't report whether it could list")
+        find = pascal_body(text, "function FindRunningApp(")
+        self.assertIn("): Boolean;", find.splitlines()[0])
+        self.assertIn("Result := False;", find)
+        for call in ("RmStartSession", "RmRegisterResources", "RmGetList"):
+            self.assertIn(f"Restart Manager: {call} failed", find)
+        self.assertRegex(prepare, r"if not FindRunningApp\(Ours, Names\) then\s+begin\s+Result := SetupMessage\(msgErrorCloseApplications\)")
+        # A Conduit that didn't end, or one started meanwhile and still there
+        # after a few rounds, stops the install: files in use can't be
+        # replaced.
+        self.assertRegex(prepare, r"if not CloseUntilNoneRun\(Ours, Names\) then\s+Result := SetupMessage\(msgErrorCloseApplications\)")
+        self.assertTrue("function CloseUntilNoneRun(" in text, "no listing again after the close")
+        rounds = pascal_body(text, "function CloseUntilNoneRun(")
+        self.assertRegex(rounds, r"for Round := 1 to CloseRounds do")
+        self.assertLess(rounds.index("CloseProcesses(Ours)"), rounds.index("FindRunningApp(Ours, Names)"))
+        # The uninstall stops before removing anything unless Conduit ended:
+        # Inno's own running-app question (OK tries again), then Abort,
+        # which ends Uninstall from usUninstall.
+        uninstall = pascal_body(text, "procedure CurUninstallStepChanged(")
+        self.assertRegex(uninstall, r"if FindRunningApp\(Ours, Names\) then\s+if CloseUntilNoneRun\(Ours, Names\) then\s+Exit;")
+        for used in ("usUninstall", "SetupMessage(msgUninstallAppRunningError)",
+                     "MB_OKCANCEL, IDCANCEL", "Abort;"):
+            self.assertIn(used, uninstall)
+        # Closing succeeds only once each process has really ended, waited
+        # on by handle, a reused pid told apart by its start time.
+        close = pascal_body(text, "function CloseProcesses(")
+        self.assertIn("): Boolean;", close.splitlines()[0])
+        self.assertIn("ProcessEnded(", close)
+        ended = pascal_body(text, "function ProcessEnded(")
+        for used in ("WaitForSingleObject(", "GetProcessTimes(", "StartTimeLow", "ERROR_ACCESS_DENIED"):
+            self.assertIn(used, ended)
+        # Run by hand, Setup asks first, in Inno's own translated words (its
+        # Preparing to Install page's); No stops it with Inno's message.
+        for used in ("not WizardSilent", "SuppressibleMsgBox(", "SetupMessage(msgApplicationsFound)",
+                     "SetupMessage(msgCloseApplications)", "Result := SetupMessage(msgErrorCloseApplications)"):
+            self.assertIn(used, prepare)
+        # RmShutdown runs only in a session that registers Conduit's own
+        # processes, never the files.
+        self.assertNotIn("RmShutdown(", find)
+        # Conduit's processes are the ones running from its folder, whatever
+        # Restart Manager calls them: to an unelevated Setup, an elevated
+        # Conduit is "critical", and leaving it alone let the uninstall go on.
+        self.assertNotIn("AppType <>", find)
+        self.assertIn("RmShutdown(", close)
+        self.assertIn("RmRegisterProcess(", close)
+        self.assertNotIn("RmRegisterFiles(", close)
+
+    def test_the_installer_shows_inno_setups_words_only(self):
+        # New text would need a translation in every language the installer
+        # has: what [Code] shows comes from Inno's messages (SetupMessage).
+        code = ISS.read_text(encoding="utf-8").split("\n[Code]\n", 1)[1]
+        shown = [a for name in ("MsgBox(", "SuppressibleMsgBox(", "TaskDialogMsgBox(") for a in pascal_call_args(code, name)]
+        shown += re.findall(r"Result := (.*?);", pascal_body(code, "function PrepareToInstall("), re.S)
+        self.assertGreaterEqual(len(shown), 2)
+        for text in shown:
+            # A preprocessor value ('{#AppName}') is the product's name.
+            self.assertIsNone(re.search(r"'(?!\{#\w+\}')[^']*[A-Za-z][^']*'", text), text)
 
 
 class PeImports(unittest.TestCase):
@@ -504,6 +621,53 @@ class Leftovers(unittest.TestCase):
         tree = Tree(self)
         (tree.root / "Conduit").mkdir()
         self.assertEqual(winlinux.leftovers([tree.root / "Conduit"]), [str(tree.root / "Conduit")])
+
+
+class ForgetHandler(unittest.TestCase):
+    """crates/app/run.sh --unregister-scheme takes the dev entry out of the
+    user's mimeapps.list, where xdg-mime made it conduit://'s default."""
+
+    LIST = (
+        "[Default Applications]\n"
+        "x-scheme-handler/conduit=conduit-dev.desktop;\n"
+        "text/plain=org.example.Editor.desktop;\n"
+        "\n"
+        "[Added Associations]\n"
+        "x-scheme-handler/conduit=conduit-dev.desktop;conduit-desktop.desktop;\n"
+        "text/plain=conduit-dev.desktop;\n"
+    )
+
+    def test_takes_out_only_that_entry_for_that_type(self):
+        self.assertEqual(
+            winlinux.forget_handler(self.LIST, "x-scheme-handler/conduit", "conduit-dev.desktop"),
+            "[Default Applications]\n"
+            "text/plain=org.example.Editor.desktop;\n"
+            "\n"
+            "[Added Associations]\n"
+            "x-scheme-handler/conduit=conduit-desktop.desktop;\n"
+            "text/plain=conduit-dev.desktop;\n",
+        )
+
+    def test_a_list_naming_other_entries_stays_as_it_is(self):
+        for entry in ("conduit-dev", "other.desktop"):
+            self.assertEqual(
+                winlinux.forget_handler(self.LIST, "x-scheme-handler/conduit", entry), self.LIST
+            )
+
+    def test_the_file_is_written_only_when_it_changes(self):
+        tree = Tree(self)
+        path = tree.root / "mimeapps.list"
+        path.write_text(self.LIST)
+        args = ["forget-handler", str(path), "x-scheme-handler/conduit"]
+        before = path.stat().st_mtime_ns
+        self.assertEqual(winlinux.main(args + ["other.desktop"]), 0)
+        self.assertEqual(path.stat().st_mtime_ns, before)
+        self.assertEqual(winlinux.main(args + ["conduit-dev.desktop"]), 0)
+        self.assertNotIn("conduit-dev.desktop;conduit", path.read_text())
+        # No list at all: nothing to take out.
+        self.assertEqual(winlinux.main(["forget-handler", str(tree.root / "none.list"),
+                                        "x-scheme-handler/conduit", "conduit-dev.desktop"]), 0)
+        self.assertFalse((tree.root / "none.list").exists())
 
 
 class Icons(unittest.TestCase):

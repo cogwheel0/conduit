@@ -10,11 +10,16 @@
 # 1. Installs it with apt (which resolves its dependencies), and checks the
 #    install folder (winlinux.py layout), the /usr/bin link, the desktop
 #    entry (conduit:// registered in mimeinfo.cache), the icons and the
-#    third-party notices; every library the binaries need is found.
+#    third-party notices; every library the binaries need is found. No file
+#    type the app opens gets another default app: GIO's choice (GNOME's file
+#    manager's, and xdg-open's there), asked before and after in a desktop
+#    of the smoke's own arranged as GNOME's, is the same for each.
 # 2. The installed app refuses the test harness's flags (exit 64), and runs
 #    its --smoke pass under Xvfb, on a session bus of its own with GNOME
 #    Keyring as the Secret Service the app keeps its key in, on a profile of
-#    its own in WORK: exit code 0 and "SMOKE passed". No conduitd from the
+#    its own in WORK: exit code 0 and "SMOKE passed", and its windows carry
+#    the desktop entry's StartupWMClass as their WM_CLASS (docks group them
+#    with the launcher by it). No conduitd from the
 #    package runs afterwards. The keyring is the smoke's own (WORK), never
 #    the user's: an unencrypted "login" keyring that is the default, so
 #    nothing prompts; secret-tool (libsecret-tools), when installed, checks
@@ -25,7 +30,8 @@
 #    --update-feed-url, --update-public-key) and DIR holding
 #    appcast-linux.xml, signed, for no newer version (CI's rehearsal).
 # 3. Removes the package: none of its files is left, conduit:// is no longer
-#    registered, and the user's data folder is still there.
+#    registered, every file type's default app is what it was before the
+#    install, and the user's data folder is still there.
 #
 # With --container: installs the package without recommended ones, checks
 # every library resolves, the notices are there (the doc folder's copy may
@@ -102,6 +108,69 @@ refuses_harness_flags() {
   log "refuses --e2e, --capture, --probe, --fixture, --chat-fixture (exit 64)"
 }
 
+# A desktop of the smoke's own for GIO's default-app lookup, arranged as
+# GNOME's: defaults (gnome-mimeapps.list) for text/plain, PDF, the images
+# and application/zip only, all a stand-in app of the smoke's. Markdown,
+# CSV and JSON reach theirs through text/plain, and the office files theirs
+# through application/zip (the Archive Manager on GNOME), so an entry that
+# lists them itself would take them over.
+mime_desktop() {
+  local root="$1/mime" t
+  mkdir -p "$root/home" "$root/config" "$root/config-dirs" "$root/data" "$root/system/applications"
+  printf '[Desktop Entry]\nType=Application\nName=Smoke Viewer\nExec=true %%F\nNoDisplay=true\n' \
+    >"$root/system/applications/conduit-smoke-viewer.desktop"
+  {
+    printf '[Default Applications]\n'
+    for t in text/plain application/pdf image/png image/jpeg image/gif image/webp application/zip; do
+      printf '%s=conduit-smoke-viewer.desktop\n' "$t"
+    done
+  } >"$root/system/applications/gnome-mimeapps.list"
+  printf '%s\n' "$root"
+}
+
+# GIO's default app for type $2 in the smoke's desktop $1, with data
+# folder $3 first when given.
+gio_default() {
+  env -i PATH="$PATH" LC_ALL=C HOME="$1/home" XDG_CURRENT_DESKTOP=GNOME \
+    XDG_CONFIG_HOME="$1/config" XDG_CONFIG_DIRS="$1/config-dirs" XDG_DATA_HOME="$1/data" \
+    XDG_DATA_DIRS="${3:+$3:}$1/system:/usr/local/share:/usr/share" \
+    gio mime "$2" 2>/dev/null | sed -n 's/^Default application for .*: //p'
+}
+
+# Each type the app opens (winlinux.py types linux) and its default app
+# there, one "type=app" a line ("type=" for none).
+default_apps() {
+  local t
+  for t in $(python3 -I "$here/../winlinux.py" types linux); do
+    printf '%s=%s\n' "$t" "$(gio_default "$1" "$t")"
+  done
+}
+
+# The check sees a takeover: an entry that lists Markdown and a .docx
+# itself, as the package's once did, becomes their default there.
+sees_takeover() {
+  local control="$1/control" t
+  mkdir -p "$control/applications"
+  printf '%s\n' '[Desktop Entry]' Type=Application 'Name=Smoke Takeover' 'Exec=true %F' NoDisplay=true \
+    'MimeType=text/markdown;application/vnd.openxmlformats-officedocument.wordprocessingml.document;' \
+    >"$control/applications/conduit-smoke-takeover.desktop"
+  update-desktop-database "$control/applications"
+  for t in text/markdown application/vnd.openxmlformats-officedocument.wordprocessingml.document; do
+    [ "$(gio_default "$1" "$t" "$control")" = conduit-smoke-takeover.desktop ] ||
+      die "an entry listing $t itself doesn't take it over in the smoke's desktop: the default-app check would prove nothing"
+  done
+}
+
+# The default apps now are $2's (taken before the install).
+same_default_apps() {
+  local now
+  now="$(default_apps "$1")"
+  [ "$now" = "$2" ] || die "$3 changed default apps (before, then now):
+$2
+--
+$now"
+}
+
 # Nothing of the package's is left.
 none_left() {
   local path left=""
@@ -163,6 +232,21 @@ mkdir -p "$work"
 work="$(cd "$work" && pwd)"
 
 # 1. Install.
+command -v gio >/dev/null || die "the default-app check needs gio (libglib2.0-bin)"
+command -v update-desktop-database >/dev/null ||
+  die "the default-app check needs update-desktop-database (desktop-file-utils)"
+[ -f /usr/share/mime/packages/freedesktop.org.xml ] ||
+  die "the default-app check needs shared-mime-info (Markdown's and JSON's parent types)"
+mime_root="$(mime_desktop "$work")"
+defaults_before="$(default_apps "$mime_root")"
+log "default apps before the install (a GNOME-like desktop of the smoke's):"
+printf '%s\n' "$defaults_before" | sed 's/^/  /' >&2
+for t in text/plain application/pdf; do
+  printf '%s\n' "$defaults_before" | grep -qx "$t=conduit-smoke-viewer.desktop" ||
+    die "GIO doesn't answer from the smoke's desktop ($t): the default-app check would prove nothing"
+done
+sees_takeover "$mime_root"
+log "in that desktop, an entry listing Markdown and .docx itself takes them over (what the check looks for)"
 log "installing $(basename "$package")"
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$package" >/dev/null
 python3 -I "$here/../winlinux.py" layout "$app_dir" --os linux
@@ -174,6 +258,8 @@ for n in $icon_sizes; do
   [ -f "/usr/share/icons/hicolor/${n}x$n/apps/conduit-desktop.png" ] || die "no ${n}x$n icon"
 done
 log "the /usr/bin link, the desktop entry (conduit:// registered) and the icons"
+same_default_apps "$mime_root" "$defaults_before" "installing the package"
+log "no file type the app opens has another default app (Conduit stays in Open With)"
 libraries_resolve
 has_notices
 
@@ -205,6 +291,9 @@ if [ -n "$update_feed" ]; then
     die "the update feed in $update_feed isn't served on port $update_port"
   log "serving $update_feed on 127.0.0.1:$update_port for the update check"
 fi
+command -v xwininfo >/dev/null || die "the WM_CLASS check needs xwininfo (x11-utils)"
+wm_class="$(sed -n 's/^StartupWMClass=//p' "$entry")"
+[ -n "$wm_class" ] || die "$entry names no StartupWMClass"
 mkdir -p "$keyring_data/keyrings" "$work/runtime"
 chmod 700 "$keyring_data/keyrings" "$work/runtime"
 printf '[keyring]\ndisplay-name=login\nctime=0\nmtime=0\nlock-on-idle=false\nlock-after=false\n' \
@@ -220,7 +309,20 @@ env -u CONDUITD_PATH XDG_RUNTIME_DIR="$work/runtime" \
       printf probe | timeout 20 secret-tool store --label="Conduit smoke probe" conduit-smoke probe &&
         [ "$(timeout 20 secret-tool lookup conduit-smoke probe)" = probe ] || exit 71
     fi
-    exec /usr/bin/conduit-desktop --smoke "$1"' sh "$report" "$keyring_data" >"$work/smoke/run.log" 2>&1 ||
+    # Every WM_CLASS (instance and class) on the display, sampled until the
+    # desktop entry'"'"'s appears or the app ends: other clients, such as a
+    # portal the session starts, may show a window first. Emptied first, so
+    # a reused WORK never offers what an earlier run saw.
+    : >"$3"
+    /usr/bin/conduit-desktop --smoke "$1" &
+    app=$!
+    while kill -0 "$app" 2>/dev/null && ! grep -qx "$4 $4" "$3"; do
+      { cat "$3"; xwininfo -root -tree 2>/dev/null |
+        sed -n "s/.*: (\"\([^\"]*\)\" \"\([^\"]*\)\").*/\1 \2/p"; } | sort -u >"$3.next"
+      mv "$3.next" "$3"
+      sleep 0.2
+    done
+    wait "$app"' sh "$report" "$keyring_data" "$work/smoke/wm-class" "$wm_class" >"$work/smoke/run.log" 2>&1 ||
   status=$?
 if [ -n "$server" ]; then kill "$server" 2>/dev/null || true; fi
 case "$status" in
@@ -243,6 +345,9 @@ fi
 # binary: only a packaged release build runs in the production flavour.
 grep -q 'Conduit Desktop .* (Production), userData ' "$work/smoke/logs/conduit-desktop.log" ||
   die "the installed app didn't run in the production flavour (it found no packaged conduitd)"
+grep -qx "$wm_class $wm_class" "$work/smoke/wm-class" 2>/dev/null ||
+  die "the app's windows carry WM_CLASS '$(tr '\n' ',' 2>/dev/null <"$work/smoke/wm-class")', not $entry's StartupWMClass ($wm_class)"
+log "the app's windows carry WM_CLASS $wm_class, the desktop entry's StartupWMClass"
 if [ -n "$update_feed" ]; then
   grep -qx 'SMOKE update check: up to date' "$report" ||
     die "the update notice didn't read the served feed and find nothing newer (see the report)"
@@ -266,6 +371,7 @@ none_left
 if grep -q 'conduit-desktop\.desktop' /usr/share/applications/mimeinfo.cache 2>/dev/null; then
   die "mimeinfo.cache still lists conduit-desktop.desktop"
 fi
+same_default_apps "$mime_root" "$defaults_before" "removing the package"
 [ -f "$keep" ] || die "removing the package removed the user's data ($keep)"
-log "removed: no files left, conduit:// unregistered; the user data stays"
+log "removed: no files left, conduit:// unregistered, the default apps as before; the user data stays"
 log "smoke passed"

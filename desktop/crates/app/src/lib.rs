@@ -737,6 +737,10 @@ pub fn run() {
         let services = shell::services::install();
         gpui_kit::init(cx);
         menus::KitBindings::capture(cx);
+        #[cfg(target_os = "linux")]
+        cx.set_global(conduit_components::window::WindowAppId(
+            app_paths.flavor.desktop_entry().into(),
+        ));
         // Off the Mac the app draws its questions (the Mac attaches NSAlert
         // sheets): keyboard-driven, and taken down when settled elsewhere.
         #[cfg(not(target_os = "macos"))]

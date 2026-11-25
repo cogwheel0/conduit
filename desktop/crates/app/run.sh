@@ -124,10 +124,26 @@ if [ "$(uname -s)" = Linux ]; then
       # Moved aside, never deleted (as the widget's files below).
       if [ -f "$entry" ]; then
         mkdir -p target/app
-        mv "$entry" "target/app/unregistered-$(date +%s)-$entry_name"
+        stamp="$(date +%s)"
+        mv "$entry" "target/app/unregistered-$stamp-$entry_name"
         if command -v update-desktop-database >/dev/null 2>&1; then
           update-desktop-database "$apps" || true
         fi
+        # xdg-mime made it conduit://'s default in a mimeapps.list (the
+        # config folder's; older xdg-utils, the applications folder's):
+        # taken out there, a copy of the list kept beside the entry.
+        config_home="${XDG_CONFIG_HOME:-${HOME:+$HOME/.config}}"
+        for where in config data; do
+          case "$where" in
+            config) list="${config_home:+$config_home/mimeapps.list}" ;;
+            data) list="$apps/mimeapps.list" ;;
+          esac
+          if [ -n "$list" ] && [ -f "$list" ] && grep -q "^x-scheme-handler/conduit=.*$entry_name" "$list"; then
+            cp "$list" "target/app/unregistered-$stamp-$where-mimeapps.list"
+            python3 -I packaging/winlinux.py forget-handler "$list" x-scheme-handler/conduit "$entry_name" ||
+              echo "$list still names $entry_name for conduit://" >&2
+          fi
+        done
         echo "conduit:// links no longer open this build"
       else
         echo "no dev conduit:// handler is registered; nothing changed"

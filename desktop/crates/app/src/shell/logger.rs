@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use conduit_daemon::logs::RotatingLog;
-use log::{LevelFilter, Log, Metadata, Record};
+use log::{Level, LevelFilter, Log, Metadata, Record};
 
 struct AppLogger {
     file: Mutex<Option<RotatingLog>>,
@@ -13,8 +13,7 @@ struct AppLogger {
 
 impl Log for AppLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= log::Level::Info
-            || (cfg!(debug_assertions) && metadata.target().starts_with("conduit"))
+        kept(metadata.target(), metadata.level())
     }
 
     fn log(&self, record: &Record) {
@@ -42,6 +41,19 @@ impl Log for AppLogger {
     fn flush(&self) {}
 }
 
+/// Whether a record from `target` at `level` goes in the log: Info and up,
+/// the app's own Debug too in a debug build. zbus (the accessibility
+/// bridge's and the portals' D-Bus) only from Warn: it logs every call at
+/// Info, and with a screen reader running those pushed every other line
+/// out of the rotated files within minutes.
+fn kept(target: &str, level: Level) -> bool {
+    let krate = target.split("::").next().unwrap_or(target);
+    if krate == "zbus" || krate.starts_with("zbus_") {
+        return level <= Level::Warn;
+    }
+    level <= Level::Info || (cfg!(debug_assertions) && target.starts_with("conduit"))
+}
+
 fn unix_time() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -61,5 +73,24 @@ pub fn install(logs: &Path) {
         } else {
             LevelFilter::Info
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zbus_writes_only_its_warnings_and_errors() {
+        // With a screen reader running, the accessibility bridge's D-Bus
+        // calls come at Info, thousands a minute.
+        for target in ["zbus", "zbus::object_server", "zbus::connection::handshake"] {
+            assert!(!kept(target, Level::Info), "{target} at Info");
+            assert!(kept(target, Level::Warn), "{target} at Warn");
+            assert!(kept(target, Level::Error), "{target} at Error");
+        }
+        assert!(kept("conduit_desktop::stores::connection", Level::Info));
+        assert!(kept("gpui::window", Level::Info));
+        assert!(!kept("gpui::window", Level::Debug));
     }
 }

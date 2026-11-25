@@ -57,6 +57,18 @@ impl Flavor {
         }
     }
 
+    /// The Linux desktop entry's name, less `.desktop`: the package's
+    /// (packaging/linux), or the dev one `crates/app/run.sh
+    /// --register-scheme` writes. The windows carry it as their app id
+    /// (X11's `WM_CLASS`, Wayland's app id), so docks group them with the
+    /// launcher.
+    pub fn desktop_entry(self) -> &'static str {
+        match self {
+            Self::Dev => "conduit-dev",
+            Self::Production => "conduit-desktop",
+        }
+    }
+
     /// The service the master key is stored under (the Keychain's, and
     /// Windows' and Linux's secret stores).
     pub fn keychain_service(self) -> String {
@@ -1185,6 +1197,29 @@ pub(crate) mod tests {
             Flavor::Production.keychain_service()
         );
         assert_eq!(Flavor::Production.keychain_service(), BUNDLE_ID);
+    }
+
+    #[test]
+    fn the_windows_app_id_names_the_desktop_entry_that_launches_them() {
+        let packaging = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/linux");
+        let id = Flavor::Production.desktop_entry();
+        let entry = std::fs::read_to_string(packaging.join(format!("{id}.desktop")))
+            .expect("the package's desktop entry is named for the app id");
+        assert!(
+            entry.lines().any(|l| l == format!("StartupWMClass={id}")),
+            "the package's desktop entry has no StartupWMClass={id}"
+        );
+        let run =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../app/run.sh"))
+                .unwrap();
+        let dev = Flavor::Dev.desktop_entry();
+        // By line: a Windows checkout (core.autocrlf) ends them with CRLF.
+        assert!(
+            run.lines()
+                .any(|l| l.trim() == format!("entry_name={dev}.desktop")),
+            "run.sh's dev entry is not {dev}.desktop"
+        );
+        assert_ne!(id, dev);
     }
 
     #[test]

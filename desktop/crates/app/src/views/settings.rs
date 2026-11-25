@@ -1510,6 +1510,16 @@ impl SettingsView {
         )
         .on_click(|_, window, cx| crate::views::release_notes::show_latest(window, cx))
         .into_any_element();
+        let repository = info.repository_url.clone();
+        let licenses = conduit_components::views::kit::nav_row(
+            "about-licenses",
+            IconName::ScrollText,
+            l10n.open_source_licenses().into(),
+            None,
+            cx,
+        )
+        .on_click(move |_, _, cx| open_licenses(&repository, cx))
+        .into_any_element();
         out.push(
             settings_section(
                 SharedString::default(),
@@ -1523,13 +1533,7 @@ impl SettingsView {
                         Some("github.com/cogwheel0/conduit".into()),
                         info.repository_url.clone(),
                     ),
-                    link(
-                        "about-licenses",
-                        IconName::ScrollText,
-                        l10n.open_source_licenses(),
-                        None,
-                        licenses_url(&info.repository_url),
-                    ),
+                    licenses,
                 ],
                 cx,
             )
@@ -2213,20 +2217,22 @@ impl SettingsView {
     }
 }
 
-/// The open-source notices: the copy this install carries (the Mac's bundle,
-/// the Windows install folder, the Linux package's doc folder), or, for a
-/// build that has none (a dev build), the repository's page on how they are
-/// made.
-fn licenses_url(repository: &str) -> String {
+/// Opens the open-source notices: the copy this install carries (the Mac's
+/// bundle, the Windows install folder, the Linux package's), in the system's
+/// plain-text app ([`crate::shell::notices`]); or, for a build that has none
+/// (a dev build), the repository's page on how they are made.
+fn open_licenses(repository: &str, cx: &mut App) {
     let installed = std::env::current_exe()
         .ok()
         .and_then(|exe| conduit_daemon::paths::packaged_notices(&exe));
-    match installed.and_then(|path| url::Url::from_file_path(path).ok()) {
-        Some(url) => url.to_string(),
+    match installed {
+        Some(notices) => crate::shell::notices::open(notices, cx),
         None if !repository.is_empty() => {
-            format!("{repository}/blob/main/desktop/packaging/notices/README.md")
+            cx.open_url(&format!(
+                "{repository}/blob/main/desktop/packaging/notices/README.md"
+            ));
         }
-        None => String::new(),
+        None => {}
     }
 }
 
