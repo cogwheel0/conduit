@@ -3005,6 +3005,17 @@ mod embed_tests {
             ),
             ("an error", vec![error.clone()], error_text(&error, &l10n)),
             (
+                "a Hermes error",
+                vec![block(
+                    MessageBlockKind::Error,
+                    serde_json::json!({
+                        "error": "HTTP 429",
+                        "hermesError": {"kind": "contextOverflow", "blocking": true},
+                    }),
+                )],
+                super::super::hermes_blocks::error_title("contextOverflow", &l10n),
+            ),
+            (
                 "an alert",
                 vec![block(
                     MessageBlockKind::Alert,
