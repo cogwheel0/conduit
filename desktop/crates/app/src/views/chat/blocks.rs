@@ -172,6 +172,82 @@ pub fn reasoning_title(block: &MessageBlockDto, l10n: &L10n) -> String {
     }
 }
 
+/// A tool call's row title: "Running …" while it runs, else "Used …", the
+/// tool by its name in words ("Tide Table"); its id stays in the opened
+/// body.
+pub fn tool_title(call: &ToolCallDto, l10n: &L10n) -> String {
+    let raw = call.name.trim();
+    let name = if raw.is_empty() {
+        l10n.desktop_unnamed_tool()
+    } else {
+        tool_display_name(raw)
+    };
+    if call.pending || (!call.done && call.result.is_empty()) {
+        l10n.desktop_tool_running(&name)
+    } else {
+        l10n.desktop_tool_used(&name)
+    }
+}
+
+/// What a block that is not text shows as its header, in the words its row
+/// draws: what an answer with no text is named by. None for a block whose
+/// body has no words of its own here (embeds) or that the row draws apart
+/// (sources, follow-ups).
+pub fn block_header(block: &MessageBlockDto, l10n: &L10n, t: &ConduitTheme) -> Option<String> {
+    let pending = block.pending == Some(true);
+    let words = match block.kind {
+        MessageBlockKind::Reasoning => reasoning_title(block, l10n),
+        MessageBlockKind::ToolCalls => block
+            .calls
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|call| tool_title(call, l10n))
+            .collect::<Vec<_>>()
+            .join(", "),
+        MessageBlockKind::CodeInterpreter if pending => l10n.desktop_running_code(),
+        MessageBlockKind::CodeInterpreter => l10n.desktop_ran_code(),
+        MessageBlockKind::CodeExecution if block.is_error == Some(true) => {
+            l10n.desktop_code_failed()
+        }
+        MessageBlockKind::CodeExecution if pending => l10n.desktop_running_code(),
+        MessageBlockKind::CodeExecution => l10n.desktop_ran_code(),
+        MessageBlockKind::Details => block
+            .summary
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| l10n.desktop_details()),
+        MessageBlockKind::Status => status_line(block, l10n)?,
+        MessageBlockKind::Error => error_text(block, l10n),
+        MessageBlockKind::Alert => {
+            alert_style(block.r#type.as_deref().unwrap_or_default(), l10n, t).0
+        }
+        MessageBlockKind::ChangedFiles => {
+            let files = block.changed_files.as_deref().unwrap_or_default();
+            if files.is_empty() {
+                return None;
+            }
+            l10n.hermes_changed_files(files.len() as i64)
+        }
+        MessageBlockKind::Files => block
+            .files
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|f| f.name.trim().to_string())
+            .filter(|n| !n.is_empty())
+            .collect::<Vec<_>>()
+            .join(", "),
+        MessageBlockKind::Text
+        | MessageBlockKind::Embeds
+        | MessageBlockKind::Sources
+        | MessageBlockKind::FollowUps
+        | MessageBlockKind::Unknown => return None,
+    };
+    let words = words.trim().to_string();
+    (!words.is_empty()).then_some(words)
+}
+
 /// The status row's one line: the summary of a Hermes tool run, else the
 /// last status.
 pub fn status_line(block: &MessageBlockDto, l10n: &L10n) -> Option<String> {
@@ -1460,19 +1536,13 @@ impl AssistantRow {
         let x = format!("x{i}.{j}");
         let expanded = self.shows(&x, cx);
         let raw = call.name.trim();
-        // The tool by its name in words ("Tide Table"); its id stays in the
-        // opened body.
         let name = if raw.is_empty() {
             l10n.desktop_unnamed_tool()
         } else {
             tool_display_name(raw)
         };
         let running = call.pending || (!call.done && call.result.is_empty());
-        let title = if running {
-            l10n.desktop_tool_running(&name)
-        } else {
-            l10n.desktop_tool_used(&name)
-        };
+        let title = tool_title(call, l10n);
         let detail = LineDetail::words(tool_argument(&call.arguments));
         let r = t.roles;
         let m = t.metrics;
