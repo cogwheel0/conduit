@@ -446,11 +446,12 @@ try {
   Unregister-Event -SourceIdentifier UpdateStarts
 }
 Expect ([bool]$relaunched) "the update (pid $($setup.Id)) started no app in 2 minutes"
-Expect ([bool]$relaunchedDaemon) "the app the update started (pid $relaunched) started no conduitd in 2 minutes"
+# Held for the cleanup first, so a check that fails below still ends it.
 $again = Get-Process -Id $relaunched -ErrorAction SilentlyContinue
 Expect ([bool]$again) "the app the update started (pid $relaunched) has already ended"
 $null = $again.Handle
 $script:toStop.Add($again)
+Expect ([bool]$relaunchedDaemon) "the app the update started (pid $relaunched) started no conduitd in 2 minutes"
 $againPath = Get-StartedPath $again
 Expect ($againPath -eq $exe) "the update started $againPath (pid $relaunched), not $exe"
 $againDaemon = Get-Process -Id $relaunchedDaemon -ErrorAction SilentlyContinue
