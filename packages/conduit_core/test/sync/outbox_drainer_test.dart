@@ -396,34 +396,32 @@ void main() {
   }
 
   group('drain dispatch', () {
-    test('updateChat op pushes then is removed', () async {
-      await seedServerChat('c1');
-      await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+    // Pushed, then removed; with the test gate held, nothing is claimed or
+    // sent until it opens.
+    for (final held in <bool>[false, true]) {
+      test('updateChat op pushes then is removed'
+          '${held ? ', once its test gate opens' : ''}', () async {
+        await seedServerChat('c1');
+        await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        final gate = Completer<void>();
 
-      await buildDrainer().drain();
+        final draining = buildDrainer(
+          testGate: held ? () => gate.future : null,
+        ).drain();
+        if (held) {
+          await pumpEventQueue();
+          check(client.calls).isEmpty();
+          check(
+            (await dao.pendingForChat('c1')).map((op) => op.status),
+          ).deepEquals(['pending']);
+          gate.complete();
+        }
+        await draining;
 
-      check(client.calls).contains('updateChat:c1');
-      check(await dao.pendingForChat('c1')).isEmpty();
-    });
-
-    test('a drain held at its test gate claims and sends nothing until the '
-        'gate opens', () async {
-      await seedServerChat('c1');
-      await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
-      final gate = Completer<void>();
-
-      final draining = buildDrainer(testGate: () => gate.future).drain();
-      await pumpEventQueue();
-      check(client.calls).isEmpty();
-      check(
-        (await dao.pendingForChat('c1')).map((op) => op.status),
-      ).deepEquals(['pending']);
-
-      gate.complete();
-      await draining;
-      check(client.calls).contains('updateChat:c1');
-      check(await dao.pendingForChat('c1')).isEmpty();
-    });
+        check(client.calls).contains('updateChat:c1');
+        check(await dao.pendingForChat('c1')).isEmpty();
+      });
+    }
 
     test('deleteChat op deletes server-side and removes the op', () async {
       await seedServerChat('c1');
