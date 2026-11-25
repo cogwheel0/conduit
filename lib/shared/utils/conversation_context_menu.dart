@@ -838,11 +838,15 @@ Future<void> _saveConversationTitle(
   String conversationId,
   String title,
 ) async {
-  if (await chat.renameOpenWebUiConversation(
+  final account = container.read(apiServiceProvider);
+  final current = await chat.renameOpenWebUiConversation(
     container,
     conversationId,
     title,
-  )) {
+  );
+  // Checked again as it is shown: the list writes to the database of the
+  // account in charge, which may hold another chat under this id.
+  if (current && identical(container.read(apiServiceProvider), account)) {
     _showConversationTitle(container, conversationId, title);
   }
 }

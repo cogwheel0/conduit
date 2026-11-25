@@ -53,6 +53,10 @@ final class _ServerApi extends ApiService {
   final Completer<void> asked = Completer<void>();
   Object? failure;
 
+  /// Holds the model's title, once asked for.
+  Completer<void>? titleGate;
+  final Completer<void> titleAsked = Completer<void>();
+
   @override
   Future<void> updateConversation(
     String id, {
@@ -80,7 +84,28 @@ final class _ServerApi extends ApiService {
     required List<Map<String, dynamic>> messages,
     String? chatId,
     ApiAuthSnapshot? authSnapshot,
-  }) async => _renamed;
+  }) async {
+    if (!titleAsked.isCompleted) titleAsked.complete();
+    await titleGate?.future;
+    return _renamed;
+  }
+}
+
+/// The signed-in account's database, which a sign-in elsewhere replaces.
+final class _SignedInDatabase extends Notifier<AppDatabase> {
+  _SignedInDatabase(this.initial);
+
+  final AppDatabase initial;
+
+  @override
+  AppDatabase build() => initial;
+
+  void set(AppDatabase database) => state = database;
+}
+
+final class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
+  @override
+  OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
 }
 
 final class _SignedInApi extends Notifier<ApiService?> {
@@ -257,20 +282,27 @@ void main() {
   Object? serverTitle() => server.getChatById(_chatId)!['title'];
 
   /// Each way this device writes a chat's title: what it does, whether the
-  /// account it was made in is still signed in after it, and how it ends
-  /// when that account's chats are closing before it starts.
+  /// account it was made in is still signed in after it, how it ends when
+  /// that account's chats are closing before it starts, and the longest
+  /// request it waits on, held.
   final titleWrites =
       <
         ({
           String name,
           Future<bool> Function(ProviderContainer) write,
           Matcher refused,
+          ({void Function() release, Future<void> reached}) Function(_ServerApi)
+          hold,
         })
       >[
         (
           name: 'a rename',
           write: (c) => renameOpenWebUiConversation(c, _chatId, _renamed),
           refused: throwsA(isA<OpenWebUiAccountChangedException>()),
+          hold: (api) {
+            final gate = api.gate = Completer<void>();
+            return (release: gate.complete, reached: api.asked.future);
+          },
         ),
         (
           name: 'a generated title',
@@ -280,9 +312,13 @@ void main() {
             selectedModelId: 'llama3',
           )).current,
           refused: completion(isFalse),
+          hold: (api) {
+            final gate = api.titleGate = Completer<void>();
+            return (release: gate.complete, reached: api.titleAsked.future);
+          },
         ),
       ];
-  for (final (:name, :write, refused: _) in titleWrites) {
+  for (final (:name, :write, refused: _, hold: _) in titleWrites) {
     test('a pull that read the chat before $name does not put the old title '
         'back, nor does the next save', () async {
       final released = Completer<void>();
@@ -447,6 +483,7 @@ void main() {
     late Directory folder;
     late DatabaseManager databases;
     late NotifierProvider<_SignedInApi, ApiService?> signedInApi;
+    late NotifierProvider<_SignedInDatabase, AppDatabase> signedInDatabase;
     late ProviderContainer signedIn;
 
     // The account's database is opened again once it has closed.
@@ -475,9 +512,15 @@ void main() {
       signedInApi = NotifierProvider<_SignedInApi, ApiService?>(
         () => _SignedInApi(api),
       );
+      signedInDatabase = NotifierProvider<_SignedInDatabase, AppDatabase>(
+        () => _SignedInDatabase(accountA),
+      );
       signedIn = ProviderContainer(
         overrides: [
-          ...openWebUiStorageOpenOverrides(database: accountA),
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          appDatabaseProvider.overrideWith(
+            (ref) => ref.watch(signedInDatabase),
+          ),
           databaseManagerProvider.overrideWithValue(databases),
           apiServiceProvider.overrideWith((ref) => ref.watch(signedInApi)),
           openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
@@ -491,21 +534,26 @@ void main() {
       folder.deleteSync(recursive: true);
     });
 
-    for (final (:name, :write, :refused) in titleWrites) {
+    for (final (:name, :write, :refused, :hold) in titleWrites) {
       test(
         '$name the server took as another server\'s account was signed '
         'in to is stored with the chats it was made in, and succeeds',
         () async {
-          api.gate = Completer<void>();
+          final held = hold(api);
           final writing = write(signedIn);
-          await api.asked.future;
-          databases.openForServerId('account-b');
+          await held.reached;
+          final accountB = databases.openForServerId('account-b');
           signedIn.read(signedInApi.notifier).signInElsewhere();
+          signedIn.read(signedInDatabase.notifier).set(accountB);
           await pumpEventQueue();
-          api.gate!.complete();
+          held.release();
 
           expect(await writing, isFalse);
           expect(serverTitle(), _renamed);
+          // Nothing of it in the other account's chats, which can hold
+          // another chat under the same id.
+          expect(await accountB.chatsDao.getChat(_chatId), isNull);
+          expect(accountB.chatsDao.titleWrittenSince(_chatId, 0), isFalse);
           if (databases.openForServerIdIfReady('account-a')
               case DatabaseOpenDeferred(:final retryAfter)) {
             await retryAfter;
@@ -521,6 +569,7 @@ void main() {
 
         await expectLater(write(signedIn), refused);
         expect(api.asked.isCompleted, isFalse);
+        expect(api.titleAsked.isCompleted, isFalse);
         expect(serverTitle(), _title);
       });
     }

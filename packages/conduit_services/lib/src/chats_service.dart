@@ -828,8 +828,17 @@ final class ChatsService {
   /// chats whose timestamp moved, so it would never look at this one; and
   /// the windows are told only afterwards, or they would refetch the old
   /// copy.
-  Future<void> _afterEnvelopeChange(String chatId) async {
+  /// [account] is the API client the change was made with, when it was
+  /// read before an earlier wait; otherwise the one signed in now.
+  Future<void> _afterEnvelopeChange(
+    String chatId, {
+    ApiService? account,
+  }) async {
+    final madeWith = account ?? _container.read(apiServiceProvider);
     chatId = await _current(chatId);
+    // Another account in charge since: its sync, its chats and its windows
+    // are not this change's.
+    if (!identical(_container.read(apiServiceProvider), madeWith)) return;
     try {
       await _container.read(primarySyncProvider).pullChatNow(chatId);
     } on Object catch (error) {
@@ -886,7 +895,7 @@ final class ChatsService {
       return _refresh();
     }
     // Refused while signed out, as the other Open WebUI writes here are.
-    final _ = _api;
+    final api = _api;
     final bool current;
     try {
       // In the chat's lock, so a save of the chat under way cannot put back
@@ -900,7 +909,7 @@ final class ChatsService {
       );
     }
     // Renamed in an account signed out of since: not one of these chats.
-    if (current) await _afterEnvelopeChange(id);
+    if (current) await _afterEnvelopeChange(id, account: api);
     return _refresh();
   }
 
@@ -1400,6 +1409,7 @@ final class ChatsService {
       );
     }
     try {
+      final account = _container.read(apiServiceProvider);
       final GeneratedConversationTitle generated;
       try {
         generated = await generateConversationTitle(_container, chatId);
@@ -1411,8 +1421,10 @@ final class ChatsService {
           debugMessage: 'the title could not be made: $error',
         );
       }
-      if (generated.outcome == ConversationTitleOutcome.saved) {
-        await _afterEnvelopeChange(chatId);
+      // Saved in an account signed out of since: not one of these chats.
+      if (generated.outcome == ConversationTitleOutcome.saved &&
+          generated.current) {
+        await _afterEnvelopeChange(chatId, account: account);
       }
       return GeneratedTitle(
         outcome: switch (generated.outcome) {
