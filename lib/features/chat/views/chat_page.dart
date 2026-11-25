@@ -1595,6 +1595,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Collect uploaded file IDs (including data URLs for images)
       final attachedFiles = sentFiles?.attachments ?? const <FileUploadState>[];
       final mediaUploadController = ref.read(mediaUploadControllerProvider);
+      var retiredSentFiles = false;
+      void retireSentFilesOnce() {
+        if (retiredSentFiles || sentFiles == null) return;
+        retiredSentFiles = true;
+        unawaited(
+          mediaUploadController.retireAttachmentOwnership(sentFiles).catchError(
+            (Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'sent-attachment-cleanup-failed',
+                scope: 'chat/attachment',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            },
+          ),
+        );
+      }
+
       final uploadedFileIds = attachedFiles
           .where(
             (file) =>
@@ -1613,6 +1631,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           !ref.read(reviewerModeProvider) &&
           !ref.read(temporaryChatEnabledProvider) &&
           !isTemporaryChat(ref.read(activeConversationProvider)?.id);
+
+      var admissionConfirmed = false;
+      var signalsTurnStart = false;
 
       // Durable send: persists rows + outbox op in one tx (survives a
       // force-quit) and drives streaming via the requestCompletion op.
@@ -1636,19 +1657,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           settleImmediately: settlePinImmediately,
         );
       } else {
-        var admissionConfirmed = false;
         final directBinding = ref
             .read(directModelRegistryProvider)
             .resolve(selectedModel);
         // A Hermes or device Direct turn says when it goes to its run; an
         // Open WebUI Direct one, sent through the server, does not.
-        final signalsTurnStart =
+        signalsTurnStart =
             isHermesModel(selectedModel) ||
             directBinding?.source == DirectModelSource.device;
         // Every Direct binding is sent inline, with no outbox receipt.
         final usesOutbox =
             hasDurableOutbox &&
             !isHermesModel(selectedModel) &&
+            !isLibreChatModel(selectedModel) &&
+            !isLibreChatConversation(ref.read(activeConversationProvider)) &&
             directBinding == null;
         await durableSend(
           ref,
@@ -1669,15 +1691,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           onAdmissionCommitted: usesOutbox && onDraftCommitted != null
               ? (_) {
                   admissionConfirmed = true;
+                  retireSentFilesOnce();
                   onDraftCommitted(pendingSend!);
                 }
               : null,
-          // A Hermes or Direct send lasts the whole turn: its words leave
-          // the composer once the turn is handed to its run, not when an
+          // A Hermes or Direct send lasts the whole turn: its words and files
+          // leave the composer once the turn is handed to its run, not when an
           // approval or question that holds the turn open is answered.
           onTurnStarted: () {
             if (admissionConfirmed || pendingSend == null) return;
             admissionConfirmed = true;
+            retireSentFilesOnce();
             onDraftCommitted?.call(pendingSend!);
           },
         );
@@ -1695,19 +1719,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // by the message/outbox. Retire only the exact identities/generations
       // captured for this send: a paste or picker result published while the
       // send awaited still belongs to the next composer turn.
-      if (sentFiles != null) {
-        unawaited(
-          mediaUploadController.retireAttachmentOwnership(sentFiles).catchError(
-            (Object error, StackTrace stackTrace) {
-              DebugLogger.error(
-                'sent-attachment-cleanup-failed',
-                scope: 'chat/attachment',
-                error: error,
-                stackTrace: stackTrace,
-              );
-            },
-          ),
-        );
+      if (compareModels != null || !signalsTurnStart || admissionConfirmed) {
+        retireSentFilesOnce();
       }
 
       if (wasOffline && hasDurableOutbox && mounted) {

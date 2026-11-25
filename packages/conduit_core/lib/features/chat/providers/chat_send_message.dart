@@ -676,7 +676,7 @@ Future<void> _sendMessageInternal(
             owner = resolvedOwner;
             directStopIndex!.rebind(directIndexedRunKey!, nextKey);
             directIndexedRunKey = nextKey;
-            sendHandle._bindOwnerScope(resolvedOwner.scopedConversationId);
+            sendHandle._bindOwnerScope(resolvedOwner.mutationOwnerScope);
           }
           return rebound;
         },
@@ -778,8 +778,8 @@ Future<void> _sendMessageInternal(
         systemPrompt: currentConversation?.systemPrompt,
       );
       // The turn is in the chat and goes to its run, which this send waits
-      // out to the end, tool approvals included.
-      onTurnStarted?.call();
+      // out to the end, tool approvals included. Signal turn start only after
+      // dispatch preflight checks pass and the run is registered.
       await _dispatchDirectRunFromChat(
         ref,
         route: directRoute,
@@ -797,6 +797,7 @@ Future<void> _sendMessageInternal(
             preparedDirectDocuments?.ephemeralFilePartsByAttachmentId ??
             const <String, DirectFilePart>{},
         sendHandle: sendHandle,
+        onRunStarting: onTurnStarted,
       );
       if (_isDirectConversationOwnerActive(ref, runOwner) &&
           identical(ref.read(contextAttachmentsProvider), contextAttachments)) {

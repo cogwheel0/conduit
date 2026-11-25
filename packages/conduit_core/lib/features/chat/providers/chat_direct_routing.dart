@@ -307,6 +307,20 @@ final class _DirectConversationOwner {
 
   String get scopedConversationId => scopedConversationIdFor(conversationId);
 
+  String mutationOwnerScopeFor(String candidateConversationId) {
+    final storage = location?.storage;
+    if (storage != null) {
+      return ChatStorageIdentity(
+        rawId: candidateConversationId,
+        storage: storage,
+      ).scopedId;
+    }
+    return _unstoredOwnerScope ??
+        'conduit-direct-runtime://${Uri.encodeComponent(candidateConversationId)}';
+  }
+
+  String get mutationOwnerScope => mutationOwnerScopeFor(conversationId);
+
   Future<void> releaseDatabaseLease() async {
     final lease = databaseLease;
     databaseLease = null;

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../../../support/native_database.dart';
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -30,7 +31,8 @@ import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
-import 'package:conduit_core/services/connectivity_service.dart' show isOnlineProvider;
+import 'package:conduit_core/services/connectivity_service.dart'
+    show isOnlineProvider;
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -38,6 +40,14 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
+import 'package:conduit/core/services/media_upload_controller.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
@@ -873,6 +883,191 @@ void main() {
     expect(chats!.where((chat) => chat.id.startsWith('local:')), isEmpty);
   });
 
+  testWidgets(
+    'folder Direct send commits draft and retires attachments when turn starts',
+    (tester) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      final originalFlutterErrorOnError = FlutterError.onError;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+        FlutterError.onError = originalFlutterErrorOnError;
+      });
+
+      final directDb = AppDatabase(NativeDatabase.memory());
+      addTearDown(() => pumpDatabaseOperation(tester, directDb.close));
+      final profile = DirectConnectionProfile(
+        id: 'folder-direct',
+        name: 'Local provider',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final model = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'local-model', isMultimodal: true),
+      ]).single;
+      final adapter = _WaitingFolderDirectAdapter();
+      final dataUrl = 'data:image/png;base64,${base64Encode([1, 2, 3])}';
+      final image = FileUploadState(
+        file: File('${Directory.systemTemp.path}/folder-direct-turn.png'),
+        fileName: 'folder-direct-turn.png',
+        fileSize: 3,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: dataUrl,
+        isImage: true,
+        base64DataUrl: dataUrl,
+      );
+
+      final container = _createContainer(
+        folders: const [Folder(id: 'work', name: 'Work')],
+        selectedModel: model,
+        extraOverrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(
+            _OpenFolderDatabaseAccess.new,
+          ),
+          directLocalDatabaseProvider.overrideWithValue(directDb),
+          directConnectionProfilesProvider.overrideWith(
+            () => _FixedFolderDirectProfiles(profile),
+          ),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directModelDiscoveryProvider.overrideWith(
+            _IdleFolderDirectDiscovery.new,
+          ),
+          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+          attachedFilesProvider.overrideWith(_Tray.new),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_buildHarnessFromContainer(container));
+      await tester.pumpAndSettle();
+      (container.read(attachedFilesProvider.notifier) as _Tray).put(image);
+      await tester.pump();
+
+      final composer = tester.widget<ModernChatInput>(
+        find.byType(ModernChatInput),
+      );
+      final sentFiles = container
+          .read(mediaUploadControllerProvider)
+          .captureSentAttachments();
+      ChatSendPlaceholderHandle? committed;
+      final draftCommit = composer
+          .onSendDraft!('Folder direct draft', sentFiles, (_) {})
+          .then((handle) => committed = handle);
+
+      await tester.runAsync(() => adapter.asked.future);
+      await tester.runAsync(() => draftCommit);
+      await tester.pump();
+
+      // While the Direct stream is still open, draft commit has resolved and
+      // the sent attachment has left the tray.
+      expect(committed, isNotNull);
+      expect(committed!.ownsActiveChat(container), isTrue);
+      expect(container.read(attachedFilesProvider), isEmpty);
+
+      // Even if the stream fails mid-turn, the sent attachment stays retired.
+      adapter.events.addError(StateError('stream dropped'));
+      await tester.runAsync(adapter.finish);
+      await tester.pumpAndSettle();
+      expect(container.read(attachedFilesProvider), isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+      FlutterError.onError = originalFlutterErrorOnError;
+    },
+  );
+
+  testWidgets(
+    'folder Direct send rejected for an unsupported image keeps draft and '
+    'attachment',
+    (tester) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      final originalFlutterErrorOnError = FlutterError.onError;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+        FlutterError.onError = originalFlutterErrorOnError;
+      });
+
+      final directDb = AppDatabase(NativeDatabase.memory());
+      addTearDown(() => pumpDatabaseOperation(tester, directDb.close));
+      final profile = DirectConnectionProfile(
+        id: 'folder-text-only',
+        name: 'Text-only provider',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final textOnlyModel = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'text-only-model', isMultimodal: false),
+      ]).single;
+      final adapter = _WaitingFolderDirectAdapter();
+      final dataUrl = 'data:image/png;base64,${base64Encode([1, 2, 3])}';
+      final photo = FileUploadState(
+        file: File('${Directory.systemTemp.path}/folder-rejected-photo.png'),
+        fileName: 'folder-rejected-photo.png',
+        fileSize: 3,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: dataUrl,
+        isImage: true,
+        base64DataUrl: dataUrl,
+      );
+
+      final container = _createContainer(
+        folders: const [Folder(id: 'work', name: 'Work')],
+        selectedModel: textOnlyModel,
+        extraOverrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(
+            _OpenFolderDatabaseAccess.new,
+          ),
+          directLocalDatabaseProvider.overrideWithValue(directDb),
+          directConnectionProfilesProvider.overrideWith(
+            () => _FixedFolderDirectProfiles(profile),
+          ),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directModelDiscoveryProvider.overrideWith(
+            _IdleFolderDirectDiscovery.new,
+          ),
+          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+          attachedFilesProvider.overrideWith(_Tray.new),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_buildHarnessFromContainer(container));
+      await tester.pumpAndSettle();
+      (container.read(attachedFilesProvider.notifier) as _Tray).put(photo);
+      await tester.pump();
+
+      final composer = tester.widget<ModernChatInput>(
+        find.byType(ModernChatInput),
+      );
+      final sentFiles = container
+          .read(mediaUploadControllerProvider)
+          .captureSentAttachments();
+      final committed = await tester.runAsync(
+        () => composer.onSendDraft!('Folder rejected draft', sentFiles, (_) {}),
+      );
+      await tester.pumpAndSettle();
+
+      expect(adapter.asked.isCompleted, isFalse);
+      expect(committed, isNull);
+      expect(container.read(attachedFilesProvider), [same(photo)]);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+      FlutterError.onError = originalFlutterErrorOnError;
+    },
+  );
+
   testWidgets('folder conversation rows reuse the shared chat context menu', (
     tester,
   ) async {
@@ -1008,10 +1203,10 @@ void main() {
     expect(container.read(selectedFilterIdsProvider), isEmpty);
 
     await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-      await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
-      ErrorWidget.builder = originalErrorWidgetBuilder;
+    ErrorWidget.builder = originalErrorWidgetBuilder;
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
@@ -1990,7 +2185,8 @@ void main() {
 
       Future<List<String>> chatIds(WidgetTester tester) async {
         final chats = await pumpDatabaseOperation(
-          tester, () => db.chatsDao.watchChatList().first,
+          tester,
+          () => db.chatsDao.watchChatList().first,
         );
         return [
           for (final chat in chats)
@@ -2078,7 +2274,9 @@ void main() {
           'm-a',
           'm-b',
         ]);
-        final chat = await tester.runAsync(() => db.chatsDao.getChat(ids.single));
+        final chat = await tester.runAsync(
+          () => db.chatsDao.getChat(ids.single),
+        );
         expect(chat?.folderId, 'work');
         expect(
           NavigationService.router.routerDelegate.currentConfiguration.uri.path,
@@ -2097,9 +2295,9 @@ void main() {
           await tester.tap(sendButton());
           await tester.pump();
           await pumpDatabaseOperation(
-            tester, () => api.settingsEntered.future.timeout(
-              const Duration(seconds: 10),
-            ),
+            tester,
+            () =>
+                api.settingsEntered.future.timeout(const Duration(seconds: 10)),
           );
           // Nothing is written and the page has not moved while it waits.
           expect(await chatIds(tester), isEmpty);
@@ -2249,7 +2447,9 @@ void main() {
           pathProvider,
           (call) async => Directory.systemTemp.path,
         );
-        addTearDown(() => messenger.setMockMethodCallHandler(pathProvider, null));
+        addTearDown(
+          () => messenger.setMockMethodCallHandler(pathProvider, null),
+        );
         await openComparing(tester);
 
         await tester.tap(
@@ -2887,6 +3087,65 @@ class _NoDrainEngine extends SyncEngine {
 
   @override
   Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {}
+}
+
+class _OpenFolderDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
+  @override
+  OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
+}
+
+class _FixedFolderDirectProfiles extends DirectConnectionProfilesController {
+  _FixedFolderDirectProfiles(this.profile);
+
+  final DirectConnectionProfile profile;
+
+  @override
+  Future<List<DirectConnectionProfile>> build() async => [profile];
+}
+
+class _IdleFolderDirectDiscovery extends DirectModelDiscoveryController {
+  @override
+  Future<DirectModelDiscoveryState> build() async =>
+      DirectModelDiscoveryState();
+}
+
+class _WaitingFolderDirectAdapter implements DirectProviderAdapter {
+  final events = StreamController<DirectStreamEvent>();
+  final done = Completer<void>();
+  final asked = Completer<void>();
+
+  @override
+  String get key => kOllamaAdapterKey;
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(
+    DirectConnectionProfile profile,
+  ) async => const [];
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async =>
+      const DirectConnectionProbe(reachable: true);
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) {
+    if (!asked.isCompleted) asked.complete();
+    return DirectCompletionRun(
+      id: 'folder-run-1',
+      profileId: profile.id,
+      remoteModelId: request.remoteModelId,
+      events: events.stream,
+      cancelToken: CancelToken(),
+      done: done.future,
+    );
+  }
+
+  Future<void> finish() async {
+    await events.close();
+    if (!done.isCompleted) done.complete();
+  }
 }
 
 class _TestKnowledge extends WorkspaceKnowledge {

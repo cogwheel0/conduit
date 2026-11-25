@@ -643,7 +643,7 @@ Future<bool> _refreshDirectConversationOwner(
   );
   if (rebound) {
     owner.conversationId = resolvedConversationId;
-    sendHandle?._bindOwnerScope(resolvedOwnerScope);
+    sendHandle?._bindOwnerScope(owner.mutationOwnerScope);
     onRebound?.call(
       _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
     );
@@ -751,6 +751,7 @@ Future<void> _dispatchDirectRunFromChat(
   required List<String> localMcpToolIds,
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
   ChatSendPlaceholderHandle? sendHandle,
+  void Function()? onRunStarting,
 }) async {
   final releaseGeneration = holdLocalChatGeneration(ref);
   try {
@@ -792,7 +793,7 @@ Future<void> _dispatchDirectRunFromChat(
           );
           if (!rebound) return;
           owner.conversationId = id;
-          sendHandle?._bindOwnerScope(resolvedOwnerScope);
+          sendHandle?._bindOwnerScope(owner.mutationOwnerScope);
           rebindStopIndex(
             _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
           );
@@ -829,6 +830,7 @@ Future<void> _dispatchDirectRunFromChat(
         reasoningEffort: reasoningEffort,
         localMcpToolIds: toolSelection.localMcpToolIds,
         ephemeralFilePartsByAttachmentId: ephemeralFilePartsByAttachmentId,
+        onRunStarting: onRunStarting,
       );
     } finally {
       stopIndex.untrack(indexedRunKey);
@@ -870,6 +872,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
   required String? reasoningEffort,
   required List<String> localMcpToolIds,
   Map<String, DirectFilePart> ephemeralFilePartsByAttachmentId = const {},
+  void Function()? onRunStarting,
 }) async {
   final notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -1319,6 +1322,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
     await closeMcpSessionBestEffort();
     throw const _DirectRunStoppedDuringPreflight();
   }
+  onRunStarting?.call();
   final accumulator = DirectStreamingAccumulator();
   var generatedImageBytes = 0;
   Object? terminalFailure;

@@ -72,8 +72,14 @@ import '../../chat/widgets/server_file_picker_sheet.dart';
 import '../../chat/voice_call/presentation/voice_call_launcher.dart';
 import '../../chat/voice_mode/voice_mode_error_text.dart';
 
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../providers/conversation_selection_provider.dart';
@@ -629,12 +635,39 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     }
   }
 
+  Future<chat.ChatSendPlaceholderHandle?> _handleDraftSend(
+    String text,
+    MediaAttachmentOwnershipSnapshot files,
+    void Function(chat.ChatSendPlaceholderHandle) onPrepared,
+  ) {
+    final committed = Completer<chat.ChatSendPlaceholderHandle?>();
+    unawaited(
+      _handleComposerSend(
+        text,
+        onPrepared: onPrepared,
+        sentFiles: files,
+        onDraftCommitted: (handle) {
+          if (!committed.isCompleted) committed.complete(handle);
+        },
+      ).then(
+        (_) {
+          if (!committed.isCompleted) committed.complete(null);
+        },
+        onError: (Object error, StackTrace stack) {
+          if (!committed.isCompleted) committed.completeError(error, stack);
+        },
+      ),
+    );
+    return committed.future;
+  }
+
   /// Sends [text] as a new chat in this folder, with [sentFiles], the
   /// composer's files taken for it, or else the tray's uploaded files now.
   Future<chat.ChatSendPlaceholderHandle?> _handleComposerSend(
     String text, {
     void Function(chat.ChatSendPlaceholderHandle)? onPrepared,
     MediaAttachmentOwnershipSnapshot? sentFiles,
+    void Function(chat.ChatSendPlaceholderHandle)? onDraftCommitted,
   }) async {
     final media = ref.read(mediaUploadControllerProvider);
     final files = sentFiles ?? media.captureSentAttachments();
@@ -670,6 +703,25 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       final mediaUploadController = container.read(
         mediaUploadControllerProvider,
       );
+      var retiredSentFiles = false;
+      void retireSentFilesOnce() {
+        if (retiredSentFiles) return;
+        retiredSentFiles = true;
+        unawaited(
+          mediaUploadController.retireAttachmentOwnership(files).catchError((
+            Object error,
+            StackTrace stackTrace,
+          ) {
+            DebugLogger.error(
+              'sent-attachment-cleanup-failed',
+              scope: 'navigation/folder',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
+        );
+      }
+
       final uploadedFileIds = files.attachments
           .where(
             (file) =>
@@ -688,6 +740,24 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
       NavigationService.router.go(Routes.chat);
 
+      final selectedModel = container.read(selectedModelProvider);
+      final directBinding = selectedModel == null
+          ? null
+          : container.read(directModelRegistryProvider).resolve(selectedModel);
+      final signalsTurnStart =
+          (selectedModel != null && isHermesModel(selectedModel)) ||
+          directBinding?.source == DirectModelSource.device;
+      final hasDurableOutbox =
+          container.read(appDatabaseProvider) != null &&
+          !container.read(reviewerModeProvider) &&
+          !container.read(temporaryChatEnabledProvider);
+      final usesOutbox =
+          hasDurableOutbox &&
+          !(selectedModel != null && isHermesModel(selectedModel)) &&
+          !(selectedModel != null && isLibreChatModel(selectedModel)) &&
+          directBinding == null;
+      var admissionConfirmed = false;
+
       // Durable send: a NEW local chat with folderId set on the chat row
       // (PushSync.pushCreateChat passes folder_id to createChat), plus a
       // requestCompletion op; streaming is driven via the drainer.
@@ -702,22 +772,27 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           pendingSend = handle;
           onPrepared?.call(handle);
         },
+        onAdmissionCommitted: usesOutbox && onDraftCommitted != null
+            ? (_) {
+                admissionConfirmed = true;
+                retireSentFilesOnce();
+                onDraftCommitted(pendingSend!);
+              }
+            : null,
+        onTurnStarted: () {
+          if (admissionConfirmed || pendingSend == null) return;
+          admissionConfirmed = true;
+          retireSentFilesOnce();
+          onDraftCommitted?.call(pendingSend!);
+        },
       );
 
-      // durableSend has now transferred all message/outbox ownership.
-      unawaited(
-        mediaUploadController.retireAttachmentOwnership(files).catchError((
-          Object error,
-          StackTrace stackTrace,
-        ) {
-          DebugLogger.error(
-            'sent-attachment-cleanup-failed',
-            scope: 'navigation/folder',
-            error: error,
-            stackTrace: stackTrace,
-          );
-        }),
-      );
+      if (!admissionConfirmed && pendingSend != null && !signalsTurnStart) {
+        onDraftCommitted?.call(pendingSend!);
+      }
+      if (!signalsTurnStart || admissionConfirmed) {
+        retireSentFilesOnce();
+      }
       return pendingSend;
     } on ChatBackendNotReadyException catch (error) {
       if (mounted) showChatBackendNotReady(context, error.reason);
@@ -1577,11 +1652,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                     'folder-page-composer-${widget.folderId}-$_composerResetNonce',
                   ),
                   onSendMessage: _handleComposerSend,
-                  onSendDraft: (text, files, onPrepared) => _handleComposerSend(
-                    text,
-                    onPrepared: onPrepared,
-                    sentFiles: files,
-                  ),
+                  onSendDraft: _handleDraftSend,
                   onCompareSend: _handleCompareSend,
                   enabled:
                       !ref.watch(conversationSelectionProvider).isLoading &&
