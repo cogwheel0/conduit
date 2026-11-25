@@ -141,6 +141,7 @@ const List<String> _iosHostAgnosticSwift = <String>[
   'ios/Runner/NativeTextSelectionMenuBridge.swift',
   'ios/Runner/PccBridge.swift',
   'ios/Runner/PlatformEnvironmentBridge.swift',
+  'ios/Runner/ProtocolProbeBridge.swift',
   'ios/Runner/PushBridge.swift',
   'ios/Runner/RealtimeAudioBridge.swift',
   'ios/Runner/RecordingActivityBridge.swift',

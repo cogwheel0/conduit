@@ -126,3 +126,39 @@ is the contract on `ByteRequest.read`, and `ProtocolByteRoutes._collect`
 depends on it. The in-process host copies each frame's payload, because the
 client may reuse its buffer. `conduitd` passes `dart:io`'s views of each socket
 read, which it never rewrites.
+
+## The Flutter binding
+
+[`ProtocolChannelHost`](../../lib/platform/protocol_channel_host.dart) puts
+the host on three platform channels, and only in a build with
+`--dart-define=CONDUIT_PROTOCOL_HOST=true`, on iOS. The call in `main.dart` is
+behind that const, so a build without it does not reach the host and leaves it
+out.
+
+- **Control** (standard codec): the client's `hello`, `open` and `close`; the
+  host's `ready` (with the protocol version) and `closed`. Dart sends `ready`
+  when it starts, again after a restart of the Dart side (a hot restart keeps
+  Swift's handlers), and a client registers its handlers before it sends
+  anything. A `hello` sent before Dart listens waits in the engine's buffer
+  and is answered too, so a client may hear `ready` twice: its `start` names
+  the binding, and a client opens once per start.
+  An `open` is answered once the host has started, which may take a while
+  the first time. Until then the session takes no messages, a `close` cancels
+  the open (it is answered `closed`), and a second `open` of it is refused.
+  A start that fails is answered `unavailable` (on a byte stream, as the
+  `error` frame of the stream its `open` starts) and is not kept: the next
+  `open` or byte stream tries again.
+- **RPC** (strings): `<session>\n<message>` both ways, on one channel rather
+  than one per session, so a message for a session that is gone is still
+  answered (`closed`) instead of finding no handler. A session's name ends
+  at the first newline, so `open` refuses a name with one.
+- **Bytes** (binary): frames, each answered once taken.
+
+Every send is answered: the reply is the acknowledgement the hold counts. A
+reply that never comes from a handler arrives as `null`, which the binding
+treats as a failed send, so the session ends and the client is told.
+
+**One engine.** The window scene and CarPlay share the app's one engine, and
+CarPlay may start it with no window. Nothing is built until a client opens a
+session or a byte stream, and the debug probe opens one only once a window of
+the app is in front, so a CarPlay-only launch never builds the host.
