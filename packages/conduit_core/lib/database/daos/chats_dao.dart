@@ -293,6 +293,21 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     _localTurnVersions[chatId] = localTurnVersion(chatId) + 1;
   }
 
+  final _titleWriteVersions = <String, int>{};
+
+  /// Counts the titles of chat [chatId] this device wrote on the server
+  /// ([noteTitleWritten]). A fetch takes it before it reads the chat, so a
+  /// copy read before a rename landed does not put the old title back, nor
+  /// the old title in the copy a later save sends.
+  int titleWriteVersion(String chatId) => _titleWriteVersions[chatId] ?? 0;
+
+  /// This device wrote a title of chat [chatId] on the server: a rename, or
+  /// a title it had generated. Called in the chat's lock, once the server
+  /// took the title.
+  void noteTitleWritten(String chatId) {
+    _titleWriteVersions[chatId] = titleWriteVersion(chatId) + 1;
+  }
+
   /// The model list stored with chat [chatId], or null when it has none.
   Future<List<Object?>?> storedChatModels(String chatId) async {
     final row = await getChat(chatId);
@@ -619,9 +634,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     bool refreshWhenClean = false,
 
     /// The copy was read before a push of this chat landed
-    /// ([pushVersion]), or before this device stored a turn of its own
-    /// ([localTurnVersion]): older than either, whatever its `updated_at`
-    /// says.
+    /// ([pushVersion]), before this device stored a turn of its own
+    /// ([localTurnVersion]), or before it wrote the chat's title on the
+    /// server ([titleWriteVersion]): older than any of them, whatever its
+    /// `updated_at` says.
     bool readBeforeLocalWrite = false,
   }) {
     return transaction(() async {

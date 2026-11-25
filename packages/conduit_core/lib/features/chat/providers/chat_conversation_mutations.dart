@@ -242,6 +242,7 @@ Future<void> renameOpenWebUiConversation(
         throw const OpenWebUiAccountChangedException();
       }
       await api.updateConversation(rawId, title: title);
+      database?.chatsDao.noteTitleWritten(rawId);
       await database?.chatsDao.updateServerGeneratedTitle(
         rawId,
         title,

@@ -140,6 +140,7 @@ Future<GeneratedConversationTitle> generateConversationTitle(
         authSnapshot: authSnapshot,
       );
       saved = true;
+      database?.chatsDao.noteTitleWritten(rawConversationId);
       await database?.chatsDao.updateServerGeneratedTitle(
         rawConversationId,
         title,
