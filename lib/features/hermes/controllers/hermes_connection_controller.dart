@@ -132,6 +132,7 @@ final class HermesConnectionController extends ChangeNotifier {
        _mode = initialConfig.mode,
        _desktopAuthKind = initialConfig.desktopAuthKind,
        _desktopProfile = initialConfig.desktopProfile,
+       _useTailscale = initialConfig.useTailscale,
        _allowSelfSignedCertificates = initialConfig.allowSelfSignedCertificates,
        _plainHttpConsentOrigin = initialConfig.plainHttpConsentOrigin,
        _initialAccessHeaders = Map.of(initialConfig.accessHeaders),
@@ -152,6 +153,7 @@ final class HermesConnectionController extends ChangeNotifier {
   HermesBackendMode _mode;
   HermesDesktopAuthKind _desktopAuthKind;
   String _desktopProfile;
+  bool _useTailscale;
   bool _allowSelfSignedCertificates;
 
   /// The origin the user agreed to send credentials to unencrypted.
@@ -180,6 +182,7 @@ final class HermesConnectionController extends ChangeNotifier {
   HermesBackendMode get mode => _mode;
   HermesDesktopAuthKind get desktopAuthKind => _desktopAuthKind;
   String get desktopProfile => _desktopProfile;
+  bool get useTailscale => _useTailscale;
   bool get allowSelfSignedCertificates => _allowSelfSignedCertificates;
   Map<String, String> get accessHeaders => Map.unmodifiable(_accessHeaders);
 
@@ -219,6 +222,7 @@ final class HermesConnectionController extends ChangeNotifier {
     mode: _mode,
     desktopAuthKind: _desktopAuthKind,
     desktopProfile: _desktopProfile,
+    useTailscale: _useTailscale,
     allowSelfSignedCertificates: _allowSelfSignedCertificates,
     plainHttpConsentOrigin: _plainHttpConsentOrigin,
     apiKey: apiKey.text,
@@ -277,6 +281,12 @@ final class HermesConnectionController extends ChangeNotifier {
       return;
     }
     _desktopProfile = normalized;
+    _markDraftChanged();
+  }
+
+  void setUseTailscale(bool value) {
+    if (_useTailscale == value) return;
+    _useTailscale = value;
     _markDraftChanged();
   }
 

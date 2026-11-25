@@ -5270,5 +5270,12 @@
   "chatBackendHermesTurnedOff": "Агент Hermes выключен. Включите его в разделе Настройки → Агент Hermes и повторите попытку.",
   "@chatBackendHermesTurnedOff": {
     "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
-  }
+  },
+  "tailscaleBrowserSignInUnavailable": "Вход через браузер не поддерживает подключение Tailscale этого приложения. Используйте учётные данные сервера.",
+  "useTailscale": "Использовать Tailscale",
+  "tailscaleAccountHelp": "Войдите один раз и включите Tailscale для каждого сервера Open WebUI или Hermes, к которому хотите подключаться по частной сети.",
+  "tailscaleIdle": "Вход выполнен · подключение по необходимости",
+  "tailscaleAuthorize": "Завершите вход в браузере",
+  "tailscaleApprove": "Ожидание подтверждения устройства",
+  "tailscaleUnavailable": "Не удалось подключиться к Tailscale"
 }

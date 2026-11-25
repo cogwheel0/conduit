@@ -20,6 +20,7 @@ import '../providers/openwebui_route_resolver.dart'
         reloadAfterRoutesEdited;
 import '../services/api_service.dart';
 import '../services/optimized_storage_service.dart' show ServerConnectionTaken;
+import '../services/server_tls_http_client_factory.dart';
 import '../services/worker_manager.dart';
 import '../utils/debug_logger.dart';
 import '../utils/sensitive_value_utils.dart';
@@ -430,9 +431,7 @@ ServerAddressFailure classifyServerConnectionError(
       );
   }
   if (errorText.contains('This does not appear to be an Open-WebUI server')) {
-    return const ServerAddressProblemFailure(
-      ServerAddressProblem.notOpenWebUi,
-    );
+    return const ServerAddressProblemFailure(ServerAddressProblem.notOpenWebUi);
   }
   return clean;
 }
@@ -532,6 +531,7 @@ OpenWebUiEndpoint? editedAddress({
     url: connection.url,
     label: label,
     customHeaders: connection.customHeaders,
+    useTailscale: connection.useTailscale,
     allowSelfSignedCertificates: connection.allowSelfSignedCertificates,
     mtlsCertificateChainPem: connection.mtlsCertificateChainPem,
     mtlsCertificateLabel: connection.mtlsCertificateLabel,
@@ -561,9 +561,7 @@ OpenWebUiEndpoint? editedAddress({
     for (final entry in from.customHeaders.entries)
       _headerKey(entry.key): entry.value,
   };
-  final kept = {
-    for (final name in edited.customHeaders.keys) _headerKey(name),
-  };
+  final kept = {for (final name in edited.customHeaders.keys) _headerKey(name)};
   final headers = <String, MapEntry<String, String>>{
     for (final entry in stored.customHeaders.entries)
       if (!began.containsKey(_headerKey(entry.key)) ||
@@ -578,6 +576,7 @@ OpenWebUiEndpoint? editedAddress({
     url: pick((e) => e.url),
     label: label,
     customHeaders: Map.fromEntries(headers.values),
+    useTailscale: pick((e) => e.useTailscale),
     allowSelfSignedCertificates: pick((e) => e.allowSelfSignedCertificates),
     mtlsCertificateChainPem: tls.mtlsCertificateChainPem,
     mtlsCertificateLabel: tls.mtlsCertificateLabel,
@@ -816,6 +815,7 @@ final class ServerAddressDraft {
     this.url = '',
     this.label = '',
     Map<String, String>? headers,
+    this.useTailscale = false,
     this.allowSelfSigned = false,
     this.certificatePem,
     this.certificateLabel,
@@ -836,6 +836,7 @@ final class ServerAddressDraft {
           for (final entry in endpoint.customHeaders.entries)
             if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
         },
+        useTailscale: endpoint.useTailscale,
         allowSelfSigned: endpoint.allowSelfSignedCertificates,
         certificatePem: endpoint.mtlsCertificateChainPem,
         certificateLabel: endpoint.mtlsCertificateLabel,
@@ -851,6 +852,7 @@ final class ServerAddressDraft {
   String url;
   String label;
   final Map<String, String> headers;
+  bool useTailscale;
   bool allowSelfSigned;
   String? certificatePem;
   String? certificateLabel;
@@ -884,6 +886,7 @@ final class ServerAddressDraft {
     label,
     [for (final header in headers.entries) '${header.key}\u0000${header.value}']
         .join('\u0001'),
+    useTailscale,
     allowSelfSigned,
     certificatePem,
     privateKeyPem,
@@ -931,10 +934,22 @@ bool hasExplicitHttpScheme(String input) {
 /// [url], typed without a scheme and so tried over http first, as the https
 /// address its server redirects to on the same host; else [url] itself. The
 /// probe carries no custom header, which may hold credentials.
-Future<String> upgradeSchemeLessServerUrl(String url) async {
+Future<String> upgradeSchemeLessServerUrl(
+  String url, {
+  required bool useTailscale,
+}) async {
   final original = Uri.parse(url);
   if (original.scheme != 'http') return url;
   final dio = Dio(buildSchemeLessPlaintextHealthProbeOptions(url));
+  ServerTlsHttpClientFactory.configureDio(
+    dio,
+    ServerConfig(
+      id: 'scheme-probe',
+      name: '',
+      url: url,
+      useTailscale: useTailscale,
+    ),
+  );
   try {
     final response = await dio.get('/health');
     return _sameHostHttpsRedirect(
@@ -1234,7 +1249,10 @@ Future<ServerAddressCheck> checkServerAddressDraft(
   try {
     var url = formatServerAddressInput(draft.url);
     if (!hasExplicitHttpScheme(draft.url)) {
-      url = await upgradeSchemeLessServerUrl(url);
+      url = await upgradeSchemeLessServerUrl(
+        url,
+        useTailscale: draft.useTailscale,
+      );
     }
     final config = ServerConfig(
       id: const Uuid().v4(),
@@ -1242,6 +1260,7 @@ Future<ServerAddressCheck> checkServerAddressDraft(
       url: url,
       customHeaders: Map.of(draft.headers),
       isActive: true,
+      useTailscale: draft.useTailscale,
       allowSelfSignedCertificates: draft.allowSelfSigned,
       mtlsCertificateChainPem: draft.certificatePem,
       mtlsCertificateLabel: draft.certificateLabel,
@@ -1377,6 +1396,7 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
       for (final entry in verified.customHeaders.entries)
         if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
     },
+    useTailscale: verified.useTailscale,
     allowSelfSignedCertificates: verified.allowSelfSignedCertificates,
     mtlsCertificateChainPem: verified.mtlsCertificateChainPem,
     mtlsCertificateLabel: verified.mtlsCertificateLabel,

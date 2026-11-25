@@ -39,7 +39,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('advanced-settings-toggle')));
     await tester.pumpAndSettle();
-    final control = find.byType(AdaptiveSwitch);
+    final control = find.byWidgetPredicate(
+      (widget) => widget is AdaptiveSwitch &&
+          widget.semanticLabel == 'Allow Unverified Certificate',
+    );
     await tester.ensureVisible(control);
     await tester.pumpAndSettle();
     final label = tester.widget<AdaptiveSwitch>(control).semanticLabel!;
@@ -57,6 +60,41 @@ void main() {
     );
     await harness.unmount(tester);
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets('a new $platform connection offers Tailscale beside the URL', (
+      tester,
+    ) async {
+      final harness = AdaptiveAuthHarness(
+        server: _server,
+        platform: platform,
+        browserSupported: true,
+        disableAnimations: true,
+      );
+      addTearDown(harness.dispose);
+      await tester.pumpWidget(harness.build(initialLocation: Routes.addServer));
+      await tester.pumpAndSettle();
+
+      final toggle = find.byWidgetPredicate(
+        (widget) =>
+            widget is AdaptiveSwitch && widget.semanticLabel == 'Use Tailscale',
+      );
+      expect(tester.widget<AdaptiveSwitch>(toggle).value, isFalse);
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(tester.widget<AdaptiveSwitch>(toggle).value, isTrue);
+      expect(find.text('Sign In'), findsOneWidget);
+
+      final advanced = find.byKey(const ValueKey('advanced-settings-toggle'));
+      await tester.ensureVisible(advanced);
+      await tester.tap(advanced);
+      await tester.pumpAndSettle();
+      expect(toggle, findsOneWidget);
+      expect(find.text('Browser Sign-In'), findsNothing);
+      await harness.unmount(tester);
+    }, variant: TargetPlatformVariant.only(platform));
+  }
 
   testWidgets(
     'post-logout sign-in flow can return from server setup to backend chooser',

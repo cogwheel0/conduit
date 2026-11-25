@@ -1,3 +1,5 @@
+import '../../../platform/mobile_tailnet.dart';
+
 import 'dart:async';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -153,6 +155,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   String? _mtlsPrivateKeyLabel;
   bool _isConnecting = false;
   bool _showAdvancedSettings = false;
+  bool _useTailscale = false;
   bool _allowSelfSignedCertificates = false;
 
   /// Whether the server's accounts sign in through the system browser, set
@@ -283,6 +286,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           draft.allowSelfSigned ||
           draft.headers.isNotEmpty ||
           (!kIsWeb && draft.hasMutualTlsInput);
+      _useTailscale = draft.useTailscale;
       _allowSelfSignedCertificates = draft.allowSelfSigned;
       _mtlsCertificateChainPem = kIsWeb ? null : draft.certificatePem;
       _mtlsCertificateLabel = kIsWeb ? null : draft.certificateLabel;
@@ -347,6 +351,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           endpoint.allowSelfSignedCertificates ||
           endpoint.customHeaders.isNotEmpty ||
           (!kIsWeb && endpoint.mtlsPrivateKeyPem != null);
+      _useTailscale = endpoint.useTailscale;
       _allowSelfSignedCertificates = endpoint.allowSelfSignedCertificates;
       _mtlsCertificateChainPem = kIsWeb
           ? null
@@ -482,6 +487,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       for (final header in _customHeaders.entries)
         '${header.key}\u0000${header.value}',
     ].join('\u0001'),
+    _useTailscale,
     _allowSelfSignedCertificates,
     _mtlsCertificateChainPem,
     _mtlsPrivateKeyPem,
@@ -509,6 +515,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           config.allowSelfSignedCertificates ||
           config.customHeaders.isNotEmpty ||
           (!kIsWeb && config.hasMutualTlsCredentials);
+      _useTailscale = config.useTailscale;
       _allowSelfSignedCertificates = config.allowSelfSignedCertificates;
       _mtlsCertificateChainPem = kIsWeb ? null : config.mtlsCertificateChainPem;
       _mtlsCertificateLabel = kIsWeb ? null : config.mtlsCertificateLabel;
@@ -543,6 +550,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// Browser sign-in is offered for a server being connected to: a saved
   /// server has it in its settings, and an address is not a server.
   bool get _offersBrowserSignIn =>
+      !_useTailscale &&
       !_editingRoutes &&
       widget.serverId == null &&
       ref.read(browserAuthPortProvider).isSupported;
@@ -618,6 +626,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         url: url,
         customHeaders: Map<String, String>.from(_customHeaders),
         isActive: true,
+        useTailscale: _useTailscale,
         allowSelfSignedCertificates: _allowSelfSignedCertificates,
         mtlsCertificateChainPem: _mtlsCertificateChainPem,
         mtlsCertificateLabel: _mtlsCertificateLabel,
@@ -652,6 +661,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
       // Handle proxy authentication requirement
       if (healthResult == HealthCheckResult.proxyAuthRequired) {
+        if (checkConfig.useTailscale) {
+          setState(() => _connectionError = l10n.tailscaleBrowserSignInUnavailable);
+          return;
+        }
         DebugLogger.log(
           'Server behind proxy detected, prompting for proxy auth',
           scope: 'auth/connection',
@@ -847,6 +860,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       url: tempConfig.url,
       customHeaders: updatedHeaders,
       isActive: tempConfig.isActive,
+      useTailscale: tempConfig.useTailscale,
       allowSelfSignedCertificates: tempConfig.allowSelfSignedCertificates,
       mtlsCertificateChainPem: tempConfig.mtlsCertificateChainPem,
       mtlsCertificateLabel: tempConfig.mtlsCertificateLabel,
@@ -1086,7 +1100,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   bool _hasExplicitHttpScheme(String input) => hasExplicitHttpScheme(input);
 
   Future<String> _canonicalizeSchemeLessServerUrl(String url) =>
-      upgradeSchemeLessServerUrl(url);
+      upgradeSchemeLessServerUrl(url, useTailscale: _useTailscale);
 
   /// The saved server's own name while the form still reaches it: saving an
   /// added account's connection renames the server it joins after it, for
@@ -1487,6 +1501,39 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           ),
         ),
 
+        if (supportsMobileTailnet) ...[
+          const SizedBox(height: Spacing.md),
+          InsetGroupedSection(
+            flat: true,
+            footer: _useTailscale ? l10n.tailscaleAccountHelp : null,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: ExcludeSemantics(child: Text(l10n.useTailscale)),
+                    ),
+                    AdaptiveSwitch(
+                      value: _useTailscale,
+                      semanticLabel: l10n.useTailscale,
+                      onChanged: _isConnecting ? null : _setUseTailscale,
+                    ),
+                  ],
+                ),
+                if (_useTailscale)
+                  ConduitButton(
+                    text: l10n.signIn,
+                    isSecondary: true,
+                    onPressed: _isConnecting
+                        ? null
+                        : MobileTailnet.instance.signIn,
+                  ),
+              ],
+            ),
+          ),
+        ],
+
         if (_attemptState.isVisible) ...[
           const SizedBox(height: Spacing.md),
           ConnectionAttemptBanner(state: _attemptState),
@@ -1551,6 +1598,19 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               },
               onSubmitted: (_) => _connectToServer(),
             ),
+            if (supportsMobileTailnet) ...[
+              AuthGroupedSwitchRow(
+                title: l10n.useTailscale,
+                value: _useTailscale,
+                onChanged: _isConnecting ? null : _setUseTailscale,
+              ),
+              if (_useTailscale)
+                AuthGroupedRow(
+                  title: l10n.signIn,
+                  subtitle: l10n.tailscaleAccountHelp,
+                  onTap: _isConnecting ? null : MobileTailnet.instance.signIn,
+                ),
+            ],
             AuthGroupedRow(
               key: const ValueKey<String>('advanced-settings-toggle'),
               title: l10n.advancedSettings,
@@ -1784,6 +1844,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       child: _buildAdvancedSettingsContent(),
     );
   }
+
+  void _setUseTailscale(bool value) => setState(() {
+    _useTailscale = value;
+    _connectionError = null;
+  });
 
   Widget _buildAdvancedSettingsContent() {
     final l10n = AppLocalizations.of(context)!;

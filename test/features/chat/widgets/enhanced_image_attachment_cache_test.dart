@@ -1,6 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:cached_network_image_ce/cached_network_image.dart'
+    show BaseCacheManager, FileInfo, FileSource;
+import 'package:conduit/shared/widgets/jovial_svg_image.dart';
+import 'package:mocktail/mocktail.dart' as mocks;
+import 'package:file/memory.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
@@ -24,7 +29,71 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+class _ScopedImageCache extends mocks.Mock implements BaseCacheManager {}
+
 void main() {
+  test(
+    'private SVG attachments use their scoped client and propagate its failure',
+    () async {
+      final manager = _ScopedImageCache();
+      const url = 'https://orchard.test/kite.svg';
+      const headers = {'Accept': 'image/svg+xml'};
+      final offline = StateError('synthetic offline peer');
+      mocks
+          .when(
+            () => manager.getFileStream(
+              url,
+              key: 'orchard-kite',
+              headers: headers,
+            ),
+          )
+          .thenThrow(offline);
+      final image = JovialSvgImage.network(
+        url,
+        headers: headers,
+        cacheIdentity: 'orchard-kite',
+        cacheManager: manager,
+      );
+      await expectLater(image.loader(), throwsA(same(offline)));
+    },
+  );
+
+  for (final offline in [false, true]) {
+    test('an expired scoped SVG awaits its refresh (offline: $offline)', () async {
+      const url = 'https://orchard.test/kite.svg';
+      final manager = _ScopedImageCache();
+      final fs = MemoryFileSystem();
+      FileInfo sample(int width, Duration validity) {
+        final file = fs.file('/kite-$width')
+          ..writeAsStringSync(
+            '<svg width="$width" height="10" xmlns="http://www.w3.org/2000/svg"><rect width="$width" height="10"/></svg>',
+          );
+        return FileInfo(
+          file,
+          FileSource.Cache,
+          DateTime.now().add(validity),
+          url,
+        );
+      }
+
+      Stream<FileInfo> responses() async* {
+        yield sample(10, const Duration(days: -1));
+        if (offline) throw StateError('synthetic offline peer');
+        yield sample(20, const Duration(days: 1));
+      }
+
+      mocks
+          .when(() => manager.getFileStream(url, key: 'kite'))
+          .thenAnswer((_) => responses());
+      final image = JovialSvgImage.network(
+        url,
+        cacheIdentity: 'kite',
+        cacheManager: manager,
+      );
+      check((await image.loader()).viewport.width).equals(offline ? 10 : 20);
+    });
+  }
+
   setUp(debugResetImageAttachmentCaches);
   tearDown(debugResetImageAttachmentCaches);
 

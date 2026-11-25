@@ -1180,6 +1180,35 @@ void main() {
   );
 
   test(
+    'a session validated on the old network cannot publish its token',
+    () async {
+      final server = _serverConfig('synthetic-orchard');
+      await storage.saveServerConfigs([server]);
+      final ownership = await storage.captureServerSessionOwnership(
+        validatedConfig: server,
+        requireActive: false,
+      );
+      check(ownership).isNotNull();
+      await storage.saveServerConfigs([server.copyWith(useTailscale: true)]);
+      check(
+        await storage.captureServerSessionOwnership(
+          validatedConfig: server,
+          requireActive: false,
+        ),
+      ).isNull();
+      check(
+        await storage.commitExistingServerSession(
+          ownership: ownership!,
+          token: 'synthetic',
+          canCommit: () => true,
+          publish: () => fail('stale session published'),
+        ),
+      ).isFalse();
+      check(await storage.getAuthToken()).isNull();
+    },
+  );
+
+  test(
     'existing session rejects replaced saved credentials before mutation',
     () async {
       final previous = _serverConfig('server-a').copyWith(isActive: true);

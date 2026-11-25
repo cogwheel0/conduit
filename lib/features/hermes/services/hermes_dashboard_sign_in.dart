@@ -23,6 +23,7 @@ class HermesDashboardSignIn {
   /// sign-in opens in a web view of the sheet's own; elsewhere it is the
   /// Flutter page. Answers whether the dashboard says the user is signed in.
   Future<bool> signIn(HermesConfig config) async {
+    if (config.useTailscale) return false;
     final bridge = NativeSheetBridge.instance;
     if (bridge.settingsSheetOpen) {
       if (config.accessHeaders.isEmpty) return _signInOverSheet(bridge, config);

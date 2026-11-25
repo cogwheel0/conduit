@@ -11,6 +11,7 @@ instead.
 | | |
 | --- | --- |
 | Flutter SDK | Flutter `3.47.0` or newer, with Dart `3.13.0` or newer |
+| Go | Version listed in [native/tailnet/go.mod](../native/tailnet/go.mod), with `go` on PATH for iOS and Android builds |
 | Android | Java 17+, AGP 9.1.0, KGP 2.4.0, Gradle 9.3.1, Android SDK 36, Android 7.0+ (API 24) at runtime |
 | iOS | Xcode with an iOS 16.0+ deployment target |
 | Backend | An Open WebUI instance, a LibreChat server, an OpenAI-compatible API, an Ollama endpoint, or a Hermes server |
@@ -25,6 +26,8 @@ build keeps PCC compiled out on older SDKs while retaining the iOS 16 deployment
 target. PCC accepts image data URLs and Direct generation parameters including
 `temperature`, `max_tokens`, `top_p`, `top_k`, `seed`, and OpenAI-style
 `response_format.json_schema`; tool parameters are rejected.
+
+The mobile build hook compiles Tailscale from pinned Go modules using Xcode or the Android NDK. Run the isolated networking tests with `cd native/tailnet && go test ./...`. The tests start a local coordination server, relay, and two synthetic nodes.
 
 ## Clone
 

@@ -1,3 +1,5 @@
+import '../../../platform/mobile_tailnet.dart';
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -122,6 +124,20 @@ class _HermesTransportSectionState extends State<HermesTransportSection> {
               ),
             ),
           const SizedBox(height: Spacing.sm),
+          if (supportsMobileTailnet)
+            UtilityRow(
+              key: const ValueKey('hermes-use-tailscale'),
+              title: l10n.useTailscale,
+              subtitle: l10n.tailscaleAccountHelp,
+              toggled: _controller.useTailscale,
+              trailing: AdaptiveSwitch(
+                value: _controller.useTailscale,
+                semanticLabel: l10n.useTailscale,
+                onChanged: _controller.setUseTailscale,
+              ),
+              onTap: () =>
+                  _controller.setUseTailscale(!_controller.useTailscale),
+            ),
           UtilityRow(
             key: const ValueKey<String>('hermes-allow-self-signed'),
             title: l10n.allowSelfSignedCertificates,

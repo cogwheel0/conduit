@@ -29,10 +29,15 @@ String? buildSelfSignedImageCacheNamespace(ServerConfig server) {
     return null;
   }
 
-  final tlsMode = server.hasMutualTlsCredentials ? 'mtls' : 'selfsigned';
+  final tlsMode = server.hasMutualTlsCredentials
+      ? 'mtls'
+      : server.allowSelfSignedCertificates
+      ? 'selfsigned'
+      : 'system';
   final host = uri.host.toLowerCase();
   final port = uri.hasPort ? uri.port : 0;
-  return 'conduit-$tlsMode-$host:$port';
+  final transport = server.useTailscale ? 'tailscale-' : '';
+  return 'conduit-$transport$tlsMode-$host:$port';
 }
 
 @visibleForTesting

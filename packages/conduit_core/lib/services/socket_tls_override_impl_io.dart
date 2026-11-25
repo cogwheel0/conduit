@@ -33,7 +33,9 @@ io.Socket createSocketWithOptionalBadCertOverride(
   }
 
   final target = _tryParseUri(base);
-  if (target == null || !(target.scheme == 'https' || target.scheme == 'wss')) {
+  if (!serverConfig.useTailscale &&
+      (target == null ||
+          !(target.scheme == 'https' || target.scheme == 'wss'))) {
     return io.io(base, builder.build());
   }
 

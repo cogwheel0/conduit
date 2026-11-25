@@ -1,3 +1,5 @@
+import '../../../platform/mobile_tailnet.dart';
+
 import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -849,6 +851,7 @@ NativeSheetDetailConfig buildHermesConnectionAdvancedPage(
   required String key,
   required HermesBackendMode mode,
   required Map<String, String> headers,
+  bool useTailscale = false,
   required bool allowSelfSigned,
   required bool sessionKeyConfigured,
   bool disabled = false,
@@ -891,6 +894,16 @@ NativeSheetDetailConfig buildHermesConnectionAdvancedPage(
       ),
       NativeSheetSectionConfig(
         items: [
+          if (supportsMobileTailnet)
+            NativeSheetItemConfig(
+              id: row('tailscale'),
+              title: l10n.useTailscale,
+              subtitle: l10n.tailscaleAccountHelp,
+              sfSymbol: 'network',
+              kind: NativeSheetItemKind.toggle,
+              value: useTailscale,
+              disabled: disabled,
+            ),
           NativeSheetItemConfig(
             id: row('self-signed'),
             title: l10n.allowSelfSignedCertificates,
@@ -1066,7 +1079,7 @@ final class _Editor {
   List<String> profiles = const [];
   String? profilesError;
   bool profilesLoading = false;
-  String? lastOrigin;
+  (String?, bool)? lastOrigin;
   String? lastProfileIdentity;
   final Object credentialSalt = Object();
   int recommendationEpoch = 0;
@@ -1446,7 +1459,10 @@ class HermesSettingsPages extends SettingsPageModule {
       initialNameSource: profile?.nameSource,
       gateway: _ref.read(hermesConnectionGatewayProvider),
     );
-    editor.lastOrigin = HermesConfig.connectionEndpoint(initial.baseUrl);
+    editor.lastOrigin = (
+      HermesConfig.connectionEndpoint(initial.baseUrl),
+      initial.useTailscale,
+    );
   }
 
   Future<void> _loadStored(
@@ -1554,6 +1570,8 @@ class HermesSettingsPages extends SettingsPageModule {
     final urlError = switch (controller.validationIssue) {
       HermesConnectionValidationIssue.invalidUrl =>
         l10n.directConnectionUrlInvalid,
+      HermesConnectionValidationIssue.dashboardRequiresDeviceNetwork =>
+        l10n.tailscaleBrowserSignInUnavailable,
       HermesConnectionValidationIssue.credentialsReentryRequired =>
         l10n.directConnectionCredentialsReentryRequired,
       null => null,
@@ -1658,6 +1676,7 @@ class HermesSettingsPages extends SettingsPageModule {
       key: key,
       mode: controller.mode,
       headers: controller.accessHeaders,
+      useTailscale: controller.useTailscale,
       allowSelfSigned: controller.allowSelfSignedCertificates,
       sessionKeyConfigured: _saved(editor).sessionKey?.isNotEmpty == true,
       disabled: controller.operation.isBusy,
@@ -1882,7 +1901,7 @@ class HermesSettingsPages extends SettingsPageModule {
           )
         : 0;
     return '${HermesConfig.connectionEndpoint(config.baseUrl)}\u0000'
-        '${config.desktopAuthKind.name}\u0000'
+        '${config.useTailscale}\u0000${config.desktopAuthKind.name}\u0000'
         '$legacy\u0000'
         '${headers.map((entry) => '${entry.key.toLowerCase()}=${entry.value}').join('\u0000')}';
   }
@@ -1913,7 +1932,10 @@ class HermesSettingsPages extends SettingsPageModule {
     editor.edited = true;
     if (controller.mode != HermesBackendMode.desktopGateway) return;
     final work = <Future<void>>[];
-    final origin = HermesConfig.connectionEndpoint(controller.url.text);
+    final origin = (
+      HermesConfig.connectionEndpoint(controller.url.text),
+      controller.useTailscale,
+    );
     if (origin != editor.lastOrigin) {
       editor.lastOrigin = origin;
       editor.recommendationEpoch++;
@@ -2106,6 +2128,10 @@ class HermesSettingsPages extends SettingsPageModule {
     String key,
     _Editor editor,
   ) async {
+    if (editor.controller!.useTailscale) {
+      editor.controller!.reportFailure(l10n.tailscaleBrowserSignInUnavailable);
+      return false;
+    }
     // Shown edited first, so the save that follows reads as one on both
     // renderers and Back after it asks nothing.
     if (editor.edited && !editor.shownEdited) {
@@ -2576,6 +2602,13 @@ class HermesSettingsPages extends SettingsPageModule {
         await _applyEditor(l10n, key, editor, withPages: false);
       case 'refresh-profiles':
         await _loadProfiles(key, editor);
+      case 'tailscale' when value is bool:
+        if (controller.useTailscale == value) return true;
+        controller.setUseTailscale(value);
+        await Future.wait([
+          _draftChanged(key, editor),
+          _showEdited(l10n, key, editor),
+        ]);
       case 'self-signed' when value is bool:
         controller.setAllowSelfSignedCertificates(value);
         await _draftChanged(key, editor);

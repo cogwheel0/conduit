@@ -10,8 +10,12 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="conduit_push.xml" />
+        <exclude domain="file" path="conduit-tailnet/" />
+        <exclude domain="sharedpref" path="conduit_tailnet.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="conduit_push.xml" />
+        <exclude domain="file" path="conduit-tailnet/" />
+        <exclude domain="sharedpref" path="conduit_tailnet.xml" />
     </device-transfer>
 </data-extraction-rules>

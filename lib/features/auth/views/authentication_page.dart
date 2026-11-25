@@ -85,6 +85,7 @@ bool authenticationServerMatchesSelection(
       normalizeAuthenticationServerUrl(actual.url) ==
           normalizeAuthenticationServerUrl(expected.url) &&
       mapEquals(actual.customHeaders, expected.customHeaders) &&
+      actual.useTailscale == expected.useTailscale &&
       actual.allowSelfSignedCertificates ==
           expected.allowSelfSignedCertificates &&
       actual.mtlsCertificateChainPem == expected.mtlsCertificateChainPem &&
@@ -200,9 +201,12 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   bool get _hasSsoEnabled =>
       _hasWebViewSso || _browserConfigured || _canSetUpBrowserSignIn;
 
+  bool get _usesTailscale =>
+      (_serverConfig ?? ref.read(activeServerProvider).value)?.useTailscale == true;
+
   /// Whether the server's SSO can run in the in-app WebView.
   bool get _hasWebViewSso =>
-      isWebViewSupported && (_backendConfig?.hasSsoEnabled ?? true);
+      !_usesTailscale && isWebViewSupported && (_backendConfig?.hasSsoEnabled ?? true);
 
   /// Which of the server's providers can sign in through the system browser,
   /// and whether the device and server can.
@@ -215,7 +219,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// Whether browser sign-in can be set up for this server.
   bool get _canSetUpBrowserSignIn {
     final availability = _browserAvailability;
-    return availability.browserSupported &&
+    return !_usesTailscale && availability.browserSupported &&
         availability.serverSupported &&
         availability.providers.isNotEmpty;
   }
@@ -241,7 +245,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   /// Whether the page's SSO continues in the system browser.
   bool get _browserConfigured =>
-      ref.read(browserAuthPortProvider).isSupported && _browserConfig != null;
+      !_usesTailscale && ref.read(browserAuthPortProvider).isSupported && _browserConfig != null;
 
   /// Whether LDAP authentication is enabled on the server.
   bool get _hasLdapEnabled => _backendConfig?.enableLdap == true;
@@ -310,6 +314,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     super.didUpdateWidget(oldWidget);
     _serverConfig = widget.serverConfig ?? _serverConfig;
     _backendConfig = widget.backendConfig ?? _backendConfig;
+    _reconcileAuthMode();
   }
 
   void _resetTransientLogin() {
@@ -346,10 +351,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       _authMode = AuthMode.token;
     }
 
+    _reconcileAuthMode();
+  }
+
+  void _reconcileAuthMode() {
     // Keep the selected segment and rendered form in sync with the methods
     // supported by both the server and this platform.
     final selectableModes = _availableAuthModes;
-    if (selectableModes.length > 1 && !selectableModes.contains(_authMode)) {
+    if (!selectableModes.contains(_authMode)) {
       _authMode = selectableModes.first;
     }
   }
@@ -687,6 +696,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       }
     });
 
+    ref.listen(activeServerProvider, (previous, next) {
+      if (_serverConfig == null &&
+          previous?.value?.useTailscale != next.value?.useTailscale) {
+        setState(_reconcileAuthMode);
+      }
+    });
+
     // Rebuilt when the browser sign-in config of the account's server loads
     // or changes; a config that loads after the page opened makes browser
     // sign-in the method, unless the user picked one already.
@@ -696,6 +712,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         ref.watch(browserSignInConfigProvider(account));
         ref.listen(browserSignInConfigProvider(account), (previous, next) {
           if (!mounted ||
+              _usesTailscale ||
               _authModeChosen ||
               _browserConfigChosen ||
               previous?.value != null ||
@@ -1236,7 +1253,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       _browserConfigPersisted = persist;
       _browserFailure = null;
       _loginError = null;
-      if (config != null) _authMode = AuthMode.sso;
+      if (config != null && !_usesTailscale) _authMode = AuthMode.sso;
     });
   }
 

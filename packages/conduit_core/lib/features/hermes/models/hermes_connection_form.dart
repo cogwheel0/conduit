@@ -3,7 +3,11 @@ import 'package:conduit_core/features/hermes/models/hermes_connection_contract.d
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 
 /// Why a connection form cannot be tested or saved yet.
-enum HermesConnectionValidationIssue { invalidUrl, credentialsReentryRequired }
+enum HermesConnectionValidationIssue {
+  invalidUrl,
+  credentialsReentryRequired,
+  dashboardRequiresDeviceNetwork,
+}
 
 /// What a Hermes connection editor holds: its fields as typed, and which of
 /// its secrets were touched. The phone's editor and the desktop's send the
@@ -22,6 +26,7 @@ final class HermesConnectionForm {
     this.mode = HermesBackendMode.responsesApi,
     this.desktopAuthKind = HermesDesktopAuthKind.legacyToken,
     this.desktopProfile = 'default',
+    this.useTailscale = false,
     this.allowSelfSignedCertificates = false,
     this.plainHttpConsentOrigin,
     this.apiKey = '',
@@ -47,6 +52,7 @@ final class HermesConnectionForm {
   final HermesBackendMode mode;
   final HermesDesktopAuthKind desktopAuthKind;
   final String desktopProfile;
+  final bool useTailscale;
   final bool allowSelfSignedCertificates;
 
   /// The origin the user agreed, in this form, to send credentials to
@@ -96,9 +102,7 @@ HermesConnectionDraft buildHermesConnectionDraft(
   final nextDesktop = originChanged
       ? HermesDesktopCredentials(
           legacyToken: trimmedLegacyToken.isEmpty ? null : trimmedLegacyToken,
-          accessHeaders: form.accessHeadersDirty
-              ? newOriginHeaders
-              : const {},
+          accessHeaders: form.accessHeadersDirty ? newOriginHeaders : const {},
         )
       : form.desktopCredentialsDirty
       ? HermesDesktopCredentials(
@@ -119,6 +123,7 @@ HermesConnectionDraft buildHermesConnectionDraft(
       mode: form.mode,
       desktopAuthKind: form.desktopAuthKind,
       desktopProfile: form.desktopProfile,
+      useTailscale: form.useTailscale,
       allowSelfSignedCertificates: form.allowSelfSignedCertificates,
       plainHttpConsentOrigin:
           form.plainHttpConsentOrigin ?? saved.plainHttpConsentOrigin,
@@ -154,6 +159,11 @@ HermesConnectionValidationIssue? validateHermesConnectionForm(
     return HermesConnectionValidationIssue.invalidUrl;
   }
   final draft = buildHermesConnectionDraft(saved, form).config;
+  if (draft.useTailscale &&
+      draft.mode == HermesBackendMode.desktopGateway &&
+      draft.desktopAuthKind == HermesDesktopAuthKind.dashboardCookie) {
+    return HermesConnectionValidationIssue.dashboardRequiresDeviceNetwork;
+  }
   if (draft.mode == HermesBackendMode.responsesApi &&
       (draft.apiKey?.trim().isEmpty ?? true)) {
     return HermesConnectionValidationIssue.credentialsReentryRequired;

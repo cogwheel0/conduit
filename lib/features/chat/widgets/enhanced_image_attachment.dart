@@ -1035,6 +1035,7 @@ class _EnhancedImageAttachmentState
       fit: BoxFit.contain,
       headers: headers,
       cacheIdentity: networkCacheKey,
+      cacheManager: ref.watch(selfSignedImageCacheManagerProvider),
       placeholderBuilder: (context) => _buildSkeletonPlaceholder(),
       errorBuilder: (context, error, stackTrace) {
         _errorMessage = AppLocalizations.of(context)!

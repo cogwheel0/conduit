@@ -21,6 +21,17 @@ import 'package:synchronized/synchronized.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('the same gateway on another route cannot reuse the active client', () {
+    const server = HermesConfig(baseUrl: 'https://orchard.test');
+    check(
+      hermesDesktopConnectionMatches(
+        server,
+        server.copyWith(useTailscale: true),
+      ),
+    ).isFalse();
+    check(hermesDesktopConnectionMatches(server, server)).isTrue();
+  });
+
   group('profile list', () {
     test('a draft without a URL, or unencrypted unasked, lists nothing', () {
       check(

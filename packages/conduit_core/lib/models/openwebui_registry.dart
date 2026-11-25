@@ -75,6 +75,7 @@ final class OpenWebUiEndpoint {
     required this.url,
     this.label,
     Map<String, String> customHeaders = const <String, String>{},
+    this.useTailscale = false,
     this.allowSelfSignedCertificates = false,
     this.mtlsCertificateChainPem,
     this.mtlsCertificateLabel,
@@ -96,6 +97,7 @@ final class OpenWebUiEndpoint {
   /// Headers the user configured for this route. Never a captured session
   /// header; those live on [OpenWebUiAccount.capturedHeaders].
   final Map<String, String> customHeaders;
+  final bool useTailscale;
   final bool allowSelfSignedCertificates;
   final String? mtlsCertificateChainPem;
   final String? mtlsCertificateLabel;
@@ -114,6 +116,7 @@ final class OpenWebUiEndpoint {
   bool sameConnection(OpenWebUiEndpoint other) =>
       url == other.url &&
       _stringMapEquality.equals(customHeaders, other.customHeaders) &&
+      useTailscale == other.useTailscale &&
       allowSelfSignedCertificates == other.allowSelfSignedCertificates &&
       mtlsCertificateChainPem == other.mtlsCertificateChainPem &&
       mtlsCertificateLabel == other.mtlsCertificateLabel &&
@@ -138,6 +141,7 @@ final class OpenWebUiEndpoint {
         url: other.url,
         label: label,
         customHeaders: other.customHeaders,
+        useTailscale: other.useTailscale,
         allowSelfSignedCertificates: other.allowSelfSignedCertificates,
         mtlsCertificateChainPem: other.mtlsCertificateChainPem,
         mtlsCertificateLabel: other.mtlsCertificateLabel,
@@ -151,6 +155,7 @@ final class OpenWebUiEndpoint {
     'url': url,
     if (label != null) 'label': label,
     if (customHeaders.isNotEmpty) 'customHeaders': customHeaders,
+    if (useTailscale) 'useTailscale': true,
     if (allowSelfSignedCertificates) 'allowSelfSignedCertificates': true,
     if (mtlsCertificateChainPem != null)
       'mtlsCertificateChainPem': mtlsCertificateChainPem,
@@ -168,6 +173,7 @@ final class OpenWebUiEndpoint {
       url: _requiredString(json, 'url', 'endpoint'),
       label: _optionalString(json['label']),
       customHeaders: _stringMap(json['customHeaders']),
+      useTailscale: json['useTailscale'] == true,
       allowSelfSignedCertificates: json['allowSelfSignedCertificates'] == true,
       mtlsCertificateChainPem: _optionalString(json['mtlsCertificateChainPem']),
       mtlsCertificateLabel: _optionalString(json['mtlsCertificateLabel']),
@@ -503,6 +509,7 @@ final class OpenWebUiRegistry {
       },
       lastConnected: account.lastConnected,
       isActive: account.isActive,
+      useTailscale: endpoint.useTailscale,
       allowSelfSignedCertificates: endpoint.allowSelfSignedCertificates,
       mtlsCertificateChainPem: endpoint.mtlsCertificateChainPem,
       mtlsCertificateLabel: endpoint.mtlsCertificateLabel,
@@ -776,6 +783,7 @@ const Object _unset = Object();
       id: '',
       url: config.url,
       customHeaders: headers,
+      useTailscale: config.useTailscale,
       allowSelfSignedCertificates: config.allowSelfSignedCertificates,
       mtlsCertificateChainPem: config.mtlsCertificateChainPem,
       mtlsCertificateLabel: config.mtlsCertificateLabel,

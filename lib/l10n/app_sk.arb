@@ -7361,5 +7361,12 @@
   "chatBackendHermesTurnedOff": "Hermes Agent je vypnutý. Zapnite ho v časti Nastavenia → Hermes Agent a skúste to znova.",
   "@chatBackendHermesTurnedOff": {
     "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
-  }
+  },
+  "tailscaleBrowserSignInUnavailable": "Prihlásenie v prehliadači nemôže použiť pripojenie Tailscale tejto aplikácie. Použite prihlasovacie údaje servera.",
+  "useTailscale": "Používať Tailscale",
+  "tailscaleAccountHelp": "Prihláste sa raz a zapnite Tailscale pre každý server Open WebUI alebo Hermes, ku ktorému chcete pristupovať súkromne.",
+  "tailscaleIdle": "Prihlásené · pripája sa podľa potreby",
+  "tailscaleAuthorize": "Dokončite prihlásenie v prehliadači",
+  "tailscaleApprove": "Čaká sa na schválenie zariadenia",
+  "tailscaleUnavailable": "Nepodarilo sa pripojiť k Tailscale"
 }

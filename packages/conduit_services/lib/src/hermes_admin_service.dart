@@ -322,6 +322,7 @@ final class HermesAdminService {
           HermesConfig.isValidDesktopProfile(edit.desktopProfile.trim())
           ? edit.desktopProfile.trim()
           : 'default',
+      useTailscale: saved.useTailscale,
       allowSelfSignedCertificates: edit.allowSelfSignedCertificates,
       plainHttpConsentOrigin: edit.allowPlainHttp
           ? HermesConfig.plainHttpOrigin(edit.baseUrl)
@@ -416,6 +417,13 @@ final class HermesAdminService {
           code: ConduitErrorCodes.invalidParams,
           args: <String, String>{'reason': 'invalidUrl'},
           debugMessage: 'use a valid http(s) address',
+        );
+      case HermesConnectionValidationIssue.dashboardRequiresDeviceNetwork:
+        throw const RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          args: <String, String>{'reason': 'dashboardRequiresDeviceNetwork'},
+          debugMessage:
+              'use a server token or turn off Tailscale for dashboard sign-in',
         );
       case HermesConnectionValidationIssue.credentialsReentryRequired:
         throw const RpcError(

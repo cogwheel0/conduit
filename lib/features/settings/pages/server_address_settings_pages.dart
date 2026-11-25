@@ -1,3 +1,5 @@
+import '../../../platform/mobile_tailnet.dart' show supportsMobileTailnet;
+
 import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -306,6 +308,15 @@ NativeSheetDetailConfig buildServerAddressPage(
             placeholder: l10n.serverUrlHint,
             keyboard: NativeSheetKeyboard.url,
           ),
+          if (supportsMobileTailnet)
+            NativeSheetItemConfig(
+              id: serverAddressRowId('tailscale', key),
+              title: l10n.useTailscale,
+              subtitle: l10n.tailscaleAccountHelp,
+              sfSymbol: 'network',
+              kind: NativeSheetItemKind.toggle,
+              value: draft.useTailscale,
+            ),
         ],
       ),
       NativeSheetSectionConfig(
@@ -920,6 +931,11 @@ class ServerAddressSettingsPages extends SettingsPageModule {
         draft.label = value;
       case 'url' when value is String:
         draft.url = value;
+      case 'tailscale' when value is bool:
+        if (draft.useTailscale != value) {
+          draft.useTailscale = value;
+          await _applyEditor(l10n, key, editor, withPages: false);
+        }
       case 'self-signed' when value is bool:
         draft.allowSelfSigned = value;
       case 'key-password' when value is String:

@@ -5,6 +5,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
+    show hermesConfigProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
 import 'package:test/test.dart';
@@ -134,7 +136,14 @@ void main() {
     expect(studio.active, isFalse);
     expect(studio.hasApiKey, isTrue);
 
-    // Renamed, its key kept (the same server).
+    final controller = runtime.container.read(hermesConfigProvider.notifier);
+    Future<void> setRoute(bool useTailscale) => controller.saveConnection(
+      connectionId: studio.id,
+      baseUrl: second.baseUrl,
+      useTailscale: useTailscale,
+    );
+    await setRoute(true);
+    // Renaming the same server keeps its key and route.
     list = await admin.saveConnection(
       HermesConnectionEdit(
         id: studio.id,
@@ -145,6 +154,13 @@ void main() {
     final renamed = list.connections.firstWhere((c) => c.id == studio.id);
     expect(renamed.name, 'Studio agent');
     expect(renamed.hasApiKey, isTrue);
+    expect(
+      (await controller.savedConnectionConfig(studio.id)).useTailscale,
+      isTrue,
+    );
+
+    // The synthetic jobs server below uses a direct loopback connection.
+    await setRoute(false);
 
     list = await admin.activate(studio.id);
     expect(list.activeId, studio.id);

@@ -6,6 +6,10 @@ import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart'
 import 'package:conduit/features/settings/pages/direct_connection_page_ids.dart';
 import 'package:conduit/features/settings/pages/hermes_page_ids.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/features/settings/pages/tailnet_settings_pages.dart'
+    show tailnetSettingsId;
+import 'package:conduit/platform/mobile_tailnet.dart'
+    show supportsMobileTailnet;
 import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
@@ -120,7 +124,11 @@ void main() {
       final sections = _root(visibility: _everything);
 
       expect(_ids(sections), [
-        [NativeSheetRoutes.profile, nativeAccountsDetailId],
+        [
+          NativeSheetRoutes.profile,
+          nativeAccountsDetailId,
+          if (supportsMobileTailnet) tailnetSettingsId,
+        ],
         [
           NativeSheetRoutes.notificationSettings,
           NativeSheetRoutes.aiMemory,
@@ -310,7 +318,10 @@ void main() {
       ]) {
         expect(ids, isNot(contains(id)), reason: id);
       }
-      expect(_ids(sections).first, [nativeAccountsDetailId]);
+      expect(_ids(sections).first, [
+        nativeAccountsDetailId,
+        if (supportsMobileTailnet) tailnetSettingsId,
+      ]);
     });
 
     test('with LibreChat in charge, Personalization opens its memories page',

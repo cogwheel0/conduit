@@ -145,6 +145,7 @@ final openWebUiRouteResolverProvider =
 
 class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   static const Duration _retryDelay = Duration(seconds: 30);
+
   /// How long after a check a failure waits before checking again.
   @visibleForTesting
   static Duration failureCheckInterval = const Duration(seconds: 15);
@@ -521,6 +522,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         reported.customHeaders,
         inUse.customHeaders,
       ) &&
+      reported.useTailscale == inUse.useTailscale &&
       reported.allowSelfSignedCertificates ==
           inUse.allowSelfSignedCertificates &&
       reported.mtlsCertificateChainPem == inUse.mtlsCertificateChainPem &&

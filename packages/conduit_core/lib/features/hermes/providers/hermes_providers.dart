@@ -253,6 +253,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     mode: profile.mode,
     desktopAuthKind: profile.desktopAuthKind,
     desktopProfile: profile.desktopProfile,
+    useTailscale: profile.useTailscale,
     allowSelfSignedCertificates: profile.allowSelfSignedCertificates,
     plainHttpConsentOrigin: profile.plainHttpConsentOrigin,
     apiKey: secrets.apiKey,
@@ -509,6 +510,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
           connectionId != connection.connectionId ||
           !hermesDesktopConnectionMatches(state, connection) ||
           state.mode != connection.mode ||
+          state.useTailscale != connection.useTailscale ||
           state.allowSelfSignedCertificates !=
               connection.allowSelfSignedCertificates) {
         throw StateError('Hermes connection changed before sign-in completed.');
@@ -591,6 +593,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
             connection.copyWith(desktopProfile: stored.desktopProfile),
           ) ||
           stored.mode != connection.mode ||
+          stored.useTailscale != connection.useTailscale ||
           stored.allowSelfSignedCertificates !=
               connection.allowSelfSignedCertificates) {
         throw StateError('Hermes connection changed before sign-in completed.');
@@ -770,6 +773,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     HermesBackendMode? mode,
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
+    bool? useTailscale,
     bool? allowSelfSignedCertificates,
     String? plainHttpConsentOrigin,
     bool apiKeyChanged = false,
@@ -820,6 +824,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         mode: mode,
         desktopAuthKind: desktopAuthKind,
         desktopProfile: desktopProfile,
+        useTailscale: useTailscale,
         allowSelfSignedCertificates: allowSelfSignedCertificates,
         plainHttpConsentOrigin: plainHttpConsentOrigin,
         apiKeyChanged: apiKeyChanged,
@@ -841,6 +846,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     HermesBackendMode? mode,
     HermesDesktopAuthKind? desktopAuthKind,
     String? desktopProfile,
+    bool? useTailscale,
     bool? allowSelfSignedCertificates,
     String? plainHttpConsentOrigin,
     String? apiKey,
@@ -868,6 +874,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         mode: mode,
         desktopAuthKind: desktopAuthKind,
         desktopProfile: desktopProfile,
+        useTailscale: useTailscale,
         allowSelfSignedCertificates: allowSelfSignedCertificates,
         plainHttpConsentOrigin: plainHttpConsentOrigin,
         apiKeyChanged: true,
@@ -890,6 +897,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     required HermesBackendMode? mode,
     required HermesDesktopAuthKind? desktopAuthKind,
     required String? desktopProfile,
+    required bool? useTailscale,
     required bool? allowSelfSignedCertificates,
     required String? plainHttpConsentOrigin,
     required bool apiKeyChanged,
@@ -939,6 +947,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
         'Use a valid Hermes profile ID',
       );
     }
+    final nextUseTailscale = useTailscale ?? previous.useTailscale;
     final nextAllowSelfSigned =
         allowSelfSignedCertificates ?? previous.allowSelfSignedCertificates;
     // Credentials go over plain HTTP only with the user's consent for this
@@ -968,6 +977,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
     // it is not an identity change, but active runs still hold the old
     // client and must be cancelled before the service rotates.
     final trustChanged =
+        nextUseTailscale != previous.useTailscale ||
         nextAllowSelfSigned != previous.allowSelfSignedCertificates;
     final serviceWillRotate =
         target.runtime &&
@@ -1042,6 +1052,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       mode: nextMode,
       desktopAuthKind: nextDesktopAuthKind,
       desktopProfile: nextDesktopProfile,
+      useTailscale: nextUseTailscale,
       allowSelfSignedCertificates: nextAllowSelfSigned,
       plainHttpConsentOrigin: nextPlainHttpConsent,
       documentTrustPrincipalId: nextPrincipal,
@@ -1890,6 +1901,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       mode: state.mode,
       desktopAuthKind: state.desktopAuthKind,
       desktopProfile: state.desktopProfile,
+      useTailscale: state.useTailscale,
       allowSelfSignedCertificates: state.allowSelfSignedCertificates,
       plainHttpConsentOrigin: state.plainHttpConsentOrigin,
     );
@@ -2103,6 +2115,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       mode: mode ?? state.mode,
       desktopAuthKind: desktopAuthKind ?? state.desktopAuthKind,
       desktopProfile: desktopProfile ?? state.desktopProfile,
+      useTailscale: state.useTailscale,
       allowSelfSignedCertificates: state.allowSelfSignedCertificates,
       plainHttpConsentOrigin: state.plainHttpConsentOrigin,
       apiKey: identical(apiKey, _keep) ? state.apiKey : apiKey,
@@ -2324,6 +2337,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
         config.mode,
         config.desktopAuthKind,
         config.desktopProfile,
+        config.useTailscale,
         config.allowSelfSignedCertificates,
         config.plainHttpConsentOrigin,
         config.isUsable,

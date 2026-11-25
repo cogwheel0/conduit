@@ -24,6 +24,7 @@ final class HermesDashboardAuthPage extends StatefulWidget {
   /// Opens the sign-in over [context]'s navigator; answers whether it ended
   /// signed in.
   static Future<bool> open(BuildContext context, HermesConfig config) async {
+    if (config.useTailscale) return false;
     final signedIn = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => HermesDashboardAuthPage(config: config),

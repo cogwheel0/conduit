@@ -16,6 +16,15 @@ const bool _kIsWeb = bool.fromEnvironment('dart.library.js_util');
 class ServerTlsHttpClientFactory {
   const ServerTlsHttpClientFactory._();
 
+  /// The mobile host supplies the embedded node. An opted-in server always
+  /// fails closed when the host or its signed-in node is unavailable.
+  static Future<ConnectionTask<Socket>> Function(
+    Uri,
+    SecurityContext?,
+    bool Function(X509Certificate, String, int)?,
+  )?
+  tailnetConnect;
+
   /// Parses a server base URL into a usable [Uri].
   static Uri? parseBaseUri(String baseUrl) {
     final trimmed = baseUrl.trim();
@@ -38,7 +47,8 @@ class ServerTlsHttpClientFactory {
 
   /// Whether the server needs a custom `HttpClient` for TLS.
   static bool requiresCustomHttpClient(ServerConfig serverConfig) =>
-      !_kIsWeb && serverConfig.needsCustomTlsClient;
+      !_kIsWeb &&
+      (serverConfig.needsCustomTlsClient || serverConfig.useTailscale);
 
   /// Configures Dio to use the server's TLS settings for all requests.
   static void configureDio(
@@ -75,7 +85,25 @@ class ServerTlsHttpClientFactory {
     final context = _createSecurityContext(serverConfig) ?? fallbackContext;
     final client = HttpClient(context: context);
 
-    _configureBadCertificateCallback(client, serverConfig);
+    final trust = _certificateTrust(serverConfig);
+    client.badCertificateCallback = trust;
+    if (serverConfig.useTailscale) {
+      final origin = parseBaseUri(serverConfig.url);
+      client.findProxy = (_) => 'DIRECT';
+      client.connectionFactory = (uri, proxyHost, proxyPort) {
+        final dial = tailnetConnect;
+        if (dial == null ||
+            origin == null ||
+            proxyHost != null ||
+            proxyPort != null ||
+            uri.host != origin.host ||
+            uri.port != origin.port ||
+            uri.scheme != origin.scheme) {
+          throw const SocketException('No Tailscale route to this server');
+        }
+        return dial(uri, context, trust);
+      };
+    }
     return client;
   }
 
@@ -106,31 +134,29 @@ class ServerTlsHttpClientFactory {
     }
   }
 
-  static void _configureBadCertificateCallback(
-    HttpClient client,
+  static bool Function(X509Certificate, String, int)? _certificateTrust(
     ServerConfig serverConfig,
   ) {
     if (!serverConfig.allowSelfSignedCertificates) {
-      return;
+      return null;
     }
 
     final baseUri = parseBaseUri(serverConfig.url);
     if (baseUri == null) {
-      return;
+      return null;
     }
 
     final host = baseUri.host.toLowerCase();
     final port = baseUri.hasPort ? baseUri.port : null;
-    client.badCertificateCallback =
-        (X509Certificate _, String requestHost, int requestPort) {
-          if (requestHost.toLowerCase() != host) {
-            return false;
-          }
-          if (port == null) {
-            return true;
-          }
-          return requestPort == port;
-        };
+    return (X509Certificate _, String requestHost, int requestPort) {
+      if (requestHost.toLowerCase() != host) {
+        return false;
+      }
+      if (port == null) {
+        return true;
+      }
+      return requestPort == port;
+    };
   }
 
   static String? _normalizePassword(String? value) {

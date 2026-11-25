@@ -626,6 +626,13 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
   }
 
   Future<void> _initializeWebView() async {
+    if (widget.config.serverConfig.useTailscale) {
+      setState(() {
+        _error = AppLocalizations.of(context)!.tailscaleBrowserSignInUnavailable;
+        _isLoading = false;
+      });
+      return;
+    }
     if (!isWebViewSupported) {
       if (!mounted) return;
       final l10n = AppLocalizations.of(context)!;

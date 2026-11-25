@@ -98,7 +98,7 @@ class AdaptiveAuthHarness {
     }
   }
 
-  final ServerConfig server;
+  ServerConfig server;
   final TargetPlatform platform;
   final BackendConfig? backendConfig;
   final bool disableAnimations;

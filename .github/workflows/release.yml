@@ -107,6 +107,11 @@ jobs:
       # Only the third_party/ path dependencies; openwebui-src/ and
       # hermes-src/ are reference sources no build step reads.
       - parallel:
+          - name: Set up Go for embedded Tailscale
+            uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+            with:
+              go-version-file: native/tailnet/go.mod
+              cache-dependency-path: native/tailnet/go.sum
           - name: Set Up Java
             uses: actions/setup-java@v4
             with:
@@ -215,6 +220,11 @@ jobs:
       # Only the third_party/ path dependencies; openwebui-src/ and
       # hermes-src/ are reference sources no build step reads.
       - parallel:
+          - name: Set up Go for embedded Tailscale
+            uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+            with:
+              go-version-file: native/tailnet/go.mod
+              cache-dependency-path: native/tailnet/go.sum
           - name: Set Up Flutter
             uses: subosito/flutter-action@v2
             with:

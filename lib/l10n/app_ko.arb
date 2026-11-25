@@ -5005,5 +5005,12 @@
   "chatBackendHermesTurnedOff": "Hermes Agent가 꺼져 있습니다. 설정 → Hermes Agent에서 켠 후 다시 시도하세요.",
   "@chatBackendHermesTurnedOff": {
     "description": "Shown when a message, a regenerate or an edit to a Hermes chat is not sent because Hermes Agent is switched off while a connection is saved; the draft stays."
-  }
+  },
+  "tailscaleBrowserSignInUnavailable": "브라우저 로그인은 이 앱의 Tailscale 연결을 사용할 수 없습니다. 서버 자격 증명을 사용하세요.",
+  "useTailscale": "Tailscale 사용",
+  "tailscaleAccountHelp": "한 번 로그인한 후 비공개로 접속할 Open WebUI 또는 Hermes 서버마다 Tailscale을 켜세요.",
+  "tailscaleIdle": "로그인됨 · 필요할 때 연결",
+  "tailscaleAuthorize": "브라우저에서 로그인을 완료하세요",
+  "tailscaleApprove": "기기 승인 대기 중",
+  "tailscaleUnavailable": "Tailscale에 연결할 수 없습니다"
 }

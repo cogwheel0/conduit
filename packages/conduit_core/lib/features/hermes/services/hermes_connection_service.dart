@@ -94,9 +94,8 @@ final class _RiverpodHermesConnectionGateway
   @override
   Future<String?> suggestDisplayName(HermesConfig draft) async {
     try {
-      final suggestion = await _suggestDisplayName(
-        draft,
-      ).timeout(const Duration(seconds: 15));
+      final suggestion = await _suggestDisplayName(draft)
+          .timeout(const Duration(seconds: 15));
       return suggestion == null ||
               _placeholderNames.contains(suggestion.toLowerCase())
           ? null
@@ -155,6 +154,7 @@ final class _RiverpodHermesConnectionGateway
         mode: config.mode,
         desktopAuthKind: config.desktopAuthKind,
         desktopProfile: config.desktopProfile,
+        useTailscale: config.useTailscale,
         allowSelfSignedCertificates: config.allowSelfSignedCertificates,
         plainHttpConsentOrigin: config.plainHttpConsentOrigin,
         apiKey: config.apiKey,
@@ -170,6 +170,7 @@ final class _RiverpodHermesConnectionGateway
       mode: config.mode,
       desktopAuthKind: config.desktopAuthKind,
       desktopProfile: config.desktopProfile,
+      useTailscale: config.useTailscale,
       allowSelfSignedCertificates: config.allowSelfSignedCertificates,
       plainHttpConsentOrigin: config.plainHttpConsentOrigin,
       apiKeyChanged: draft.apiKeyChanged,
@@ -222,6 +223,7 @@ final class _RiverpodHermesConnectionGateway
         mode: previousConfig.mode,
         desktopAuthKind: previousConfig.desktopAuthKind,
         desktopProfile: previousConfig.desktopProfile,
+        useTailscale: previousConfig.useTailscale,
         allowSelfSignedCertificates: previousConfig.allowSelfSignedCertificates,
         plainHttpConsentOrigin: previousConfig.plainHttpConsentOrigin,
         apiKeyChanged: true,
