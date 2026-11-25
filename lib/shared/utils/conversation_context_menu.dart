@@ -794,61 +794,77 @@ Future<void> _renameConversation(
   if (!context.mounted) return;
   if (newName == null) return;
   if (newName.isEmpty || newName == currentTitle) return;
+  // The page can close while the rename waits for the chat: the app's
+  // container and root navigator outlive it.
+  final container = ProviderScope.containerOf(context, listen: false);
+  final errorContext = Navigator.of(context, rootNavigator: true).context;
   if (isLibreChat &&
-      ref.read(activeLibreChatAccountProvider)?.id != openedFor) {
+      container.read(activeLibreChatAccountProvider)?.id != openedFor) {
     return;
   }
 
   final renameError = l10n.failedToRenameChat;
   try {
     if (isOnDevice) {
-      await chat.renameDirectLocalConversation(ref, conversationId, newName);
+      await chat.renameDirectLocalConversation(
+        container,
+        conversationId,
+        newName,
+      );
       ConduitHaptics.selectionClick();
       return;
     }
     if (isLibreChat) {
-      await chat.renameLibreChatConversation(ref, conversationId, newName);
+      await chat.renameLibreChatConversation(
+        container,
+        conversationId,
+        newName,
+      );
       ConduitHaptics.selectionClick();
       return;
     }
-    await _saveConversationTitle(ref, conversationId, newName);
+    await _saveConversationTitle(container, conversationId, newName);
     ConduitHaptics.selectionClick();
   } catch (_) {
-    if (!context.mounted) return;
-    await _showConversationError(context, renameError);
+    if (!errorContext.mounted) return;
+    await _showConversationError(errorContext, renameError);
   }
 }
 
 /// Saves [title] as the Open WebUI chat [conversationId]'s title, and shows
 /// it in the chat list and the open chat.
 Future<void> _saveConversationTitle(
-  WidgetRef ref,
+  ProviderContainer container,
   String conversationId,
   String title,
 ) async {
-  if (await chat.renameOpenWebUiConversation(ref, conversationId, title)) {
-    _showConversationTitle(ref, conversationId, title);
+  if (await chat.renameOpenWebUiConversation(
+    container,
+    conversationId,
+    title,
+  )) {
+    _showConversationTitle(container, conversationId, title);
   }
 }
 
 /// Shows [title] for the chat [conversationId] in the chat list and the
 /// open chat, once the server holds it.
 void _showConversationTitle(
-  WidgetRef ref,
+  ProviderContainer container,
   String conversationId,
   String title,
 ) {
-  ref
+  container
       .read(conversationsProvider.notifier)
       .updateConversationFromRemote(
         conversationId,
         (conversation) =>
             conversation.copyWith(title: title, updatedAt: DateTime.now()),
       );
-  refreshConversationsCache(ref);
-  final active = ref.read(activeConversationProvider);
+  refreshConversationsCache(container);
+  final active = container.read(activeConversationProvider);
   if (active != null && conversationMatchesScopedId(active, conversationId)) {
-    ref
+    container
         .read(activeConversationProvider.notifier)
         .set(active.copyWith(title: title));
   }
@@ -886,6 +902,7 @@ Future<void> _generateConversationTitleOnce(
   // The menu can close while the title is written; the app's container
   // outlives it.
   final container = ProviderScope.containerOf(context, listen: false);
+  final messageContext = Navigator.of(context, rootNavigator: true).context;
   String? message;
   try {
     final generated = await generateConversationTitle(
@@ -905,8 +922,8 @@ Future<void> _generateConversationTitleOnce(
   } catch (_) {
     message = l10n.generateTitleFailed;
   }
-  if (message == null || !context.mounted) return;
-  await _showConversationError(context, message);
+  if (message == null || !messageContext.mounted) return;
+  await _showConversationError(messageContext, message);
 }
 
 Future<void> _confirmAndDeleteConversation(
