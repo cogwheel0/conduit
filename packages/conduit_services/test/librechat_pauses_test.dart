@@ -435,7 +435,12 @@ LibreChatPendingAction _placed({required bool multi}) =>
         'question': <String, dynamic>{
           'question': 'Which trail?',
           'multiSelect': multi,
-          'options': <Map<String, dynamic>>[
+          'options': <Object>[
+            // Nothing to pick by, ahead of the rest: the card never offers
+            // them, so places count only what it shows.
+            '',
+            {'label': '  ', 'value': 'blank'},
+            {'label': 7, 'value': 'seven'},
             {'label': ' North Ridge ', 'value': 'north-ridge'},
             {'label': 'Lake Loop', 'value': 'lake-loop'},
             {'label': 'Ridge', 'value': 'ridge-north'},

@@ -329,13 +329,17 @@ final class LibreChatPauseController {
 String? _nonEmpty(String? text) => text == null || text.isEmpty ? null : text;
 
 /// A question's choices, which LibreChat sends as labels or as
-/// `{label, value, description}`.
+/// `{label, value, description}`: the one list a host shows, numbered as it
+/// is ([LibreChatQuestionCard.answerForPlaces]). An option with no label to
+/// pick it by (blank, or not text) is never a choice, here or on any host.
 List<({String label, String value})> _choices(Object? options) => [
   if (options is List)
     for (final option in options)
-      if (option is String && option.isNotEmpty)
+      if (option is String && option.trim().isNotEmpty)
         (label: option, value: option)
-      else if (option is Map && option['label'] is String)
+      else if (option is Map &&
+          option['label'] is String &&
+          (option['label'] as String).trim().isNotEmpty)
         (
           label: option['label'] as String,
           value: option['value'] is String

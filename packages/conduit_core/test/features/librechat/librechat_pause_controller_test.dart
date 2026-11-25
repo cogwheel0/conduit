@@ -47,6 +47,10 @@ const _questions = LibreChatPendingAction({
         'options': [
           {'label': 'Paris', 'value': 'paris'},
           'Rome',
+          // Nothing to pick by: never a choice, on any side.
+          '',
+          {'label': '  ', 'value': 'blank'},
+          {'label': 3, 'value': 'three'},
         ],
       },
       {

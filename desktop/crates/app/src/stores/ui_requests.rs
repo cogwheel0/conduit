@@ -346,16 +346,20 @@ pub fn card(request: &UiRequest) -> Card {
                 .get("options")
                 .and_then(Value::as_array)
                 .map(|a| {
-                    // Each option goes back by its place in `options`, never
-                    // by a label the card shows trimmed (or like another's).
+                    // Every option, in order: the list is the core's, and an
+                    // option goes back by its place in it, never by a label
+                    // the card shows trimmed (or like another's).
                     a.iter()
                         .enumerate()
-                        .filter_map(|(place, o)| {
-                            Some(ClarifyChoice {
-                                value: place.to_string(),
-                                label: text_of(o.get("label"))?,
-                                recommended: false,
-                            })
+                        .map(|(place, o)| ClarifyChoice {
+                            value: place.to_string(),
+                            label: o
+                                .get("label")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .unwrap_or_default()
+                                .to_string(),
+                            recommended: false,
                         })
                         .collect()
                 })
@@ -1242,10 +1246,16 @@ mod tests {
             .iter()
             .map(|c| (c.label.as_str(), c.value.as_str()))
             .collect();
-        // A blank option shows nothing to pick; the others keep their place.
+        // Every option the card is given shows, in its place: the list is
+        // the core's, which the answer is resolved against.
         assert_eq!(
             shown,
-            [("North Ridge", "0"), ("Ridge", "2"), ("Ridge", "3")]
+            [
+                ("North Ridge", "0"),
+                ("", "1"),
+                ("Ridge", "2"),
+                ("Ridge", "3")
+            ]
         );
     }
 }
