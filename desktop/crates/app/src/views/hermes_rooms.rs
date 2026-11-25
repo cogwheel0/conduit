@@ -135,6 +135,14 @@ pub fn failure_text(error: &RpcError, l: &L10n) -> String {
     }
 }
 
+/// What a failed Bot Chat open says: Hermes's own reason when it gave one.
+pub fn bot_open_failure_text(error: &RpcError, l: &L10n) -> String {
+    match error.args.get("detail").map(|d| d.trim()) {
+        Some(detail) if !detail.is_empty() => l.hermes_session_load_failed_detail(detail),
+        _ => l.hermes_session_load_failed(),
+    }
+}
+
 /// Opens bot `name`'s Bot Chat (made when it has none): its session opens
 /// in the chat pane, and its row is selected.
 pub fn open_bot(stores: &Stores, name: &str, cx: &mut App) {
@@ -174,7 +182,7 @@ pub fn open_bot(stores: &Stores, name: &str, cx: &mut App) {
                 }
                 Err(e) => {
                     log::warn!("hermes.bots.open: {e}");
-                    let text = cx.l10n().hermes_session_load_failed();
+                    let text = bot_open_failure_text(&e, cx.l10n());
                     toast(&stores, NoticeLevel::Warning, text, cx);
                 }
             }
@@ -394,5 +402,41 @@ mod tests {
                 .read_with(vcx, |n, _| n.selection().clone()),
             shown
         );
+    }
+
+    #[gpui_kit::test]
+    fn open_bot_surfaces_rpc_detail_and_falls_back_when_absent(cx: &mut TestAppContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        let l = crate::l10n::L10n::new("en");
+
+        let mut with_detail = conduit_daemon::protocol::error("resource.conflict", "refused");
+        with_detail
+            .args
+            .insert("detail".into(), "profile_mismatch (4001)".into());
+        daemon.once::<methods::HermesBotsOpen>(Err(with_detail));
+
+        vcx.update(|_, cx| super::open_bot(&stores, "sibling", cx));
+        vcx.run_until_parked();
+
+        let messages: Vec<String> = stores.toasts.read_with(vcx, |t, _| {
+            t.toasts.iter().map(|m| m.message.clone()).collect()
+        });
+        assert_eq!(
+            messages,
+            vec![l.hermes_session_load_failed_detail("profile_mismatch (4001)")]
+        );
+
+        stores.toasts.update(vcx, |t, _| t.toasts.clear());
+        let mut blank_detail = conduit_daemon::protocol::error("connection.failed", "timed out");
+        blank_detail.args.insert("detail".into(), "   ".into());
+        daemon.once::<methods::HermesBotsOpen>(Err(blank_detail));
+
+        vcx.update(|_, cx| super::open_bot(&stores, "sibling", cx));
+        vcx.run_until_parked();
+
+        let fallback_messages: Vec<String> = stores.toasts.read_with(vcx, |t, _| {
+            t.toasts.iter().map(|m| m.message.clone()).collect()
+        });
+        assert_eq!(fallback_messages, vec![l.hermes_session_load_failed()]);
     }
 }

@@ -19,7 +19,10 @@ extension _HermesDesktopBots on HermesDesktopApiService {
         params: const {'include_sessions': true},
       ),
     );
-    return HermesBot.rosterFromProfilesList(result);
+    return HermesBot.rosterFromProfilesList(
+      result,
+      preferCanonicalRoot: _canonical,
+    );
   }
 
   /// The selected profile's display title: `ui_meta['hermes-bots'].title`
@@ -73,8 +76,14 @@ extension _HermesDesktopBots on HermesDesktopApiService {
   /// Returns the stored session id.
   Future<String> _openBotChat(HermesBot bot) async {
     await _ensureConnected();
-    for (final candidate in <String?>[bot.chatSessionId, kHermesBotChatTitle]) {
-      if (candidate == null) continue;
+    final candidates = <String>[
+      if (bot.chatSessionId != null && bot.chatSessionId != kHermesBotChatTitle)
+        bot.chatSessionId!,
+      kHermesBotChatTitle,
+    ];
+    for (final candidate in candidates) {
+      final hadPreviousProfile = _sessionProfiles.containsKey(candidate);
+      final previousProfile = _sessionProfiles[candidate];
       _sessionProfiles[candidate] = bot.name;
       try {
         // A session authority looks a session up by title only when asked
@@ -87,6 +96,14 @@ extension _HermesDesktopBots on HermesDesktopApiService {
         _sessionProfiles[binding.storedId] = bot.name;
         return binding.storedId;
       } catch (error) {
+        if (!isHermesDesktopSessionNotFound(error)) {
+          if (hadPreviousProfile) {
+            _sessionProfiles[candidate] = previousProfile!;
+          } else {
+            _sessionProfiles.remove(candidate);
+          }
+          rethrow;
+        }
         _sessionProfiles.remove(candidate);
         DebugLogger.warning(
           'bot-chat-resume-failed',

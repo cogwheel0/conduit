@@ -522,9 +522,11 @@ void main() {
       await harness.dispose();
     });
 
+    harness.errorResponder = (method) => method == 'session.resume'
+        // No existing "Bot Chat" title match.
+        ? const {'code': 4007, 'message': 'session not found'}
+        : null;
     harness.responder = (method) => switch (method) {
-      // No existing "Bot Chat" title match.
-      'session.resume' => const {},
       'session.create' => {
         'session_id': 'runtime-new-bot',
         'stored_session_id': 'stored-new-bot',

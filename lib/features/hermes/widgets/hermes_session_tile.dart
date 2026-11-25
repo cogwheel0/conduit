@@ -35,8 +35,10 @@ import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
-import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
+
+export 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart'
+    show kHermesDesktopSessionNotFoundCode;
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
@@ -322,16 +324,10 @@ Future<void> deleteHermesSession(WidgetRef ref, String sessionId) async {
   }
 }
 
-/// Hermes gateway `session.resume` error code for an unknown session.
-const int kHermesDesktopSessionNotFoundCode = 4007;
-
-const int _maxHermesLoadFailureDetailCharacters = 120;
-
 /// Picks the user-facing message for a failed session open.
 ///
 /// Server-provided text is bounded and stripped of control characters before
 /// it reaches the UI; anything unrecognised falls back to the generic message.
-@visibleForTesting
 String hermesSessionLoadFailureMessage(AppLocalizations l10n, Object error) {
   if (error is HermesResponseTooLargeException) {
     return l10n.hermesSessionTooLarge;
@@ -340,34 +336,15 @@ String hermesSessionLoadFailureMessage(AppLocalizations l10n, Object error) {
     return l10n.hermesSessionNotFound;
   }
   if (error is HermesDesktopRpcException) {
-    if (error.code == kHermesDesktopSessionNotFoundCode) {
+    if (isHermesDesktopSessionNotFound(error)) {
       return l10n.hermesSessionNotFound;
     }
-    if (error.deliveryAmbiguous) return l10n.hermesSessionLoadFailed;
-    final detail = _hermesLoadFailureDetail(error.message);
+    final detail = hermesDesktopRpcFailureDetail(error);
     if (detail != null) {
-      final code = error.code;
-      return l10n.hermesSessionLoadFailedDetail(
-        code == null ? detail : '$detail ($code)',
-      );
+      return l10n.hermesSessionLoadFailedDetail(detail);
     }
   }
   return l10n.hermesSessionLoadFailed;
-}
-
-String? _hermesLoadFailureDetail(String raw) {
-  final collapsed = raw
-      .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F\s]+'), ' ')
-      .trim();
-  if (collapsed.isEmpty) return null;
-  final runes = collapsed.runes.toList(growable: false);
-  final truncated = runes.length > _maxHermesLoadFailureDetailCharacters
-      ? '${String.fromCharCodes(runes.take(_maxHermesLoadFailureDetailCharacters - 1))}\u2026'
-      : collapsed;
-  return validateHermesBoundedString(
-    truncated,
-    maxCharacters: _maxHermesLoadFailureDetailCharacters,
-  );
 }
 
 /// Loads a Hermes session's transcript, binds it as the active chat, selects the

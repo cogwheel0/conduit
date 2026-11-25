@@ -1378,4 +1378,68 @@ void main() {
       (error) => error.has((e) => e.notReady, 'notReady').isTrue(),
     );
   });
+
+  test('classifies session-not-found and extracts bounded RPC failure detail', () {
+    check(
+      isHermesDesktopSessionNotFound(
+        const HermesDesktopRpcException('session not found', code: 4007),
+      ),
+    ).isTrue();
+    check(
+      isHermesDesktopSessionNotFound(
+        const HermesDesktopRpcException(
+          'not_found',
+          code: 4001,
+          data: {'reason': 'not_found'},
+        ),
+      ),
+    ).isTrue();
+    check(
+      isHermesDesktopSessionNotFound(
+        const HermesDesktopRpcException('not_found', code: 4001),
+      ),
+    ).isTrue();
+    for (final error in <Object>[
+      const HermesDesktopRpcException(
+        'profile_mismatch',
+        code: 4001,
+        data: {'reason': 'profile_mismatch'},
+      ),
+      const HermesDesktopRpcException(
+        'Session too large to resume',
+        code: 4130,
+      ),
+      const HermesDesktopRpcException('timed out', timedOut: true),
+      const HermesDesktopRpcException('disconnected', disconnected: true),
+      const HermesDesktopRpcException('draining', notReady: true),
+      const FormatException('invalid'),
+    ]) {
+      check(isHermesDesktopSessionNotFound(error)).isFalse();
+    }
+
+    check(
+      hermesDesktopRpcFailureDetail(
+        const HermesDesktopRpcException(
+          'runtime_draining',
+          code: 4001,
+          data: {'reason': 'runtime_draining', 'detail': 'still starting'},
+        ),
+      ),
+    ).equals('still starting (4001)');
+    check(
+      hermesDesktopRpcFailureDetail(
+        const HermesDesktopRpcException('profile_mismatch', code: 4001),
+      ),
+    ).equals('profile_mismatch (4001)');
+    check(
+      hermesDesktopRpcFailureDetail(
+        const HermesDesktopRpcException('timed out', timedOut: true),
+      ),
+    ).isNull();
+    check(
+      hermesDesktopRpcFailureDetail(
+        const HermesDesktopRpcException('   ', code: 5000),
+      ),
+    ).isNull();
+  });
 }

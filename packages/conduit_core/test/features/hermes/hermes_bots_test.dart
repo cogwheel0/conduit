@@ -220,6 +220,107 @@ void main() {
     check(bot!.preview).equals('pinned chat');
   });
 
+  test(
+    'reads canonical_session resolved_id, preview, and last_active over legacy fields',
+    () {
+      final bot = HermesBot.fromJson({
+        'name': 'researcher',
+        'ui_meta': {
+          'hermes-bots': {'title': 'Research', 'chat': 'legacy-pin'},
+        },
+        'canonical_session': {
+          'id': 'bot-root-1',
+          'resolved_id': 'bot-tip-9',
+          'preview': 'Canonical summary',
+          'last_active': 1767226000,
+        },
+        'last_session': {
+          'id': 'other-chat',
+          'preview': 'Unrelated chat preview',
+          'last_active': 1767225000,
+        },
+      });
+
+      check(bot).isNotNull();
+      check(bot!.chatSessionId).equals('bot-tip-9');
+      check(bot.ownsSession('bot-tip-9')).isTrue();
+      check(bot.ownsSession('bot-root-1')).isTrue();
+      check(bot.ownsSession('legacy-pin')).isTrue();
+      check(bot.ownsSession('other-chat')).isFalse();
+      check(bot.preview).equals('Canonical summary');
+      check(bot.lastActive).equals(
+        DateTime.fromMillisecondsSinceEpoch(1767226000 * 1000),
+      );
+
+      final canonicalRootFirst = HermesBot.fromJson(
+        {
+          'name': 'researcher',
+          'ui_meta': {
+            'hermes-bots': {'title': 'Research', 'chat': 'legacy-pin'},
+          },
+          'canonical_session': {
+            'id': 'bot-root-1',
+            'resolved_id': 'bot-tip-9',
+            'preview': 'Canonical summary',
+            'last_active': 1767226000,
+          },
+        },
+        preferCanonicalRoot: true,
+      );
+      check(canonicalRootFirst!.chatSessionId).equals('bot-root-1');
+      check(canonicalRootFirst.ownsSession('bot-root-1')).isTrue();
+      check(canonicalRootFirst.ownsSession('bot-tip-9')).isTrue();
+      check(canonicalRootFirst.ownsSession('legacy-pin')).isTrue();
+    },
+  );
+
+  test(
+    'falls back to canonical_session id and rejects hostile canonical ids',
+    () {
+      final rootOnly = HermesBot.fromJson({
+        'name': 'scout',
+        'ui_meta': {'hermes-bots': <String, dynamic>{}},
+        'canonical_session': {
+          'id': 'bot-root-2',
+          'preview': 'Root preview',
+          'last_active': 1767226000,
+        },
+      });
+      check(rootOnly!.chatSessionId).equals('bot-root-2');
+
+      final hostileResolved = HermesBot.fromJson({
+        'name': 'scout',
+        'ui_meta': {'hermes-bots': <String, dynamic>{}},
+        'canonical_session': {
+          'id': 'bot-root-3',
+          'resolved_id': '../../etc/passwd',
+        },
+      });
+      check(hostileResolved!.chatSessionId).equals('bot-root-3');
+
+      final hostileAll = HermesBot.fromJson({
+        'name': 'scout',
+        'ui_meta': {'hermes-bots': <String, dynamic>{}},
+        'canonical_session': {
+          'id': '../../etc/passwd',
+          'resolved_id': '../escape',
+        },
+      });
+      check(hostileAll!.chatSessionId).isNull();
+
+      final malformedCanonical = HermesBot.fromJson({
+        'name': 'scout',
+        'ui_meta': {
+          'hermes-bots': {'chat': 'legacy-pin'},
+        },
+        'canonical_session': 'not-a-map',
+        'last_session': {'preview': 'Fallback preview'},
+      });
+      check(malformedCanonical!.chatSessionId).equals('legacy-pin');
+      check(malformedCanonical.preview).equals('Fallback preview');
+    },
+  );
+
   test('a persisted decision keeps its bot profile across a restart', () {
     // `_sessionProfiles` is in-memory only. A decision that outlives the
     // process must carry its own profile, or the restored response targets a

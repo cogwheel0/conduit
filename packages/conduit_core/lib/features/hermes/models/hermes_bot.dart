@@ -29,6 +29,7 @@ class HermesBot {
     this.description,
     this.preview,
     this.chatSessionId,
+    this.chatSessionIds = const {},
     this.hasAvatar = false,
     this.avatarShape = 'squircle',
     this.avatarColor = '#8b5cf6',
@@ -47,8 +48,19 @@ class HermesBot {
   /// Preview of the newest message in the bot's canonical chat.
   final String? preview;
 
-  /// Pinned stored id of the canonical "Bot Chat", when the profile has one.
+  /// Primary stored id of the canonical "Bot Chat", when the profile has one.
   final String? chatSessionId;
+
+  /// All known stored ids for this bot's canonical "Bot Chat" (logical root,
+  /// compression tip, and any legacy pinned id). Canonical authorities return
+  /// the logical root on `session.resume`, while legacy sockets return the
+  /// compression tip, so correlation checks every alias.
+  final Set<String> chatSessionIds;
+
+  /// Whether [sessionId] matches any known stored id for this bot's Bot Chat.
+  bool ownsSession(String? sessionId) =>
+      sessionId != null &&
+      (sessionId == chatSessionId || chatSessionIds.contains(sessionId));
 
   final bool hasAvatar;
 
@@ -78,6 +90,7 @@ class HermesBot {
   static List<HermesBot> rosterFromProfilesList(
     Map<String, dynamic> result, {
     int limit = 256,
+    bool preferCanonicalRoot = false,
   }) {
     if (result['bot_mode_protocol'] != true) return const [];
     final rows = result['profiles'];
@@ -87,7 +100,7 @@ class HermesBot {
       if (row is! Map) continue;
       final json = Map<String, dynamic>.from(row);
       if (!isBotRow(json)) continue;
-      final bot = fromJson(json);
+      final bot = fromJson(json, preferCanonicalRoot: preferCanonicalRoot);
       if (bot != null) bots.add(bot);
       if (bots.length >= limit) break;
     }
@@ -95,14 +108,35 @@ class HermesBot {
   }
 
   /// Parses one `profiles.list` row, or null when it is not a usable bot.
-  static HermesBot? fromJson(Map<String, dynamic> json) {
+  static HermesBot? fromJson(
+    Map<String, dynamic> json, {
+    bool preferCanonicalRoot = false,
+  }) {
     final name = validateHermesBoundedString(json['name'], maxCharacters: 64);
     if (name == null || !HermesConfig.isValidDesktopProfile(name)) return null;
 
     final meta = json['ui_meta'];
     final botMeta = meta is Map ? meta['hermes-bots'] : null;
-    final session = json['preferred_session'] ?? json['last_session'];
+    final canonical = json['canonical_session'];
+    final canonicalRow = canonical is Map ? canonical : null;
+    final session =
+        canonicalRow ?? json['preferred_session'] ?? json['last_session'];
     final sessionRow = session is Map ? session : const {};
+    final canonicalResolvedId = validateHermesOpaqueIdentifier(
+      canonicalRow?['resolved_id'],
+    );
+    final canonicalId = validateHermesOpaqueIdentifier(canonicalRow?['id']);
+    final legacyChatId = validateHermesOpaqueIdentifier(
+      botMeta is Map ? botMeta['chat'] : null,
+    );
+    final chatSessionId = preferCanonicalRoot
+        ? (canonicalId ?? canonicalResolvedId ?? legacyChatId)
+        : (canonicalResolvedId ?? canonicalId ?? legacyChatId);
+    final chatSessionIds = Set<String>.unmodifiable(<String>{
+      ?canonicalId,
+      ?canonicalResolvedId,
+      ?legacyChatId,
+    });
     final rawShape = validateHermesBoundedString(
       botMeta is Map ? botMeta['shape'] : null,
       maxCharacters: 96,
@@ -132,9 +166,8 @@ class HermesBot {
         sessionRow['preview'],
         maxCharacters: kMaxHermesBotPreviewCharacters,
       ),
-      chatSessionId: validateHermesOpaqueIdentifier(
-        botMeta is Map ? botMeta['chat'] : null,
-      ),
+      chatSessionId: chatSessionId,
+      chatSessionIds: chatSessionIds,
       hasAvatar: json['has_avatar'] == true,
       avatarShape: _validHermesBotShape(rawShape) ?? 'squircle',
       avatarColor: _validHermesBotColor(rawColor) ?? '#8b5cf6',

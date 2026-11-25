@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/app_database.dart';
@@ -13,6 +15,7 @@ import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -22,11 +25,13 @@ import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit/features/hermes/widgets/hermes_bot_tile.dart';
 import 'package:conduit/features/hermes/widgets/hermes_read_only_session_notice.dart';
 import 'package:conduit/features/hermes/widgets/hermes_session_tile.dart';
 import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
@@ -38,7 +43,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 
@@ -1208,6 +1215,46 @@ void main() {
         ),
       ).equals(l10n.hermesSessionLoadFailed);
     });
+
+    test('canonical refusal detail and not_found map cleanly', () {
+      check(
+        hermesSessionLoadFailureMessage(
+          l10n,
+          const HermesDesktopRpcException(
+            'runtime_draining',
+            code: 4001,
+            data: {
+              'reason': 'runtime_draining',
+              'detail': 'the profile is still starting',
+            },
+          ),
+        ),
+      ).equals(
+        l10n.hermesSessionLoadFailedDetail(
+          'the profile is still starting (4001)',
+        ),
+      );
+      check(
+        hermesSessionLoadFailureMessage(
+          l10n,
+          const HermesDesktopRpcException(
+            'profile_mismatch',
+            code: 4001,
+            data: {'reason': 'profile_mismatch'},
+          ),
+        ),
+      ).equals(l10n.hermesSessionLoadFailedDetail('profile_mismatch (4001)'));
+      check(
+        hermesSessionLoadFailureMessage(
+          l10n,
+          const HermesDesktopRpcException(
+            'not_found',
+            code: 4001,
+            data: {'reason': 'not_found'},
+          ),
+        ),
+      ).equals(l10n.hermesSessionNotFound);
+    });
   });
 
   testWidgets('opening a session restores locally trusted document prompts', (
@@ -1298,7 +1345,155 @@ void main() {
     check(message.content).equals('Summarize.');
     check(message.files!.single['id']).equals(document.id);
   });
+
+  testWidgets(
+    'HermesBotTile highlights canonical_session selection and surfaces RPC refusal detail',
+    (tester) async {
+      final l10n = AppLocalizationsEn();
+      final bot = HermesBot.fromJson({
+        'name': 'researcher',
+        'ui_meta': {
+          'hermes-bots': {'title': 'Research'},
+        },
+        'canonical_session': {
+          'id': 'bot-root-1',
+          'resolved_id': 'bot-tip-1',
+          'preview': 'Canonical summary',
+          'last_active': 1767226000,
+        },
+      })!;
+      final service = _scriptedBotDesktopService(
+        resumeError: const {
+          'code': 4001,
+          'message': 'profile_mismatch',
+          'data': {'reason': 'profile_mismatch'},
+        },
+      );
+      addTearDown(service.close);
+      final container = ProviderContainer(
+        retry: (retryCount, error) => null,
+        overrides: [hermesApiServiceProvider.overrideWithValue(service)],
+      );
+      addTearDown(container.dispose);
+      container.read(hermesActiveSessionProvider.notifier).set('bot-root-1');
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(body: HermesBotTile(bot: bot)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      check(
+        find.byKey(const ValueKey<String>('conversation-tile-active-tint'))
+            .evaluate(),
+      ).length.equals(1);
+
+      container.read(hermesActiveSessionProvider.notifier).set('bot-tip-1');
+      await tester.pumpAndSettle();
+      check(
+        find.byKey(const ValueKey<String>('conversation-tile-active-tint'))
+            .evaluate(),
+      ).length.equals(1);
+
+      await tester.tap(find.byType(HermesBotTile));
+      await tester.pumpAndSettle();
+
+      check(
+        find.text(
+          l10n.hermesSessionLoadFailedDetail('profile_mismatch (4001)'),
+        ).evaluate(),
+      ).length.equals(1);
+    },
+  );
 }
+
+final class _TileWsChannel extends Mock implements WebSocketChannel {}
+
+final class _TileWsSink extends Mock implements WebSocketSink {}
+
+final class _TileStatusAdapter implements HttpClientAdapter {
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString(
+    jsonEncode({'auth_required': false, 'gateway_running': true}),
+    200,
+    headers: {
+      Headers.contentTypeHeader: [Headers.jsonContentType],
+    },
+  );
+}
+
+HermesDesktopApiService _scriptedBotDesktopService({
+  required Map<String, Object?> resumeError,
+}) => HermesDesktopApiService(
+  config: HermesConfig(
+    enabled: true,
+    baseUrl: 'https://hermes.example',
+    mode: HermesBackendMode.desktopGateway,
+    desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+  ),
+  dio: Dio()..httpClientAdapter = _TileStatusAdapter(),
+  rpc: HermesDesktopRpcClient(
+    channelFactory: (_, _, {httpClient}) {
+      final incoming = StreamController<dynamic>.broadcast();
+      final channel = _TileWsChannel();
+      final sink = _TileWsSink();
+      when(() => channel.ready).thenAnswer((_) async {});
+      when(() => channel.stream).thenAnswer((_) {
+        scheduleMicrotask(() {
+          if (!incoming.isClosed) {
+            incoming.add(
+              jsonEncode({
+                'jsonrpc': '2.0',
+                'method': 'event',
+                'params': {
+                  'type': 'gateway.ready',
+                  'payload': {'session_authority': true},
+                },
+              }),
+            );
+          }
+        });
+        return incoming.stream;
+      });
+      when(() => channel.sink).thenReturn(sink);
+      when(() => sink.close(any(), any())).thenAnswer((_) => incoming.close());
+      when(() => sink.add(any())).thenAnswer((invocation) {
+        final raw = invocation.positionalArguments.single as String;
+        final frame = jsonDecode(raw) as Map<String, dynamic>;
+        final id = frame['id'];
+        final method = frame['method'];
+        if (id == null) return;
+        if (method == 'session.resume') {
+          scheduleMicrotask(
+            () => incoming.add(
+              jsonEncode({'jsonrpc': '2.0', 'id': id, 'error': resumeError}),
+            ),
+          );
+          return;
+        }
+        scheduleMicrotask(
+          () => incoming.add(
+            jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': const {}}),
+          ),
+        );
+      });
+      return channel;
+    },
+  ),
+);
 
 class _FakeHermesApiService extends HermesApiService {
   _FakeHermesApiService({

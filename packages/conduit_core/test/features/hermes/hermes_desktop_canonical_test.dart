@@ -96,7 +96,9 @@ final class _Authority {
 
   static const Object silent = Object();
 
-  final Map<String, Object?> readyPayload = const {'session_authority': true};
+  /// What `gateway.ready` says. An empty payload makes this a legacy
+  /// dashboard socket, which resolves a Bot Chat by `session_id` only.
+  Map<String, Object?> readyPayload = const {'session_authority': true};
   final channel = _MockWebSocketChannel();
   final sink = _MockWebSocketSink();
   final incoming = StreamController<dynamic>.broadcast();
@@ -2309,6 +2311,177 @@ void main() {
     check(resume['title']).equals('Bot Chat');
     check(resume.containsKey('session_id')).isFalse();
   });
+
+  test(
+    'opening a bot chat fails closed on profile_mismatch without calling session.create',
+    () async {
+      final gateway = _Authority();
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          throw const _Refusal(4001, 'profile_mismatch', {
+            'reason': 'profile_mismatch',
+          });
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+
+      Object? failure;
+      try {
+        await service.openBotChat(
+          const HermesBot(
+            name: 'sibling',
+            title: 'Sibling bot',
+            chatSessionId: 'sibling-chat-1',
+          ),
+        );
+      } catch (error) {
+        failure = error;
+      }
+      check(failure).isA<HermesDesktopRpcException>()
+        ..has((e) => e.code, 'code').equals(4001)
+        ..has((e) => e.reason, 'reason').equals('profile_mismatch');
+      check(gateway.calls('session.resume')).length.equals(1);
+      check(gateway.calls('session.create')).isEmpty();
+    },
+  );
+
+  test(
+    'a legacy dashboard socket fails closed on a bot chat it cannot resume',
+    () async {
+      final gateway = _Authority()..readyPayload = const {};
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          throw const _Refusal(4130, 'Session too large to resume');
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+
+      Object? failure;
+      try {
+        await service.openBotChat(
+          const HermesBot(name: 'researcher', title: 'Research'),
+        );
+      } catch (error) {
+        failure = error;
+      }
+      check(failure)
+          .isA<HermesDesktopRpcException>()
+          .has((error) => error.code, 'code')
+          .equals(4130);
+      // A legacy socket mints a second "Bot Chat" on any create, so a refusal
+      // that is not "not found" must never reach the title lookup or one.
+      check(gateway.calls('session.create')).isEmpty();
+      final resumes = gateway.calls('session.resume');
+      check(resumes).length.equals(1);
+      check(resumes.single.containsKey('session_id')).isTrue();
+      check(resumes.single.containsKey('title')).isFalse();
+    },
+  );
+
+  test(
+    'opening a bot chat falls back from a stale id and creates only on not_found',
+    () async {
+      final gateway = _Authority();
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          throw const _Refusal(4001, 'not_found', {'reason': 'not_found'});
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+
+      final stored = await service.openBotChat(
+        const HermesBot(
+          name: 'researcher',
+          title: 'Research',
+          chatSessionId: 'retired-bot-chat',
+        ),
+      );
+
+      check(stored).equals('local-1');
+      final resumes = gateway.calls('session.resume');
+      check(resumes).length.equals(2);
+      check(resumes[0]['session_id']).equals('retired-bot-chat');
+      check(resumes[1]['title']).equals('Bot Chat');
+      check(gateway.calls('session.create')).length.equals(1);
+    },
+  );
+
+  test(
+    'a compressed canonical bot chat correlates with its logical owner and preserves its profile on transient reopen failures',
+    () async {
+      final gateway = _Authority();
+      var failNextResume = false;
+      gateway.handler = (method, params) {
+        if (method == 'profiles.list') {
+          return {
+            'bot_mode_protocol': true,
+            'profiles': [
+              {
+                'name': 'researcher',
+                'ui_meta': {
+                  'hermes-bots': {'title': 'Research'},
+                },
+                'canonical_session': {
+                  'id': 'local-root',
+                  'resolved_id': 'tip-2',
+                  'preview': 'Compressed summary',
+                  'last_active': 1767226000,
+                },
+              },
+            ],
+          };
+        }
+        if (method == 'session.resume') {
+          if (failNextResume) {
+            throw const _Refusal(4001, 'runtime_draining', {
+              'reason': 'runtime_draining',
+              'detail': 'the profile is still starting',
+            });
+          }
+          // Canonical resume maps either physical tip or logical root back to
+          // the logical owner.
+          return gateway.snapshot('local-root');
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+
+      final listed = (await service.listBots()).single;
+      check(listed.chatSessionId).equals('local-root');
+      check(listed.ownsSession('local-root')).isTrue();
+      check(listed.ownsSession('tip-2')).isTrue();
+
+      // Even a tip-keyed row from HermesBot.fromJson correlates after resume
+      // returns the logical owner.
+      final tipKeyed = HermesBot.fromJson({
+        'name': 'researcher',
+        'ui_meta': {
+          'hermes-bots': {'title': 'Research'},
+        },
+        'canonical_session': {
+          'id': 'local-root',
+          'resolved_id': 'tip-2',
+        },
+      })!;
+      final stored = await service.openBotChat(tipKeyed);
+      check(stored).equals('local-root');
+      check(tipKeyed.ownsSession(stored)).isTrue();
+
+      // A transient reopen failure on an already-bound Bot Chat must keep its
+      // profile mapping so later session calls stay scoped to the bot profile.
+      failNextResume = true;
+      await check(
+        service.openBotChat(listed),
+      ).throws<HermesDesktopRpcException>();
+
+      await service.interrupt('local-root');
+      final interrupt = gateway.calls('session.interrupt').single;
+      check(interrupt['profile']).equals('researcher');
+    },
+  );
 
   test('an undo refused because the chat moved on is not sent again',
       () async {
