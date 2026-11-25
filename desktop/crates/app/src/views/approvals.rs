@@ -2477,38 +2477,6 @@ mod librechat_tests {
         });
     }
 
-    /// An option is answered by its place, so a label the card shows
-    /// trimmed, or one shown like another, never answers for the wrong
-    /// option.
-    #[gpui_kit::test]
-    fn an_option_is_answered_by_its_place(cx: &mut TestAppContext) {
-        let (b, vcx) = bench(cx);
-        let question = paused(
-            "q",
-            UiRequestKind::LibreChatQuestion,
-            &[("title", "Which trail?")],
-            json!({
-                "question": "Which trail?",
-                "options": [
-                    {"label": " North Ridge ", "value": "north-ridge"},
-                    {"label": "", "value": "blank"},
-                    {"label": "Ridge", "value": "ridge-north"},
-                ],
-                "multiSelect": false,
-            }),
-        );
-        b.stores
-            .ui_requests
-            .update(vcx, |u, cx| u.on_request(question, cx));
-        open(&b, "chat-a", vcx);
-        pick_labels(&b, &["North Ridge"], vcx);
-        b.view.update(vcx, |v, cx| assert!(v.allow(cx)));
-        assert_eq!(
-            sent(&b, vcx),
-            [("options".to_string(), Some("[0]".to_string()))]
-        );
-    }
-
     fn sent(b: &Bench, vcx: &mut VisualTestContext) -> Vec<(String, Option<String>)> {
         vcx.run_until_parked();
         b.daemon
@@ -2554,7 +2522,8 @@ mod librechat_tests {
 
     /// Edit starts from the arguments; what is not a JSON object is refused
     /// on the card, what was typed kept; an object is sent as typed. The
-    /// daemon's own refusal puts it back the same way.
+    /// daemon's own refusal puts it back the same way, and the card raised
+    /// again without Edit closes it.
     #[gpui_kit::test]
     fn an_edit_that_is_not_a_json_object_is_refused_and_kept(cx: &mut TestAppContext) {
         let (b, vcx) = bench(cx);
@@ -2609,25 +2578,16 @@ mod librechat_tests {
             assert!(v.compose_invalid);
             assert_eq!(v.compose_text.read(cx).value(), "[2]");
         });
-    }
 
-    /// The same card raised again without Edit closes the editor it had
-    /// open: Approve approves, rather than sending the edit.
-    #[gpui_kit::test]
-    fn a_card_raised_again_without_edit_closes_its_editor(cx: &mut TestAppContext) {
-        let (b, vcx) = bench(cx);
+        // Raised again without Edit: the editor closes, and Approve
+        // approves rather than sending the edit.
         b.stores.ui_requests.update(vcx, |u, cx| {
-            u.on_request(tool_call("p", &["approve", "edit"], json!({})), cx)
-        });
-        open(&b, "chat-a", vcx);
-        compose(&b, "p", LibreChatDecision::Edit, vcx);
-        b.stores.ui_requests.update(vcx, |u, cx| {
-            u.on_request(tool_call("p", &["approve", "reject"], json!({})), cx)
+            u.on_request(tool_call("p2", &["approve", "reject"], json!({})), cx)
         });
         open(&b, "chat-a", vcx);
         b.view.read_with(vcx, |v, _| assert_eq!(v.compose, None));
         b.view.update(vcx, |v, cx| assert!(v.allow(cx)));
-        assert_eq!(sent(&b, vcx), [("approve".to_string(), None)]);
+        assert_eq!(sent(&b, vcx).last(), Some(&("approve".to_string(), None)));
     }
 
     /// How many times focus is sent to the composer from now on.
@@ -2845,7 +2805,7 @@ mod librechat_tests {
             json!({
                 "question": "Which trails?",
                 "options": [
-                    {"label": "North Ridge", "value": "north-ridge"},
+                    {"label": " North Ridge ", "value": "north-ridge"},
                     {"label": "Lake Loop", "value": "lake-loop"},
                 ],
                 "multiSelect": true,

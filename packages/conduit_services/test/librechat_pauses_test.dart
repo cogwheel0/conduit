@@ -74,28 +74,9 @@ void main() {
     isTrue,
   );
 
-  test(
-    "a question is answered with the option's value, not its label",
-    () async {
-      final card = nextCard();
-      final (:outcome, :decisions, :answers) = pause(_valued);
-      final request = await card;
-      expect(request.kind, UiRequestKind.libreChatQuestion);
-      expect(request.detail['options'], [
-        {'label': 'North Ridge', 'value': 'north-ridge'},
-        {'label': 'Lake Loop', 'value': 'lake-loop'},
-      ]);
-      // The window answers with the label it showed.
-      answer(request, 'answer', 'North Ridge');
-      expect(await outcome, LibreChatPauseOutcome.resumed);
-      expect(answers, [
-        {'call-v': 'north-ridge'},
-      ]);
-    },
-  );
-
-  test('options are answered by their place, whatever their labels: a '
-      'padded label, several picked, and two labels alike', () async {
+  test("a question is answered with its options' values, never their "
+      "labels: by label (as the phone answers), or by place (as the Mac does: "
+      "a padded label, several picked, two labels alike)", () async {
     // Whether the pause went on with the answer, or put the card again.
     Future<String> after(Future<LibreChatPauseOutcome> outcome) {
       final again = nextCard();
@@ -104,6 +85,21 @@ void main() {
         again.then((card) => 'again: ${card.detail['refusal']}'),
       ]);
     }
+
+    final card = nextCard();
+    final (:outcome, :decisions, :answers) = pause(_valued);
+    final request = await card;
+    expect(request.kind, UiRequestKind.libreChatQuestion);
+    expect(request.detail['options'], [
+      {'label': 'North Ridge', 'value': 'north-ridge'},
+      {'label': 'Lake Loop', 'value': 'lake-loop'},
+    ]);
+    // The window answers with the label it showed.
+    answer(request, 'answer', 'North Ridge');
+    expect(await outcome, LibreChatPauseOutcome.resumed);
+    expect(answers, [
+      {'call-v': 'north-ridge'},
+    ]);
 
     for (final (multi, picks, sent) in [
       (false, '[0]', 'north-ridge'),
@@ -122,11 +118,11 @@ void main() {
     }
 
     // A place no option has is not taken: the card comes back.
-    final card = nextCard();
-    final (:outcome, :decisions, :answers) = pause(_placed(multi: false));
-    answer(await card, 'options', '[9]');
-    expect(await after(outcome), 'again: empty');
-    expect(answers, isEmpty);
+    final placed = nextCard();
+    final unknown = pause(_placed(multi: false));
+    answer(await placed, 'options', '[9]');
+    expect(await after(unknown.outcome), 'again: empty');
+    expect(unknown.answers, isEmpty);
   });
 
   test(

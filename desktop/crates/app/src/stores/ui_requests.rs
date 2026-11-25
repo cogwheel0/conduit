@@ -936,6 +936,43 @@ mod tests {
         assert_eq!(card(&other), Card::Unsupported);
         let unknown = request("6", UiRequestKind::Unknown, &[]);
         assert_eq!(card(&unknown), Card::Unsupported);
+
+        // A LibreChat question: every option the core listed, in its place,
+        // shown trimmed (the answer goes by place).
+        let mut asked = request(
+            "q",
+            UiRequestKind::LibreChatQuestion,
+            &[("chatId", "chat-a")],
+        );
+        asked.detail = json!({
+            "question": "Which trail?",
+            "options": [
+                {"label": " North Ridge ", "value": "north-ridge"},
+                {"label": "  ", "value": "blank"},
+                {"label": "Ridge", "value": "ridge-north"},
+                {"label": " Ridge ", "value": "ridge-south"},
+            ],
+        });
+        let Card::LibreChatQuestion(q) = card(&asked) else {
+            panic!("not a question card");
+        };
+        let shown: Vec<(&str, &str)> = q
+            .question
+            .choices
+            .iter()
+            .map(|c| (c.label.as_str(), c.value.as_str()))
+            .collect();
+        // Every option the card is given shows, in its place: the list is
+        // the core's, which the answer is resolved against.
+        assert_eq!(
+            shown,
+            [
+                ("North Ridge", "0"),
+                ("", "1"),
+                ("Ridge", "2"),
+                ("Ridge", "3")
+            ]
+        );
     }
 
     #[test]
@@ -1219,43 +1256,5 @@ mod tests {
                 ["c"],
             );
         }
-    }
-
-    #[test]
-    fn a_librechat_question_shows_labels_trimmed_and_answers_by_place() {
-        let mut asked = request(
-            "q",
-            UiRequestKind::LibreChatQuestion,
-            &[("chatId", "chat-a")],
-        );
-        asked.detail = json!({
-            "question": "Which trail?",
-            "options": [
-                {"label": " North Ridge ", "value": "north-ridge"},
-                {"label": "  ", "value": "blank"},
-                {"label": "Ridge", "value": "ridge-north"},
-                {"label": " Ridge ", "value": "ridge-south"},
-            ],
-        });
-        let Card::LibreChatQuestion(q) = card(&asked) else {
-            panic!("not a question card");
-        };
-        let shown: Vec<(&str, &str)> = q
-            .question
-            .choices
-            .iter()
-            .map(|c| (c.label.as_str(), c.value.as_str()))
-            .collect();
-        // Every option the card is given shows, in its place: the list is
-        // the core's, which the answer is resolved against.
-        assert_eq!(
-            shown,
-            [
-                ("North Ridge", "0"),
-                ("", "1"),
-                ("Ridge", "2"),
-                ("Ridge", "3")
-            ]
-        );
     }
 }
