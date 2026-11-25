@@ -1956,6 +1956,19 @@ void main() {
       // Paused again, then stopped. Until the server lets the run go (its
       // abort held), the pause is gone, and an answer is refused and sent
       // nowhere.
+      final pausedAgain = Completer<void>();
+      final pauses = container.listen<List<ChatMessage>>(chatMessagesProvider, (
+        _,
+        messages,
+      ) {
+        final pause = messages.lastOrNull?.metadata?[kLibreChatPendingActionKey];
+        if (pause is Map &&
+            pause['actionId'] == 'act_2' &&
+            !pausedAgain.isCompleted) {
+          pausedAgain.complete();
+        }
+      });
+      addTearDown(pauses.close);
       chat.emit({
         'event': 'on_pending_action',
         'data': {
@@ -1975,9 +1988,8 @@ void main() {
           },
         },
       });
-      await _until(
-        () => libreChatPendingActionFor(container, replyId) != null,
-      );
+      await pausedAgain.future;
+      check(libreChatPendingActionFor(container, replyId)).isNotNull();
       chat.abortHold = Completer<void>();
       final aborted = chat.nextAbort;
       container.read(stopGenerationProvider)();
