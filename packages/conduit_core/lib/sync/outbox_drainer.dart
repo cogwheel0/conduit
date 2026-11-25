@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:riverpod/riverpod.dart' show Provider;
+
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 
@@ -42,6 +44,18 @@ typedef TerminalErrorClassifier = int? Function(Object error);
 /// Drains the outbox in seq order per chat, independent chats concurrently
 /// (pool of 2) — CDT-RFC-001 §7.2, A7. Constructor injection only; NO Riverpod
 /// inside (mirrors `PullSync`/`PushSync`).
+/// For tests only: what every outbox drain waits for before it claims, locks
+/// or sends anything. Both outboxes take it: the Open WebUI account's
+/// (`SyncEngine`) and the LibreChat account's (`LibreChatSyncEngine`); the
+/// device's own store keeps no outbox. A test that must decide when this
+/// device's changes reach the server (a chat made here, and so the moment it
+/// moves to the server's id) overrides it with a gate it opens itself;
+/// otherwise the outbox drains whenever a sync cycle, a send or a pull asks
+/// it to. Null in the app and the daemon.
+final outboxDrainGateProvider = Provider<Future<void> Function()?>(
+  (ref) => null,
+);
+
 class OutboxDrainer {
   OutboxDrainer({
     required AppDatabase db,

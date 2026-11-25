@@ -335,6 +335,7 @@ void main() {
     Backoff? backoff,
     TerminalErrorClassifier? terminal,
     List<SyncEntityAdapter>? adapters,
+    Future<void> Function()? testGate,
   }) {
     return OutboxDrainer(
       db: db,
@@ -343,6 +344,7 @@ void main() {
       isOnline: () => online,
       completion: completion,
       terminalClassifier: terminal,
+      testGate: testGate,
       adapters:
           adapters ??
           [
@@ -400,6 +402,25 @@ void main() {
 
       await buildDrainer().drain();
 
+      check(client.calls).contains('updateChat:c1');
+      check(await dao.pendingForChat('c1')).isEmpty();
+    });
+
+    test('a drain held at its test gate claims and sends nothing until the '
+        'gate opens', () async {
+      await seedServerChat('c1');
+      await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+      final gate = Completer<void>();
+
+      final draining = buildDrainer(testGate: () => gate.future).drain();
+      await pumpEventQueue();
+      check(client.calls).isEmpty();
+      check(
+        (await dao.pendingForChat('c1')).map((op) => op.status),
+      ).deepEquals(['pending']);
+
+      gate.complete();
+      await draining;
       check(client.calls).contains('updateChat:c1');
       check(await dao.pendingForChat('c1')).isEmpty();
     });

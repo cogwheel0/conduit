@@ -9,7 +9,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/ports.dart';
 import 'package:conduit_core/services/settings_service.dart'
     show AppSettingsHostDefaults;
-import 'package:conduit_core/sync/sync_engine.dart'
+import 'package:conduit_core/sync/outbox_drainer.dart'
     show outboxDrainGateProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';

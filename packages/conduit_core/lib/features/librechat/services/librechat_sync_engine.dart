@@ -48,6 +48,7 @@ final class LibreChatSyncEngine {
     bool Function(String conversationId)? isGenerating,
     Future<void> Function()? Function()? holdDatabase,
     RequestCompletionRunner? completion,
+    Future<void> Function()? testGate,
     this.reconcileInterval = const Duration(minutes: 15),
   }) : locks = locks ?? ChatLocks(),
        _clock = clock ?? SystemSyncClock(),
@@ -63,6 +64,7 @@ final class LibreChatSyncEngine {
       completion: completion ?? const _NoCompletionRunner(),
       adapters: [_adapter],
       terminalClassifier: _terminalStatus,
+      testGate: testGate,
     );
   }
 

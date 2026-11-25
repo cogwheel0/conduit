@@ -23,6 +23,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/sync/outbox_drainer.dart'
+    show outboxDrainGateProvider;
 import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -144,6 +146,10 @@ void main() {
   late _IdleSyncEngine owuiSync;
   late _CountingWorkerPort workerPort;
   late WorkerManager workers;
+
+  /// What the LibreChat outbox's drains wait for ([outboxDrainGateProvider]):
+  /// open unless a test closes it.
+  late Completer<void> drainGate;
   // The real date: sessions the fake server issues are checked against the
   // real clock, and would lapse against a fixed one.
   final now = DateTime.now().toUtc();
@@ -151,6 +157,7 @@ void main() {
   setUpAll(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = true);
 
   setUp(() async {
+    drainGate = Completer<void>()..complete();
     PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
     await PreferencesStore.ensureInitialized();
     fake = FakeLibreChatServer(clock: () => now)..addUser();
@@ -188,6 +195,7 @@ void main() {
         socketServiceProvider.overrideWithValue(null),
         apiServiceProvider.overrideWithValue(null),
         syncEngineProvider.overrideWith(() => owuiSync = _IdleSyncEngine()),
+        outboxDrainGateProvider.overrideWithValue(() => drainGate.future),
         legacyConversationCachePurgerProvider.overrideWith(
           (ref) => () async {},
         ),
@@ -353,6 +361,8 @@ void main() {
       rawId: 'lc-1',
       storage: ChatStorageKind.libreChat,
     ).scopedId;
+    // The outbox held at its test gate: the changes are made here and wait.
+    drainGate = Completer<void>();
     await renameLibreChatConversation(container, scoped, 'Weather in Paris');
     check(shown().title).equals('Weather in Paris');
     check(isConversationUnread(shown())).isFalse();
@@ -364,7 +374,13 @@ void main() {
     check(row.pinned).isTrue();
     check(row.archived).isTrue();
 
-    await container.read(libreChatSyncEngineProvider)!.drain();
+    final draining = container.read(libreChatSyncEngineProvider)!.drain();
+    await pumpEventQueue();
+    check(
+      fake.conversations['lc-1']!['title'],
+    ).not((title) => title.equals('Weather in Paris'));
+    drainGate.complete();
+    await draining;
     final serverCopy = fake.conversations['lc-1']!;
     check(serverCopy['title']).equals('Weather in Paris');
     check(serverCopy['pinned']).equals(true);
