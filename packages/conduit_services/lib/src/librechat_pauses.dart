@@ -38,7 +38,7 @@ enum LibreChatPauseOutcome {
 Future<LibreChatPauseOutcome> answerLibreChatPause(
   LibreChatPendingAction action, {
   required UiRequestsService? windows,
-  required String chatId,
+  required String Function() chatId,
   required bool Function() asking,
   required LibreChatPauseResolver resume,
   required Future<void> until,
@@ -57,7 +57,7 @@ Future<LibreChatPauseOutcome> answerLibreChatPause(
       continue;
     }
     final reply = await windows.askLibreChatPause(
-      chatId: chatId,
+      chatId: chatId(),
       card: card,
       failed: pause.failed,
       refusal: problem,

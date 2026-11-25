@@ -54,7 +54,7 @@ void main() {
     final outcome = answerLibreChatPause(
       action,
       windows: windows,
-      chatId: 'chat-1',
+      chatId: () => 'chat-1',
       asking: () => !over.isCompleted,
       until: over.future,
       resume: ({decisions, answers}) async {
@@ -312,7 +312,7 @@ void main() {
     final outcome = answerLibreChatPause(
       _question,
       windows: windows,
-      chatId: 'chat-1',
+      chatId: () => 'chat-1',
       // Bounded, so a loop that never stops fails rather than starving the
       // event loop.
       asking: () => checks++ < 50,

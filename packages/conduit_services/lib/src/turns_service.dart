@@ -1225,9 +1225,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     var reserved = false;
     _Claim? claim;
     try {
-      if (isRunning(chatId()) ||
-          session.merge != null ||
-          session.deleting) {
+      if (isRunning(chatId()) || session.merge != null || session.deleting) {
         throw const RpcError(
           code: ConduitErrorCodes.conflict,
           debugMessage: 'that chat is still answering',
@@ -3049,10 +3047,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       final removed = await session.scope.container
           .read(queuedCompletionActionsProvider)
           .cancel(info);
-      _queuedCompletions?.followed(
-        session.chatId ?? ref.chatId,
-        ref.messageId,
-      );
+      _queuedCompletions?.followed(session.chatId ?? ref.chatId, ref.messageId);
       // Removed before its hand-off was seen: the send waiting for it ends.
       final pending = session.pending;
       if (pending != null &&
@@ -3510,12 +3505,17 @@ final class TurnsService implements ChatTurns, AddressReplies {
       (_, _) => leave(),
     );
     unawaited(turn.ended.future.then((_) => leave(), onError: (_) => leave()));
-    final chatId = session.chatId ?? turn.chatId;
+    // Read where it is used: the chat the card is shown in, and taken back
+    // from, is the chat's id as it is then.
+    String chatId() => session.chatId ?? turn.chatId;
+    final pausedIn = chatId();
     final pause = (
       messageId: messageId,
       actionId: action.actionId,
       withdraw: () {
-        _uiRequests?.withdrawLibreChatCards(chatId);
+        for (final id in {pausedIn, chatId()}) {
+          _uiRequests?.withdrawLibreChatCards(id);
+        }
         leave();
       },
     );
