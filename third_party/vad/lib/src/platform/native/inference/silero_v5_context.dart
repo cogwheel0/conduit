@@ -15,7 +15,7 @@ class SileroV5Context {
   SileroV5Context(int sampleRate)
       : _context = Float32List(sampleRate == 16000 ? 64 : 32);
 
-  Float32List _context;
+  final Float32List _context;
 
   /// Number of samples carried from one frame to the next.
   int get length => _context.length;
@@ -23,13 +23,28 @@ class SileroV5Context {
   /// Returns [frame] with the previous frame's tail in front of it, and keeps
   /// the tail of the result for the next frame.
   Float32List prepend(Float32List frame) {
-    final input = Float32List(_context.length + frame.length)
-      ..setAll(0, _context)
-      ..setAll(_context.length, frame);
-    _context = input.sublist(input.length - _context.length);
+    final input = Float32List(_context.length + frame.length);
+    prependInto(frame, input);
     return input;
   }
 
+  /// Writes the previous frame's tail followed by [frame] into [target], and
+  /// keeps the tail of the result for the next frame.
+  void prependInto(Float32List frame, Float32List target) {
+    final contextLength = _context.length;
+    final totalLength = contextLength + frame.length;
+    if (target.length != totalLength) {
+      throw ArgumentError.value(
+        target.length,
+        'target.length',
+        'Expected $totalLength samples',
+      );
+    }
+    target.setRange(0, contextLength, _context);
+    target.setRange(contextLength, totalLength, frame);
+    _context.setRange(0, contextLength, target, frame.length);
+  }
+
   /// Forgets the previous frame, for a new stream.
-  void reset() => _context = Float32List(_context.length);
+  void reset() => _context.fillRange(0, _context.length, 0.0);
 }

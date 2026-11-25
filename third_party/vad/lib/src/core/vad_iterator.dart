@@ -81,11 +81,17 @@ class VadIterator {
   /// Callback for VAD events
   VadEventCallback? _onVadEvent;
 
-  /// Buffer for audio data
-  final List<int> _byteBuffer = [];
+  /// Typed byte queue holding incoming PCM16 chunks across frame boundaries
+  late Uint8List _byteBuffer;
+  late ByteData _byteData;
+  int _byteStart = 0;
+  int _byteEnd = 0;
 
   /// Number of bytes per frame
   final int _frameByteCount;
+
+  /// Initial (and reset) capacity of [_byteBuffer]
+  final int _initialByteBufferCapacity;
 
   /// Number of frames processed (for debugging)
   int _totalFramesProcessed = 0;
@@ -107,6 +113,35 @@ class VadIterator {
     required int numFramesToEmit,
     required VadInference inference,
     VadLogCallback? onLog,
+  }) : this.withInference(
+          isDebug: isDebug,
+          sampleRate: sampleRate,
+          frameSamples: frameSamples,
+          positiveSpeechThreshold: positiveSpeechThreshold,
+          negativeSpeechThreshold: negativeSpeechThreshold,
+          redemptionFrames: redemptionFrames,
+          preSpeechPadFrames: preSpeechPadFrames,
+          minSpeechFrames: minSpeechFrames,
+          endSpeechPadFrames: endSpeechPadFrames,
+          numFramesToEmit: numFramesToEmit,
+          inference: inference,
+          onLog: onLog,
+        );
+
+  /// Creates a [VadIterator] backed by an existing [VadInference] instance.
+  VadIterator.withInference({
+    required bool isDebug,
+    required int sampleRate,
+    required int frameSamples,
+    required double positiveSpeechThreshold,
+    required double negativeSpeechThreshold,
+    required int redemptionFrames,
+    required int preSpeechPadFrames,
+    required int minSpeechFrames,
+    int endSpeechPadFrames = 1,
+    int numFramesToEmit = 0,
+    required VadInference inference,
+    VadLogCallback? onLog,
   })  : _isDebug = isDebug,
         _sampleRate = sampleRate,
         _frameSamples = frameSamples,
@@ -119,7 +154,11 @@ class VadIterator {
         _numFramesToEmit = numFramesToEmit,
         _inference = inference,
         _onLog = onLog,
-        _frameByteCount = frameSamples * 2;
+        _frameByteCount = frameSamples * 2,
+        _initialByteBufferCapacity = frameSamples * 8 {
+    _byteBuffer = Uint8List(_initialByteBufferCapacity);
+    _byteData = ByteData.view(_byteBuffer.buffer);
+  }
 
   void _log(String message) => (_onLog ?? print)(message);
 
@@ -138,7 +177,12 @@ class VadIterator {
     _speechRealStartFired = false;
     _preSpeechBuffer.clear();
     _speechBuffer.clear();
-    _byteBuffer.clear();
+    _byteStart = 0;
+    _byteEnd = 0;
+    if (_byteBuffer.length > _initialByteBufferCapacity) {
+      _byteBuffer = Uint8List(_initialByteBufferCapacity);
+      _byteData = ByteData.view(_byteBuffer.buffer);
+    }
     _totalFramesProcessed = 0;
     _inference.model.resetState();
   }
@@ -155,14 +199,48 @@ class VadIterator {
 
   /// Process raw audio data bytes and emit VAD events
   Future<void> processAudioData(Uint8List data) async {
-    _byteBuffer.addAll(data);
+    if (data.isEmpty) return;
 
-    while (_byteBuffer.length >= _frameByteCount) {
-      final frameBytes = _byteBuffer.sublist(0, _frameByteCount);
-      _byteBuffer.removeRange(0, _frameByteCount);
-      final frameData = _convertBytesToFloat32(Uint8List.fromList(frameBytes));
-      await _processFrame(Float32List.fromList(frameData));
+    final available = _byteEnd - _byteStart;
+    final needed = available + data.length;
+    if (_byteBuffer.length - _byteEnd < data.length) {
+      if (needed <= _byteBuffer.length) {
+        _byteBuffer.setRange(0, available, _byteBuffer, _byteStart);
+      } else {
+        var newCapacity = _byteBuffer.length;
+        while (newCapacity < needed) {
+          newCapacity *= 2;
+        }
+        final grown = Uint8List(newCapacity);
+        grown.setRange(0, available, _byteBuffer, _byteStart);
+        _byteBuffer = grown;
+        _byteData = ByteData.view(grown.buffer);
+      }
+      _byteStart = 0;
+      _byteEnd = available;
     }
+
+    _byteBuffer.setRange(_byteEnd, _byteEnd + data.length, data);
+    _byteEnd += data.length;
+
+    while (_byteEnd - _byteStart >= _frameByteCount) {
+      final frameData = _decodeFrame(_byteStart);
+      _byteStart += _frameByteCount;
+      if (_byteStart == _byteEnd) {
+        _byteStart = 0;
+        _byteEnd = 0;
+      }
+      await _processFrame(frameData);
+    }
+  }
+
+  Float32List _decodeFrame(int byteOffset) {
+    final frame = Float32List(_frameSamples);
+    for (var i = 0; i < _frameSamples; i++) {
+      frame[i] =
+          _byteData.getInt16(byteOffset + (i << 1), Endian.host) / 32768.0;
+    }
+    return frame;
   }
 
   Future<void> _processFrame(Float32List data) async {
@@ -182,19 +260,20 @@ class VadIterator {
             'VadIteratorImpl: During speech - probability ${speechProb.toStringAsFixed(3)} < negativeSpeechThreshold ${_negativeSpeechThreshold.toStringAsFixed(3)}');
       }
 
-      // Create a copy of the frame data for the event
-      final frameData = data.toList();
-
-      // Emit the frame processed event
-      _onVadEvent?.call(VadEvent(
-        type: VadEventType.frameProcessed,
-        timestamp: _getCurrentTimestamp(),
-        message:
-            'Frame processed at ${_getCurrentTimestamp().toStringAsFixed(3)}s',
-        probabilities: SpeechProbabilities(
-            isSpeech: speechProb, notSpeech: 1.0 - speechProb),
-        frameData: frameData,
-      ));
+      final onVadEvent = _onVadEvent;
+      if (onVadEvent != null) {
+        final timestamp = _getCurrentTimestamp();
+        onVadEvent(VadEvent(
+          type: VadEventType.frameProcessed,
+          timestamp: timestamp,
+          message: _isDebug
+              ? 'Frame processed at ${timestamp.toStringAsFixed(3)}s'
+              : '',
+          probabilities: SpeechProbabilities(
+              isSpeech: speechProb, notSpeech: 1.0 - speechProb),
+          frameData: data.asUnmodifiableView(),
+        ));
+      }
 
       _currentSample += _frameSamples;
       _handleStateTransitions(speechProb, data);
@@ -498,12 +577,6 @@ class VadIterator {
             isFinal: true);
       }
     }
-  }
-
-  List<double> _convertBytesToFloat32(Uint8List data) {
-    final buffer = data.buffer;
-    final int16List = Int16List.view(buffer);
-    return int16List.map((e) => e / 32768.0).toList();
   }
 
   /// Factory method to create platform-appropriate VAD iterator

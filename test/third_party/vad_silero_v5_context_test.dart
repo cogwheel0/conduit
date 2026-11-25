@@ -72,4 +72,22 @@ void main() {
 
     check(input.sublist(0, 64)).every((sample) => sample.equals(3));
   });
+
+  test('prependInto reuses a caller buffer and matches prepend', () {
+    final context = SileroV5Context(16000);
+    final target = Float32List(576);
+    final first = frame(512, (i) => i + 1.0);
+    final second = frame(512, (i) => -(i + 1.0));
+
+    context.prependInto(first, target);
+    check(target.sublist(0, 64)).every((sample) => sample.equals(0));
+    check(target.sublist(64)).deepEquals(first);
+
+    context.prependInto(second, target);
+    check(target.sublist(0, 64)).deepEquals(first.sublist(448));
+    check(target.sublist(64)).deepEquals(second);
+
+    check(() => context.prependInto(first, Float32List(10)))
+        .throws<ArgumentError>();
+  });
 }

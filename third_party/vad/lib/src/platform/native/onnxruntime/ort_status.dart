@@ -14,15 +14,15 @@ class OrtStatus {
     if (ptr == null || ptr == ffi.nullptr) {
       return;
     }
-    final errorMessage = OrtEnv.instance.ortApiPtr.ref.GetErrorMessage
-        .asFunction<ffi.Pointer<ffi.Char> Function(bg.OrtStatusPtr)>()(ptr)
-        .cast<Utf8>()
-        .toDartString();
-    final errorCode = OrtEnv.instance.ortApiPtr.ref.GetErrorCode
-        .asFunction<int Function(bg.OrtStatusPtr)>()(ptr);
-    final ortErrorCode = _OrtErrorCode.valueOf(errorCode);
-    OrtEnv.instance.ortApiPtr.ref.ReleaseStatus
-        .asFunction<void Function(bg.OrtStatusPtr)>()(ptr);
+    final api = OrtEnv.instance.api;
+    final String errorMessage;
+    final _OrtErrorCode ortErrorCode;
+    try {
+      errorMessage = api.getErrorMessage(ptr).cast<Utf8>().toDartString();
+      ortErrorCode = _OrtErrorCode.valueOf(api.getErrorCode(ptr));
+    } finally {
+      api.releaseStatus(ptr);
+    }
     if (ortErrorCode == _OrtErrorCode.ok) {
       return;
     }

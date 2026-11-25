@@ -20,18 +20,27 @@ import 'package:vad/src/platform/native/onnxruntime/ort_threading_config.dart';
 class SileroV4Model implements VadModel {
   final OrtSession _session;
   final OrtSessionOptions _sessionOptions;
-  final int _sampleRate;
+  final OrtValueTensor _srOrt;
+  final OrtPreparedRun _preparedRun;
+  final int _outputIdx;
+  final int _hIdx;
+  final int _cIdx;
 
   static const int _batch = 1;
-  var _hide = List.filled(
-      2, List.filled(_batch, Float32List.fromList(List.filled(64, 0.0))));
-  var _cell = List.filled(
-      2, List.filled(_batch, Float32List.fromList(List.filled(64, 0.0))));
+  static const List<int> _stateShape = [2, _batch, 64];
+
+  final Float32List _hide = Float32List(2 * _batch * 64);
+  final Float32List _cell = Float32List(2 * _batch * 64);
+  final List<int> _inputShape = [_batch, 0];
 
   SileroV4Model._(
     this._session,
     this._sessionOptions,
-    this._sampleRate,
+    this._srOrt,
+    this._preparedRun,
+    this._outputIdx,
+    this._hIdx,
+    this._cIdx,
   ) {
     resetState();
   }
@@ -52,13 +61,30 @@ class SileroV4Model implements VadModel {
         'os=${Platform.operatingSystem} osVersion=${Platform.operatingSystemVersion}';
     log('VadModel: creating OrtSession ($context)');
 
+    OrtSessionOptions? sessionOptions;
+    OrtSession? session;
+    OrtValueTensor? srOrt;
+    OrtPreparedRun? preparedRun;
     try {
-      final sessionOptions = OrtSessionOptions()
+      sessionOptions = OrtSessionOptions();
+      sessionOptions
         ..setInterOpNumThreads(config.interOpNumThreads)
         ..setIntraOpNumThreads(config.intraOpNumThreads)
         ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);
 
-      final session = OrtSession.fromBuffer(bytes, sessionOptions);
+      session = OrtSession.fromBuffer(bytes, sessionOptions);
+      final inputNames = getModelInputNames('v4');
+      final outputIndices = getModelOutputIndices('v4');
+      srOrt = OrtValueTensor.createTensorWithData(sampleRate);
+      preparedRun = OrtPreparedRun(
+        [
+          inputNames['input']!,
+          inputNames['sr']!,
+          inputNames['h']!,
+          inputNames['c']!,
+        ],
+        session.outputNames,
+      );
 
       if (isDebug) {
         print('SileroV4Model initialized from $modelPath');
@@ -68,8 +94,20 @@ class SileroV4Model implements VadModel {
             'Threading config: intraOp=${config.intraOpNumThreads}, interOp=${config.interOpNumThreads}');
       }
 
-      return SileroV4Model._(session, sessionOptions, sampleRate);
+      return SileroV4Model._(
+        session,
+        sessionOptions,
+        srOrt,
+        preparedRun,
+        outputIndices['output']!,
+        outputIndices['h']!,
+        outputIndices['c']!,
+      );
     } catch (e, st) {
+      preparedRun?.release();
+      srOrt?.release();
+      session?.release();
+      sessionOptions?.release();
       log('VadModel: OrtSession creation failed ($context): $e\n$st');
       rethrow;
     }
@@ -77,94 +115,61 @@ class SileroV4Model implements VadModel {
 
   @override
   void resetState() {
-    _hide = List.filled(
-        2, List.filled(_batch, Float32List.fromList(List.filled(64, 0.0))));
-    _cell = List.filled(
-        2, List.filled(_batch, Float32List.fromList(List.filled(64, 0.0))));
+    _hide.fillRange(0, _hide.length, 0.0);
+    _cell.fillRange(0, _cell.length, 0.0);
   }
 
   @override
   Future<SpeechProbabilities> process(Float32List frame) async {
-    final inputNames = getModelInputNames('v4');
-    final outputIndices = getModelOutputIndices('v4');
+    _inputShape[1] = frame.length;
 
-    final inputOrt =
-        OrtValueTensor.createTensorWithDataList(frame, [_batch, frame.length]);
-    final srOrt = OrtValueTensor.createTensorWithData(_sampleRate);
-    final hOrt = OrtValueTensor.createTensorWithDataList(_hide);
-    final cOrt = OrtValueTensor.createTensorWithDataList(_cell);
-    final runOptions = OrtRunOptions();
+    OrtValueTensor? inputOrt;
+    OrtValueTensor? hOrt;
+    OrtValueTensor? cOrt;
+    List<OrtValueTensor>? outputs;
+    try {
+      inputOrt = OrtValueTensor.createTensorWithDataList(frame, _inputShape);
+      hOrt = OrtValueTensor.createTensorWithDataList(_hide, _stateShape);
+      cOrt = OrtValueTensor.createTensorWithDataList(_cell, _stateShape);
+      outputs = _session.runPrepared(
+        _preparedRun,
+        [inputOrt, _srOrt, hOrt, cOrt],
+      );
 
-    final inputs = {
-      inputNames['input']!: inputOrt,
-      inputNames['sr']!: srOrt,
-      inputNames['h']!: hOrt,
-      inputNames['c']!: cOrt,
-    };
-
-    final outputs = _session.run(runOptions, inputs);
-
-    // Safe to release inputs now - isolate creates its own copies
-    inputOrt.release();
-    srOrt.release();
-    hOrt.release();
-    cOrt.release();
-    runOptions.release();
-
-    final outputIdx = outputIndices['output']!;
-    final hIdx = outputIndices['h']!;
-    final cIdx = outputIndices['c']!;
-
-    // Check if we have the expected number of outputs
-    if (outputs.length < 3 ||
-        outputs[outputIdx] == null ||
-        outputs[hIdx] == null ||
-        outputs[cIdx] == null) {
-      for (final output in outputs) {
-        output?.release();
+      if (outputs.length < 3 ||
+          _outputIdx >= outputs.length ||
+          _hIdx >= outputs.length ||
+          _cIdx >= outputs.length) {
+        throw Exception(
+            'Invalid model outputs: expected 3 outputs but got ${outputs.length}');
       }
-      throw Exception(
-          'Invalid model outputs: expected 3 outputs but got ${outputs.length}');
+
+      final speechProb = outputs[_outputIdx].firstFloatValue();
+      outputs[_hIdx].copyFloatDataInto(_hide);
+      outputs[_cIdx].copyFloatDataInto(_cell);
+
+      return SpeechProbabilities(
+        isSpeech: speechProb,
+        notSpeech: 1.0 - speechProb,
+      );
+    } finally {
+      if (outputs != null) {
+        for (final output in outputs) {
+          output.release();
+        }
+      }
+      cOrt?.release();
+      hOrt?.release();
+      inputOrt?.release();
     }
-
-    final speechProb = (outputs[outputIdx]!.value as List<List<double>>)[0][0];
-
-    // Deep copy the state to avoid memory issues across isolates
-    final hideValue = outputs[hIdx]!.value as List<List<List<double>>>;
-    final cellValue = outputs[cIdx]!.value as List<List<List<double>>>;
-
-    _hide = List.generate(
-      hideValue.length,
-      (i) => List.generate(
-        hideValue[i].length,
-        (j) => Float32List.fromList(List<double>.from(hideValue[i][j])),
-      ),
-    );
-
-    _cell = List.generate(
-      cellValue.length,
-      (i) => List.generate(
-        cellValue[i].length,
-        (j) => Float32List.fromList(List<double>.from(cellValue[i][j])),
-      ),
-    );
-
-    // run() leaves its outputs to the caller, and nothing else releases
-    // them; their values were copied above.
-    for (final output in outputs) {
-      output?.release();
-    }
-
-    return SpeechProbabilities(
-      isSpeech: speechProb,
-      notSpeech: 1.0 - speechProb,
-    );
   }
 
   @override
   Future<void> release() async {
-    _sessionOptions.release();
+    _preparedRun.release();
+    _srOrt.release();
     _session.release();
+    _sessionOptions.release();
   }
 
   static Future<Uint8List> _loadModelBytes(String modelPath) async {
