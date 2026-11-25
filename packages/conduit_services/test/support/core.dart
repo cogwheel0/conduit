@@ -9,12 +9,15 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/ports.dart';
 import 'package:conduit_core/services/settings_service.dart'
     show AppSettingsHostDefaults;
+import 'package:conduit_core/sync/outbox_drainer.dart'
+    show outboxDrainGateProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
 import 'package:drift/drift.dart'
     show ApplyInterceptor, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:test/test.dart' show addTearDown;
 
 import 'fake_owui_auth_server.dart';
@@ -28,7 +31,9 @@ import 'fake_owui_auth_server.dart';
 /// database's queries and close go through (null for none). [databases]
 /// replaces the account databases in [dataDir], [preferences] the
 /// preferences kept in memory, and the schedulers and [lifecycle] the
-/// root's own.
+/// root's own. [outboxDrainGate], when given, is what every outbox drain
+/// waits for first ([outboxDrainGateProvider]): a test that must decide
+/// when this device's changes reach the server passes one it opens itself.
 Future<CoreRuntime> startTestCore(
   Directory dataDir, {
   QueryInterceptor? Function(String fileName)? interceptDatabase,
@@ -37,6 +42,7 @@ Future<CoreRuntime> startTestCore(
   FlushScheduler? flushScheduler,
   PostFrameScheduler? postFrameScheduler,
   AppLifecyclePort? lifecycle,
+  Future<void> Function()? outboxDrainGate,
 }) async {
   // `PreferencesStore` is process-wide and keeps the first store it loads,
   // so each runtime gets its own rather than one an earlier test left.
@@ -80,6 +86,10 @@ Future<CoreRuntime> startTestCore(
         worker: const DaemonWorkerPort(),
         connectivity: connectivity,
         reportNetwork: connectivity.report,
+        overrides: <Override>[
+          if (outboxDrainGate != null)
+            outboxDrainGateProvider.overrideWithValue(outboxDrainGate),
+        ],
         close: close,
         flushScheduler: flushScheduler,
         postFrameScheduler: postFrameScheduler,

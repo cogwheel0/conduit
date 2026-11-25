@@ -54,6 +54,11 @@ final class FakeOwuiAuthServer {
   Completer<void> settingsAsked = Completer<void>();
   Completer<void> sessionChecked = Completer<void>();
 
+  /// While set, a read of the model list waits for it; [modelsAsked]
+  /// completes as one reaches it.
+  Completer<void>? holdModels;
+  Completer<void> modelsAsked = Completer<void>();
+
   /// While set, a sign-in proxy in front turns every request away with its
   /// own sign-in page (HTML), as an expired proxy session does -- but one
   /// carrying the renewed proxy cookie [proxyAccepts], when that is set.
@@ -134,6 +139,8 @@ final class FakeOwuiAuthServer {
     chats._close();
     final settings = holdSettings;
     if (settings != null && !settings.isCompleted) settings.complete();
+    final models = holdModels;
+    if (models != null && !models.isCompleted) models.complete();
     return _server.close(force: true);
   }
 
@@ -329,6 +336,10 @@ final class FakeOwuiAuthServer {
       return json(<String, dynamic>{'status': true});
     }
     if (path == '/api/models' || path == '/api/v1/models') {
+      if (holdModels case final hold?) {
+        if (!modelsAsked.isCompleted) modelsAsked.complete();
+        await hold.future;
+      }
       return json(<String, dynamic>{
         'data': <Object>[
           for (final id in models)
@@ -485,6 +496,10 @@ final class FakeOwuiChats {
   /// a new one. Several held under it are still answered as one copy, as
   /// Open WebUI keeps a message's id only for a batch of one.
   bool answerHeldInPlace = false;
+
+  /// Tool calls answered with `POST /api/v1/chats/{id}/messages/{id}/resolve`,
+  /// as `chatId/messageId`.
+  final List<String> resolutions = <String>[];
 
   /// Messages deleted with `DELETE /api/v1/chats/{id}/messages/{id}`, as
   /// `chatId/messageId`.
@@ -1049,6 +1064,26 @@ final class FakeOwuiChats {
       await request.drain<void>();
       return json(stored.values.where((row) => row['archived'] == true).length);
     }
+    // A chat's archive toggled, as Open WebUI's `/{id}/archive` does: the
+    // chat as it is now.
+    final archive = RegExp(r'^/api/v1/chats/([^/]+)/archive$').firstMatch(path);
+    if (request.method == 'POST' &&
+        archive != null &&
+        stored.containsKey(archive[1])) {
+      await request.drain<void>();
+      final row = stored[archive[1]]!;
+      row['archived'] = row['archived'] != true;
+      return json(row);
+    }
+    // A chat's delete, as Open WebUI answers it: `true`.
+    final chatDeleted = RegExp(r'^/api/v1/chats/([^/]+)$').firstMatch(path);
+    if (request.method == 'DELETE' &&
+        chatDeleted != null &&
+        stored.containsKey(chatDeleted[1])) {
+      await request.drain<void>();
+      stored.remove(chatDeleted[1]);
+      return json(true);
+    }
     final deleted = RegExp(r'^/api/v1/chats/([^/]+)/messages/([^/]+)$')
         .firstMatch(path);
     if (request.method == 'DELETE' &&
@@ -1179,6 +1214,31 @@ final class FakeOwuiChats {
         'task_ids': <String>[task],
         'chat_id': chat,
       });
+    }
+    // A tool call answered: the answer that asked goes on as a task.
+    final resolve = RegExp(
+      r'^/api/v1/chats/([^/]+)/messages/([^/]+)/resolve$',
+    ).firstMatch(path);
+    if (post && resolve != null) {
+      await request.drain<void>();
+      final chat = resolve[1]!;
+      if (!stored.containsKey(chat)) {
+        return json(<String, dynamic>{'detail': 'not found'}, 404);
+      }
+      resolutions.add('$chat/${resolve[2]}');
+      final task = 'task-${++_tasks}';
+      _running[task] = chat;
+      unawaited(_run(task, chat, resolve[2]!, null));
+      return json(<String, dynamic>{
+        'task_ids': <String>[task],
+      });
+    }
+    // Merge Responses, streamed in the response as Open WebUI streams it,
+    // and held after its first word as an answer is ([holdStream]).
+    if (post && path == '/api/v1/tasks/moa/completions') {
+      await request.drain<void>();
+      await _streamTo(response, null);
+      return true;
     }
     if (post && path.startsWith('/api/tasks/stop/')) {
       await request.drain<void>();

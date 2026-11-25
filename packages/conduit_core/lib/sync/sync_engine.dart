@@ -872,6 +872,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
           ref.read(isOnlineProvider),
       completion: completion,
       adapters: adapters,
+      testGate: ref.read(outboxDrainGateProvider),
     );
   }
 

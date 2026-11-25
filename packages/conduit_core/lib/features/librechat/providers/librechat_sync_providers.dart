@@ -125,6 +125,7 @@ final libreChatSyncEngineProvider = Provider<LibreChatSyncEngine?>((ref) {
     holdDatabase: () =>
         ref.mounted ? ref.read(libreChatDatabaseHoldProvider)(db) : null,
     completion: ref.watch(libreChatCompletionRunnerProvider),
+    testGate: ref.read(outboxDrainGateProvider),
   );
   // Nothing can wait on a dispose: a host that must know the engine's writes
   // have ended (conduitd shutting down) closes it first and waits on that

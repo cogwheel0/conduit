@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:riverpod/riverpod.dart' show Provider;
+
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 
@@ -42,6 +44,18 @@ typedef TerminalErrorClassifier = int? Function(Object error);
 /// Drains the outbox in seq order per chat, independent chats concurrently
 /// (pool of 2) — CDT-RFC-001 §7.2, A7. Constructor injection only; NO Riverpod
 /// inside (mirrors `PullSync`/`PushSync`).
+/// For tests only: what every outbox drain waits for before it claims, locks
+/// or sends anything. Both outboxes take it: the Open WebUI account's
+/// (`SyncEngine`) and the LibreChat account's (`LibreChatSyncEngine`); the
+/// device's own store keeps no outbox. A test that must decide when this
+/// device's changes reach the server (a chat made here, and so the moment it
+/// moves to the server's id) overrides it with a gate it opens itself;
+/// otherwise the outbox drains whenever a sync cycle, a send or a pull asks
+/// it to. Null in the app and the daemon.
+final outboxDrainGateProvider = Provider<Future<void> Function()?>(
+  (ref) => null,
+);
+
 class OutboxDrainer {
   OutboxDrainer({
     required AppDatabase db,
@@ -51,7 +65,9 @@ class OutboxDrainer {
     required RequestCompletionRunner completion,
     required List<SyncEntityAdapter> adapters,
     TerminalErrorClassifier? terminalClassifier,
+    Future<void> Function()? testGate,
   }) : _db = db,
+       _testGate = testGate,
        _clock = clock,
        _backoff = backoff,
        _isOnline = isOnline,
@@ -86,6 +102,10 @@ class OutboxDrainer {
   final bool Function() _isOnline;
   final RequestCompletionRunner _completion;
   final TerminalErrorClassifier _isTerminal;
+
+  /// A test's hold on this drainer ([outboxDrainGateProvider]); null in the
+  /// app and the daemon, where nothing waits.
+  final Future<void> Function()? _testGate;
 
   /// Queue-domain keys currently held by a worker. Claims are serialized through
   /// [_claimTail] so a returned op is reserved in this set before any other
@@ -134,6 +154,9 @@ class OutboxDrainer {
   /// `SyncEngine._startCycle`). A re-arm of parked ops runs beside the
   /// workers, and the drain lasts until it ends, so what it re-arms is sent.
   Future<void> drain() async {
+    // Before anything is claimed, locked or sent: a drain held here leaves
+    // the chats it would touch free for everything else.
+    if (_testGate case final gate?) await gate();
     _drainAsked = true;
     if (_draining) {
       _askRerun();

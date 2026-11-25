@@ -335,6 +335,7 @@ void main() {
     Backoff? backoff,
     TerminalErrorClassifier? terminal,
     List<SyncEntityAdapter>? adapters,
+    Future<void> Function()? testGate,
   }) {
     return OutboxDrainer(
       db: db,
@@ -343,6 +344,7 @@ void main() {
       isOnline: () => online,
       completion: completion,
       terminalClassifier: terminal,
+      testGate: testGate,
       adapters:
           adapters ??
           [
@@ -394,15 +396,42 @@ void main() {
   }
 
   group('drain dispatch', () {
-    test('updateChat op pushes then is removed', () async {
-      await seedServerChat('c1');
-      await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+    // Pushed, then removed; with the test gate held, nothing is claimed or
+    // sent until it opens.
+    for (final held in <bool>[false, true]) {
+      test('updateChat op pushes then is removed'
+          '${held ? ', once its test gate opens' : ''}', () async {
+        await seedServerChat('c1');
+        await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        final gate = Completer<void>();
+        final entered = Completer<void>();
 
-      await buildDrainer().drain();
+        final draining = buildDrainer(
+          testGate: held
+              ? () {
+                  entered.complete();
+                  return gate.future;
+                }
+              : null,
+        ).drain();
+        if (held) {
+          // The drain is at the gate. The turns after that are not a wait
+          // for anything: they are room for a drain that did not stop there
+          // to send.
+          await entered.future;
+          await pumpEventQueue();
+          check(client.calls).isEmpty();
+          check(
+            (await dao.pendingForChat('c1')).map((op) => op.status),
+          ).deepEquals(['pending']);
+          gate.complete();
+        }
+        await draining;
 
-      check(client.calls).contains('updateChat:c1');
-      check(await dao.pendingForChat('c1')).isEmpty();
-    });
+        check(client.calls).contains('updateChat:c1');
+        check(await dao.pendingForChat('c1')).isEmpty();
+      });
+    }
 
     test('deleteChat op deletes server-side and removes the op', () async {
       await seedServerChat('c1');
