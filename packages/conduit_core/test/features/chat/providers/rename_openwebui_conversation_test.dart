@@ -722,6 +722,71 @@ void main() {
       folder.deleteSync(recursive: true);
     });
 
+    test('a save drained by the account signed in to again does not land '
+        'over a rename made before the switches', () async {
+      final accountA = signedIn.read(appDatabaseProvider)!;
+      final remapper = IdRemapper(accountA);
+      addTearDown(remapper.dispose);
+      final saves = FakeSyncApiClient(server);
+      await signedIn
+          .read(chatLocksProvider)
+          .runExclusive(
+            _chatId,
+            () => accountA.chatsDao.patchChatParamsWithOutbox(
+              _chatId,
+              set: const {'temperature': 0.4},
+              updatedAt: 7000,
+            ),
+          );
+      api.gate = Completer<void>();
+      final renaming = renameOpenWebUiConversation(signedIn, _chatId, _renamed);
+      await api.asked.future;
+
+      // Away and back while the rename is out: the account's database comes
+      // back as it was, leased.
+      final accountB = databases.openForServerId('account-b');
+      signedIn.read(signedInDatabase.notifier).set(accountB);
+      // The other account's sync takes its locks.
+      signedIn.read(chatLocksProvider);
+      await pumpEventQueue();
+      expect(databases.openForServerId('account-a'), same(accountA));
+      signedIn.read(signedInDatabase.notifier).set(accountA);
+      await pumpEventQueue();
+
+      // The account's sync, as it starts again, drains the queued save.
+      final saveHeld = Completer<void>();
+      saves.updateChatGate = saveHeld.future;
+      final locks = signedIn.read(chatLocksProvider);
+      final draining = OutboxDrainer(
+        db: accountA,
+        clock: _Clock(),
+        backoff: Backoff(jitter: () => 0.0),
+        isOnline: () => true,
+        completion: _NoCompletions(),
+        adapters: [
+          ChatAdapter(
+            pull: PullSync(client: saves, db: accountA, locks: locks),
+            push: PushSync(
+              client: saves,
+              db: accountA,
+              chatLocks: locks,
+              folderLocks: signedIn.read(folderLocksProvider),
+              clock: _Clock(),
+              remapper: remapper,
+            ),
+          ),
+        ],
+      ).drain();
+      await pumpEventQueue(times: 100);
+      api.gate!.complete();
+      await renaming;
+      saveHeld.complete();
+      await draining;
+
+      expect(serverTitle(), _renamed);
+      expect((await accountA.chatsDao.getChat(_chatId))!.title, _renamed);
+    });
+
     for (final (:name, :write, :refused, :hold) in titleWrites) {
       test(
         '$name the server took as another server\'s account was signed '
