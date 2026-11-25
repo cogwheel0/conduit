@@ -301,15 +301,29 @@ class UpdateInstall(unittest.TestCase):
         # with those files open.
         self.assertIn("\nCloseApplications=no\n", text)
         prepare = pascal_body(text, "function PrepareToInstall(")
-        self.assertIn("FindRunningApp(", prepare)
-        # A Conduit that didn't end stops the install: files in use can't be
+        # A listing Restart Manager couldn't make can't say Conduit isn't
+        # running: both gates stop on it as on a failed close.
+        self.assertTrue("function FindRunningApp(" in text, "FindRunningApp doesn't report whether it could list")
+        find = pascal_body(text, "function FindRunningApp(")
+        self.assertIn("): Boolean;", find.splitlines()[0])
+        self.assertIn("Result := False;", find)
+        for call in ("RmStartSession", "RmRegisterResources", "RmGetList"):
+            self.assertIn(f"Restart Manager: {call} failed", find)
+        self.assertRegex(prepare, r"if not FindRunningApp\(Ours, Names\) then\s+begin\s+Result := SetupMessage\(msgErrorCloseApplications\)")
+        # A Conduit that didn't end, or one started meanwhile and still there
+        # after a few rounds, stops the install: files in use can't be
         # replaced.
-        self.assertRegex(prepare, r"if not CloseProcesses\(Ours\) then\s+Result := SetupMessage\(msgErrorCloseApplications\)")
+        self.assertRegex(prepare, r"if not CloseUntilNoneRun\(Ours, Names\) then\s+Result := SetupMessage\(msgErrorCloseApplications\)")
+        self.assertTrue("function CloseUntilNoneRun(" in text, "no listing again after the close")
+        rounds = pascal_body(text, "function CloseUntilNoneRun(")
+        self.assertRegex(rounds, r"for Round := 1 to CloseRounds do")
+        self.assertLess(rounds.index("CloseProcesses(Ours)"), rounds.index("FindRunningApp(Ours, Names)"))
         # The uninstall stops before removing anything unless Conduit ended:
         # Inno's own running-app question (OK tries again), then Abort,
         # which ends Uninstall from usUninstall.
         uninstall = pascal_body(text, "procedure CurUninstallStepChanged(")
-        for used in ("usUninstall", "if CloseProcesses(Ours) then", "SetupMessage(msgUninstallAppRunningError)",
+        self.assertRegex(uninstall, r"if FindRunningApp\(Ours, Names\) then\s+if CloseUntilNoneRun\(Ours, Names\) then\s+Exit;")
+        for used in ("usUninstall", "SetupMessage(msgUninstallAppRunningError)",
                      "MB_OKCANCEL, IDCANCEL", "Abort;"):
             self.assertIn(used, uninstall)
         # Closing succeeds only once each process has really ended, waited
@@ -327,7 +341,6 @@ class UpdateInstall(unittest.TestCase):
             self.assertIn(used, prepare)
         # RmShutdown runs only in a session that registers Conduit's own
         # processes, never the files.
-        find = pascal_body(text, "procedure FindRunningApp(")
         self.assertNotIn("RmShutdown(", find)
         # Conduit's processes are the ones running from its folder, whatever
         # Restart Manager calls them: to an unelevated Setup, an elevated

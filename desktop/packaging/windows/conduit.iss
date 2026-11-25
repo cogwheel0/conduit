@@ -197,6 +197,9 @@ const
   ERROR_ACCESS_DENIED = 5;
   // How long each of Conduit's processes may take to end once shut down.
   EndWait = 10000;
+  // How many times Conduit is closed and listed again before Setup or
+  // Uninstall gives up on it.
+  CloseRounds = 3;
 
 function RmStartSession(var SessionHandle: DWORD; SessionFlags: DWORD; SessionKey: String): DWORD;
   external 'RmStartSession@rstrtmgr.dll stdcall delayload';
@@ -286,7 +289,9 @@ end;
 // line each. The other holders are logged and left alone. Their kind
 // doesn't decide: to an unelevated Setup, an elevated Conduit is a
 // "critical" process Restart Manager can't shut down, and still Conduit.
-procedure FindRunningApp(var Ours: TRmUniqueProcesses; var Names: String);
+// False when Restart Manager couldn't list them: then nobody can say
+// Conduit isn't running.
+function FindRunningApp(var Ours: TRmUniqueProcesses; var Names: String): Boolean;
 var
   Session, Status, Reasons: DWORD;
   Needed, Count, Pid, AppType: Cardinal;
@@ -294,21 +299,30 @@ var
   Files: TArrayOfString;
   I, At, Found, Listed, Tries: Integer;
 begin
+  Result := False;
   SetArrayLength(Ours, 0);
   Names := '';
   AppDir := ExpandConstant('{app}');
   AddRunnableFiles(AppDir, Files);
   if GetArrayLength(Files) = 0 then
+  begin
+    Result := True;
     Exit;
+  end;
   SessionKey := StringOfChar(' ', CCH_RM_SESSION_KEY + 1);
   Status := RmStartSession(Session, 0, SessionKey);
   if Status <> 0 then
   begin
-    Log(Format('Restart Manager: no session (%d); a running app keeps its files', [Status]));
+    Log(Format('Restart Manager: RmStartSession failed (%d)', [Status]));
     Exit;
   end;
   try
     Status := RmRegisterFiles(Session, GetArrayLength(Files), Files, 0, 0, 0, 0);
+    if Status <> 0 then
+    begin
+      Log(Format('Restart Manager: RmRegisterResources failed (%d)', [Status]));
+      Exit;
+    end;
     Infos := '';
     Count := 0;
     Tries := 0;
@@ -324,7 +338,7 @@ begin
     end;
     if Status <> 0 then
     begin
-      Log(Format('Restart Manager: no list of what has the app''s files open (%d); a running app keeps its files', [Status]));
+      Log(Format('Restart Manager: RmGetList failed (%d, %d tries)', [Status, Tries]));
       Exit;
     end;
     Listed := Integer(Count);
@@ -350,6 +364,7 @@ begin
       else
         Log(Format('Restart Manager: leaving pid %d alone (type %d, %s)', [Integer(Pid), Integer(AppType), Image]));
     end;
+    Result := True;
   finally
     RmEndSession(Session);
   end;
@@ -437,6 +452,30 @@ begin
     Log(Format('Restart Manager: %d of Conduit''s %d processes still run (status %d)', [Running, GetArrayLength(Ours), Status]));
 end;
 
+// Closes Ours, then lists Conduit again until a listing finds none running:
+// one started meanwhile (a later launch taking the single instance while
+// Setup asked) is closed too, under the same consent, at most CloseRounds
+// times. False when a close or a listing fails, or Conduit is still there.
+function CloseUntilNoneRun(var Ours: TRmUniqueProcesses; var Names: String): Boolean;
+var
+  Round: Integer;
+begin
+  Result := False;
+  for Round := 1 to CloseRounds do
+  begin
+    if not CloseProcesses(Ours) then
+      Exit;
+    if not FindRunningApp(Ours, Names) then
+      Exit;
+    if GetArrayLength(Ours) = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Log(Format('Restart Manager: %d Conduit processes started meanwhile', [GetArrayLength(Ours)]));
+  end;
+end;
+
 // Run by hand, Setup asks before it closes a running Conduit, in Inno's own
 // translated words (its Preparing to Install page's); No stops the install,
 // since files in use can't be replaced. A silent install (an update
@@ -447,7 +486,12 @@ var
   Names, Choice: String;
 begin
   Result := '';
-  FindRunningApp(Ours, Names);
+  // Unlisted, Conduit may be running: files in use can't be replaced.
+  if not FindRunningApp(Ours, Names) then
+  begin
+    Result := SetupMessage(msgErrorCloseApplications);
+    Exit;
+  end;
   if (GetArrayLength(Ours) > 0) and not WizardSilent then
   begin
     Choice := SetupMessage(msgCloseApplications);
@@ -461,13 +505,13 @@ begin
     end;
   end;
   // Files in use can't be replaced.
-  if not CloseProcesses(Ours) then
+  if not CloseUntilNoneRun(Ours, Names) then
     Result := SetupMessage(msgErrorCloseApplications);
 end;
 
-// Before anything is removed: Conduit closes, or the uninstall stops (Inno's
-// own running-app question: OK tries again, Cancel, as a silent uninstall
-// answers, stops it).
+// Before anything is removed: Conduit is listed and closed, or the uninstall
+// stops (Inno's own running-app question: OK tries again, Cancel, as a
+// silent uninstall answers, stops it).
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Ours: TRmUniqueProcesses;
@@ -476,11 +520,11 @@ begin
   if CurUninstallStep <> usUninstall then
     Exit;
   repeat
-    FindRunningApp(Ours, Names);
-    if CloseProcesses(Ours) then
-      Exit;
+    if FindRunningApp(Ours, Names) then
+      if CloseUntilNoneRun(Ours, Names) then
+        Exit;
   until SuppressibleMsgBox(FmtMessage(SetupMessage(msgUninstallAppRunningError), ['{#AppName}']),
           mbError, MB_OKCANCEL, IDCANCEL) <> IDOK;
-  Log('Restart Manager: Conduit still runs; Uninstall stops before removing anything');
+  Log('Restart Manager: Conduit may still run; Uninstall stops before removing anything');
   Abort;
 end;
