@@ -197,6 +197,43 @@ final class _HeldTitleWrite extends QueryInterceptor {
   }
 }
 
+/// [inner], noting when a chat's lock is asked for: a test waits for the
+/// moment a writer queues on a chat, not for turns of the event loop.
+final class _LockRequests implements ConversationLocks {
+  _LockRequests(this.inner);
+
+  final ConversationLocks inner;
+  final _asked = <String, Completer<void>>{};
+
+  /// Completes once the lock of [chatId] is next asked for.
+  Future<void> askedFor(String chatId) =>
+      (_asked[chatId] ??= Completer<void>()).future;
+
+  @override
+  Future<T> runExclusive<T>(String chatId, Future<T> Function() action) {
+    final queued = inner.runExclusive(chatId, action);
+    _asked.remove(chatId)?.complete();
+    return queued;
+  }
+
+  @override
+  int get generation => inner.generation;
+
+  @override
+  bool get barrierActive => inner.barrierActive;
+
+  @override
+  bool get isIdle => inner.isIdle;
+
+  @override
+  Future<T> runBarrier<T>(Future<T> Function() action) =>
+      inner.runBarrier(action);
+
+  @override
+  void remapKeyInPlace({required String fromId, required String toId}) =>
+      inner.remapKeyInPlace(fromId: fromId, toId: toId);
+}
+
 final class _NoPulls extends SyncEngine {
   @override
   Future<PullResult?> requestPull({required String reason}) async => null;
@@ -219,7 +256,7 @@ void main() {
   late FakeOpenWebUiServer server;
   late _HeldReadClient client;
   late AppDatabase db;
-  late ConversationLocks locks;
+  late _LockRequests locks;
   late IdRemapper remapper;
   late PullSync pull;
   late OutboxDrainer drainer;
@@ -232,7 +269,7 @@ void main() {
     client = _HeldReadClient(server);
     heldWrites = _HeldTitleWrite();
     db = AppDatabase(NativeDatabase.memory().interceptWith(heldWrites));
-    locks = ConversationLocks();
+    locks = _LockRequests(ConversationLocks());
     remapper = IdRemapper(db);
     pull = PullSync(client: client, db: db, locks: locks, remapper: remapper);
     drainer = OutboxDrainer(
@@ -558,8 +595,9 @@ void main() {
     );
     final saving = Completer<void>();
     final save = locks.runExclusive(_chatId, () => saving.future);
+    final renameQueued = locks.askedFor(_chatId);
     final renaming = renameOpenWebUiConversation(container, _chatId, _renamed);
-    await pumpEventQueue();
+    await renameQueued;
 
     chats.applyServerGeneratedTitle(_chatId, 'Made by the server');
     saving.complete();
@@ -625,10 +663,9 @@ void main() {
         server
           ..tick()
           ..updateChat(_chatId, {'title': elsewhere});
-        client.read = Completer<void>();
+        final pullQueued = locks.askedFor(_chatId);
         final pulling = pull.pullChat(_chatId);
-        await client.read.future;
-        await pumpEventQueue();
+        await pullQueued;
         stored.complete();
         await writing;
         // Shown again by the caller, as the phone does after a rename: the
@@ -725,6 +762,8 @@ void main() {
     test('a save drained by the account signed in to again does not land '
         'over a rename made before the switches', () async {
       final accountA = signedIn.read(appDatabaseProvider)!;
+      // The locks the rename takes.
+      final renameLocks = signedIn.read(chatLocksProvider);
       final remapper = IdRemapper(accountA);
       addTearDown(remapper.dispose);
       final saves = FakeSyncApiClient(server);
@@ -748,15 +787,14 @@ void main() {
       signedIn.read(signedInDatabase.notifier).set(accountB);
       // The other account's sync takes its locks.
       signedIn.read(chatLocksProvider);
-      await pumpEventQueue();
       expect(databases.openForServerId('account-a'), same(accountA));
       signedIn.read(signedInDatabase.notifier).set(accountA);
-      await pumpEventQueue();
 
       // The account's sync, as it starts again, drains the queued save.
       final saveHeld = Completer<void>();
       saves.updateChatGate = saveHeld.future;
-      final locks = signedIn.read(chatLocksProvider);
+      final locks = _LockRequests(signedIn.read(chatLocksProvider));
+      final drainQueued = locks.askedFor(_chatId);
       final draining = OutboxDrainer(
         db: accountA,
         clock: _Clock(),
@@ -777,7 +815,7 @@ void main() {
           ),
         ],
       ).drain();
-      await pumpEventQueue(times: 100);
+      await drainQueued;
       api.gate!.complete();
       await renaming;
       saveHeld.complete();
@@ -785,6 +823,7 @@ void main() {
 
       expect(serverTitle(), _renamed);
       expect((await accountA.chatsDao.getChat(_chatId))!.title, _renamed);
+      expect(locks.inner, same(renameLocks));
     });
 
     for (final (:name, :write, :refused, :hold) in titleWrites) {
@@ -798,6 +837,8 @@ void main() {
           final accountB = databases.openForServerId('account-b');
           signedIn.read(signedInApi.notifier).signInElsewhere();
           signedIn.read(signedInDatabase.notifier).set(accountB);
+          // No milestone to wait for: room for a database closed under the
+          // write, were it not leased, to finish closing first.
           await pumpEventQueue();
           held.release();
 
