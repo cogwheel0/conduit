@@ -51,7 +51,9 @@ class OutboxDrainer {
     required RequestCompletionRunner completion,
     required List<SyncEntityAdapter> adapters,
     TerminalErrorClassifier? terminalClassifier,
+    Future<void> Function()? testGate,
   }) : _db = db,
+       _testGate = testGate,
        _clock = clock,
        _backoff = backoff,
        _isOnline = isOnline,
@@ -86,6 +88,10 @@ class OutboxDrainer {
   final bool Function() _isOnline;
   final RequestCompletionRunner _completion;
   final TerminalErrorClassifier _isTerminal;
+
+  /// A test's hold on this drainer ([outboxDrainGateProvider]); null in the
+  /// app and the daemon, where nothing waits.
+  final Future<void> Function()? _testGate;
 
   /// Queue-domain keys currently held by a worker. Claims are serialized through
   /// [_claimTail] so a returned op is reserved in this set before any other
@@ -134,6 +140,9 @@ class OutboxDrainer {
   /// `SyncEngine._startCycle`). A re-arm of parked ops runs beside the
   /// workers, and the drain lasts until it ends, so what it re-arms is sent.
   Future<void> drain() async {
+    // Before anything is claimed, locked or sent: a drain held here leaves
+    // the chats it would touch free for everything else.
+    if (_testGate case final gate?) await gate();
     _drainAsked = true;
     if (_draining) {
       _askRerun();

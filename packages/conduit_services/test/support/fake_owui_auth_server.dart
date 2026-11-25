@@ -447,11 +447,6 @@ final class FakeOwuiChats {
   /// completes, while a pull of one chat reads it as before.
   Completer<void>? holdChatLists;
 
-  /// While set, a chat made on a device (`POST /api/v1/chats/new`) waits
-  /// for it before the server stores it: it keeps its `local:` id there,
-  /// whenever the device's outbox drains, until the hold ends.
-  Completer<void>? holdNewChats;
-
   /// While set, saves of a chat it keeps (`POST /api/v1/chats/{id}`) wait
   /// for it; [chatSaveAsked] completes as one reaches it.
   Completer<void>? holdChatSaves;
@@ -632,7 +627,6 @@ final class FakeOwuiChats {
       holdChatReads,
       holdChatSaves,
       holdMessageDeletes,
-      holdNewChats,
       ..._holds.values,
       ..._streamHolds,
     ]) {
@@ -989,7 +983,6 @@ final class FakeOwuiChats {
 
     final post = request.method == 'POST';
     if (post && path == '/api/v1/chats/new') {
-      if (holdNewChats case final held?) await held.future;
       final chat = Map<String, dynamic>.of(
         (await body())['chat'] as Map<String, dynamic>? ?? const {},
       );

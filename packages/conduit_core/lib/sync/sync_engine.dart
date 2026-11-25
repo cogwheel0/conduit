@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:meta/meta.dart';
+import 'package:riverpod/riverpod.dart' show Provider;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -104,6 +105,16 @@ Future<void> Function() legacyConversationCachePurger(Ref ref) {
 ///
 /// Open WebUI's [PrimarySync]: app-wide triggers reach it through
 /// `primarySyncProvider` while an Open WebUI account owns the Chats tab.
+/// For tests only: what every outbox drain waits for before it claims, locks
+/// or sends anything. A test that must decide when this device's changes
+/// reach the server (a chat made here, and so the moment it moves to the
+/// server's id) overrides it with a gate it opens itself; otherwise the
+/// outbox drains whenever a sync cycle, a send or a pull asks it to. Null in
+/// the app and the daemon.
+final outboxDrainGateProvider = Provider<Future<void> Function()?>(
+  (ref) => null,
+);
+
 @Riverpod(keepAlive: true)
 class SyncEngine extends _$SyncEngine implements PrimarySync {
   Timer? _debounce;
@@ -872,6 +883,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
           ref.read(isOnlineProvider),
       completion: completion,
       adapters: adapters,
+      testGate: ref.read(outboxDrainGateProvider),
     );
   }
 

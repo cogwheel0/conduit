@@ -44,6 +44,7 @@ void main() {
   late String model;
   late List<EventEnvelope> heard;
   late _MoveLookups moves;
+  late _DrainGate outbox;
   late StepClock clock;
   Future<void> Function()? beforeBranchCheck;
 
@@ -53,8 +54,17 @@ void main() {
     temporary = Directory.systemTemp.createTempSync('moved-chat-ids');
     addTearDown(() => temporary.deleteSync(recursive: true));
     moves = _MoveLookups();
-    runtime = await startTestCore(temporary, interceptDatabase: (_) => moves);
+    // Nothing made here reaches the server until a test lets it: the outbox
+    // drains only past this gate ([reachServer]), never on its own.
+    outbox = _DrainGate();
+    runtime = await startTestCore(
+      temporary,
+      interceptDatabase: (_) => moves,
+      outboxDrainGate: outbox.wait,
+    );
     addTearDown(runtime.dispose);
+    // Open before the runtime goes, so nothing it waits for stays held.
+    addTearDown(outbox.open);
     owui = await FakeOwuiAuthServer.start(
       users: const {
         'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
@@ -65,10 +75,6 @@ void main() {
     // Serves chats, so a chat made here reaches the server and moves to its
     // id.
     owui.models = const <String>['harbor-model'];
-    // A chat made here reaches the server only when a test lets it
-    // ([reachServer]): the outbox drains on its own after a turn, and a chat
-    // stored then would move whenever that drain happened to run.
-    owui.chats.holdNewChats = Completer<void>();
     final provider = await ScriptedOpenAi.start();
     addTearDown(provider.close);
     events = EventBus();
@@ -166,13 +172,9 @@ void main() {
     return old;
   }
 
-  /// Lets chats made here reach the server: a drain under way stores the one
-  /// it holds, and the next drain any that wait.
-  void reachServer() {
-    final held = owui.chats.holdNewChats;
-    owui.chats.holdNewChats = null;
-    if (held != null && !held.isCompleted) held.complete();
-  }
+  /// Lets what this device made reach the server: every drain held at the
+  /// gate goes, and every later one runs at once.
+  void reachServer() => outbox.open();
 
   /// The id [old] moves to, once the windows are told (`route.remap`).
   Future<String> remapOf(String old) {
@@ -188,11 +190,16 @@ void main() {
   }
 
   /// [old] stored by the server, and so moved to its id: that id.
+  ///
+  /// Returns once the creation has ended too: its op is marked done after the
+  /// move ([_MoveLookups.opDone]), so nothing of it is still in flight.
   Future<String> move(String old) async {
     final moved = remapOf(old);
+    final created = moves.opDone = Completer<void>();
     reachServer();
     await runtime.container.read(syncEngineProvider.notifier).drainNow();
     final now = await moved;
+    await created.future;
     expect(now, isNot(old));
     return now;
   }
@@ -497,7 +504,18 @@ void main() {
             as Map<String, dynamic>;
     var checks = 0;
     beforeBranchCheck = () async {
-      if (checks++ == 0) history()['currentId'] = transcript.first.id;
+      if (checks++ == 0) {
+        // On the server, under its id, before the first check.
+        await moved;
+        history()['currentId'] = transcript.first.id;
+        return;
+      }
+      // The switch made again goes out with whichever drain runs next
+      // (a drain asked for while one runs only asks it to run again):
+      // checked once the server has it.
+      while (history()['currentId'] != answer.id) {
+        await (owui.chats.chatSaved = Completer<String>()).future;
+      }
     };
 
     final detail = await chats.setCurrent(
@@ -532,6 +550,25 @@ final class _MoveLookups extends QueryInterceptor {
   Completer<void>? held;
   Completer<void> asked = Completer<void>();
 
+  /// Completed, and cleared, once an outbox op is next marked done (its row
+  /// deleted): for a chat made here, the last step of its creation.
+  Completer<void>? opDone;
+
+  @override
+  Future<int> runDelete(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final deleted = await executor.runDelete(statement, args);
+    final done = opDone;
+    if (done != null && statement.contains('outbox_ops')) {
+      opDone = null;
+      done.complete();
+    }
+    return deleted;
+  }
+
   @override
   Future<List<Map<String, Object?>>> runSelect(
     QueryExecutor executor,
@@ -545,5 +582,17 @@ final class _MoveLookups extends QueryInterceptor {
       await gate.future;
     }
     return executor.runSelect(statement, args);
+  }
+}
+
+/// What every outbox drain waits for in these tests
+/// ([outboxDrainGateProvider]): closed until [open], then open for good.
+final class _DrainGate {
+  final Completer<void> _opened = Completer<void>();
+
+  Future<void> wait() => _opened.future;
+
+  void open() {
+    if (!_opened.isCompleted) _opened.complete();
   }
 }
