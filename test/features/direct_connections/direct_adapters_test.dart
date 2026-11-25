@@ -7475,6 +7475,689 @@ void main() {
     expect(events.whereType<DirectStreamError>(), hasLength(1));
     expect(events.whereType<DirectStreamDone>(), isEmpty);
   });
+
+  test(
+    'OpenAI adapter parses streamed Mistral ThinkChunk content arrays',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.stream([
+          utf8.encode(
+            'data: ${jsonEncode({
+              'choices': [
+                {
+                  'index': 0,
+                  'delta': {
+                    'content': [
+                      {
+                        'type': 'thinking',
+                        'thinking': [
+                          {'type': 'text', 'text': 'Step 1. '},
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            })}\n\n'
+            'data: ${jsonEncode({
+              'choices': [
+                {
+                  'index': 0,
+                  'delta': {
+                    'content': [
+                      {
+                        'type': 'thinking',
+                        'thinking': [
+                          {'type': 'text', 'text': 'Step 2.'},
+                        ],
+                        'closed': true,
+                      },
+                      {'type': 'text', 'text': 'Answer: '},
+                    ],
+                  },
+                },
+              ],
+            })}\n\n'
+            'data: ${jsonEncode({
+              'choices': [
+                {
+                  'index': 0,
+                  'delta': {'content': '391.'},
+                },
+              ],
+            })}\n\n'
+            'data: [DONE]\n\n',
+          ),
+        ], contentType: 'text/event-stream'),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(),
+            DirectCompletionRequest(
+              remoteModelId: 'mistral-large-4',
+              messages: [
+                DirectChatMessage.text(role: 'user', text: '17 * 23?'),
+              ],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(
+        events.whereType<DirectReasoningDelta>().map((e) => e.content).join(),
+        'Step 1. Step 2.',
+      );
+      expect(
+        events.whereType<DirectContentDelta>().map((e) => e.content).join(),
+        'Answer: 391.',
+      );
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test(
+    'OpenAI adapter parses non-streaming Mistral ThinkChunk payloads',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.json({
+          'choices': [
+            {
+              'index': 0,
+              'message': {
+                'role': 'assistant',
+                'content': [
+                  {
+                    'type': 'thinking',
+                    'thinking': [
+                      {'type': 'text', 'text': 'Working it out.'},
+                    ],
+                    'closed': true,
+                  },
+                  {'type': 'text', 'text': 'Done.'},
+                ],
+              },
+            },
+          ],
+        }),
+        _Reply.json({
+          'choices': [
+            {
+              'index': 0,
+              'message': {
+                'role': 'assistant',
+                'content': [
+                  {
+                    'type': 'thinking',
+                    'thinking': [
+                      {'type': 'text', 'text': 'Thinking only.'},
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final request = DirectCompletionRequest(
+        remoteModelId: 'mistral-large-4',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+      );
+
+      final mixed = await adapter
+          .startCompletion(_openAiProfile(), request)
+          .events
+          .toList();
+      expect(
+        mixed.whereType<DirectReasoningDelta>().single.content,
+        'Working it out.',
+      );
+      expect(mixed.whereType<DirectContentDelta>().single.content, 'Done.');
+      expect(mixed.whereType<DirectStreamError>(), isEmpty);
+      expect(mixed.whereType<DirectStreamDone>(), hasLength(1));
+
+      final thinkingOnly = await adapter
+          .startCompletion(_openAiProfile(), request)
+          .events
+          .toList();
+      expect(
+        thinkingOnly.whereType<DirectReasoningDelta>().single.content,
+        'Thinking only.',
+      );
+      expect(thinkingOnly.whereType<DirectContentDelta>(), isEmpty);
+      expect(thinkingOnly.whereType<DirectStreamError>(), isEmpty);
+      expect(thinkingOnly.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test(
+    'OpenAI adapter tolerates empty and non-text structured content chunks',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.stream([
+          utf8.encode(
+            'data: ${jsonEncode({
+              'choices': [
+                {
+                  'index': 0,
+                  'delta': {
+                    'content': const [],
+                    'reasoning': [
+                      {'type': 'text', 'text': 'trace'},
+                    ],
+                    'reasoning_content': const [],
+                  },
+                },
+              ],
+            })}\n\n'
+            'data: ${jsonEncode({
+              'choices': [
+                {
+                  'index': 0,
+                  'delta': {
+                    'content': [
+                      {
+                        'type': 'reference',
+                        'reference_ids': [1],
+                      },
+                    ],
+                  },
+                },
+              ],
+            })}\n\n'
+            'data: ${jsonEncode({
+              'choices': [
+                {
+                  'index': 0,
+                  'delta': {'content': 'Final.'},
+                },
+              ],
+            })}\n\n'
+            'data: [DONE]\n\n',
+          ),
+        ], contentType: 'text/event-stream'),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+
+      final events = await adapter
+          .startCompletion(
+            _openAiProfile(),
+            DirectCompletionRequest(
+              remoteModelId: 'mistral-large-4',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(events.whereType<DirectReasoningDelta>().single.content, 'trace');
+      expect(events.whereType<DirectContentDelta>().single.content, 'Final.');
+      expect(events.whereType<DirectStreamError>(), isEmpty);
+      expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    },
+  );
+
+  test('OpenAI Chat tool loop replays raw ThinkChunk blocks in content without reasoning_content', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'content': [
+                    {
+                      'type': 'thinking',
+                      'thinking': [
+                        {'type': 'text', 'text': 'Need to '},
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'content': [
+                    {
+                      'type': 'thinking',
+                      'thinking': [
+                        {'type': 'text', 'text': 'check weather.'},
+                      ],
+                      'closed': true,
+                    },
+                    {'type': 'text', 'text': 'Checking now.'},
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'tool_calls': [
+                    {
+                      'index': 0,
+                      'id': 'call_1',
+                      'function': {'name': 'mcp_deadbeef_weather', 'arguments': '{"city":"Paris"}'},
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'Sunny in Paris.'},
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'mistral-large-4',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(
+              decision: DirectToolApprovalDecision.allowSession,
+              requiresUserDecision: false,
+            ),
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectReasoningDelta>().map((e) => e.content).join(),
+      'Need to check weather.',
+    );
+    expect(
+      events.whereType<DirectContentDelta>().map((e) => e.content).join(),
+      'Checking now.Sunny in Paris.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+
+    final secondRequest = http.requests.last.data as Map<String, dynamic>;
+    final messages = (secondRequest['messages'] as List)
+        .cast<Map<String, dynamic>>();
+    final assistant = messages.firstWhere((m) => m['role'] == 'assistant');
+    expect(assistant.containsKey('reasoning_content'), isFalse);
+    expect(assistant['content'], [
+      {
+        'type': 'thinking',
+        'thinking': [
+          {'type': 'text', 'text': 'Need to check weather.'},
+        ],
+        'closed': true,
+      },
+      {'type': 'text', 'text': 'Checking now.'},
+    ]);
+  });
+
+  test('OpenAI Chat tool loop preserves interleaved text and ThinkChunk order on replay', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'First, '},
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'content': [
+                    {
+                      'type': 'thinking',
+                      'thinking': [
+                        {'type': 'text', 'text': 'check Paris.'},
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'looking it up.'},
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'content': [
+                    {
+                      'type': 'thinking',
+                      'thinking': [
+                        {'type': 'text', 'text': 'Second thought.'},
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'tool_calls': [
+                    {
+                      'index': 0,
+                      'id': 'call_1',
+                      'function': {'name': 'mcp_deadbeef_weather', 'arguments': '{"city":"Paris"}'},
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'Sunny.'},
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'mistral-large-4',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(
+              decision: DirectToolApprovalDecision.allowSession,
+              requiresUserDecision: false,
+            ),
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    final secondRequest = http.requests.last.data as Map<String, dynamic>;
+    final messages = (secondRequest['messages'] as List)
+        .cast<Map<String, dynamic>>();
+    final assistant = messages.firstWhere((m) => m['role'] == 'assistant');
+    expect(assistant.containsKey('reasoning_content'), isFalse);
+    expect(assistant['content'], [
+      {'type': 'text', 'text': 'First, '},
+      {
+        'type': 'thinking',
+        'thinking': [
+          {'type': 'text', 'text': 'check Paris.'},
+        ],
+      },
+      {'type': 'text', 'text': 'looking it up.'},
+      {
+        'type': 'thinking',
+        'thinking': [
+          {'type': 'text', 'text': 'Second thought.'},
+        ],
+      },
+    ]);
+  });
+
+  test('OpenAI Chat JSON tool round replays raw ThinkChunk blocks without text or reasoning_content', () async {
+    final rawThinkChunk = {
+      'type': 'thinking',
+      'thinking': [
+        {'type': 'text', 'text': 'Call the weather tool.'},
+      ],
+      'closed': true,
+    };
+    final http = _QueuedAdapter([
+      _Reply.json({
+        'choices': [
+          {
+            'message': {
+              'role': 'assistant',
+              'content': [rawThinkChunk],
+              'tool_calls': [
+                {
+                  'id': 'call-1',
+                  'type': 'function',
+                  'function': {
+                    'name': 'mcp_deadbeef_weather',
+                    'arguments': '{"city":"Paris"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      _Reply.json({
+        'choices': [
+          {
+            'message': {'role': 'assistant', 'content': 'Sunny.'},
+          },
+        ],
+      }),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'mistral-large-4',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(
+              decision: DirectToolApprovalDecision.allowSession,
+              requiresUserDecision: false,
+            ),
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectReasoningDelta>().single.content,
+      'Call the weather tool.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+
+    final secondRequest = http.requests.last.data as Map<String, dynamic>;
+    final messages = (secondRequest['messages'] as List)
+        .cast<Map<String, dynamic>>();
+    final assistant = messages.firstWhere((m) => m['role'] == 'assistant');
+    expect(assistant.containsKey('reasoning_content'), isFalse);
+    expect(assistant['content'], [rawThinkChunk]);
+  });
+
+  test('OpenAI Chat tool loop preserves reasoning_content replay for non-ThinkChunk providers', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'reasoning_content': 'Plan the tool call.',
+                  'tool_calls': [
+                    {
+                      'index': 0,
+                      'id': 'call_1',
+                      'function': {'name': 'mcp_deadbeef_weather', 'arguments': '{"city":"Paris"}'},
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'Sunny.'},
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'deepseek-reasoner',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(
+              decision: DirectToolApprovalDecision.allowSession,
+              requiresUserDecision: false,
+            ),
+          ),
+        )
+        .events
+        .toList();
+
+    expect(
+      events.whereType<DirectReasoningDelta>().single.content,
+      'Plan the tool call.',
+    );
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+
+    final secondRequest = http.requests.last.data as Map<String, dynamic>;
+    final messages = (secondRequest['messages'] as List)
+        .cast<Map<String, dynamic>>();
+    final assistant = messages.firstWhere((m) => m['role'] == 'assistant');
+    expect(assistant['reasoning_content'], 'Plan the tool call.');
+    expect(assistant['content'], '');
+  });
+
+  test(
+    'OpenAI adapter wraps malformed Chat payloads as invalid response errors',
+    () async {
+      final http = _QueuedAdapter([
+        _Reply.stream([
+          utf8.encode(
+            'data: ${jsonEncode({
+              'id': 12345,
+              'choices': [
+                {
+                  'index': 0,
+                  'delta': {'content': 'hello'},
+                },
+              ],
+            })}\n\n',
+          ),
+        ], contentType: 'text/event-stream'),
+        _Reply.json({
+          'id': 12345,
+          'choices': [
+            {
+              'index': 0,
+              'message': {'role': 'assistant', 'content': 'hello'},
+            },
+          ],
+        }),
+      ]);
+      final adapter = OpenAiCompatibleAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+      );
+      final request = DirectCompletionRequest(
+        remoteModelId: 'model',
+        messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+      );
+
+      final streamEvents = await adapter
+          .startCompletion(_openAiProfile(), request)
+          .events
+          .toList();
+      expect(
+        streamEvents.whereType<DirectStreamError>().single.message,
+        'The provider returned an invalid response.',
+      );
+
+      final jsonEvents = await adapter
+          .startCompletion(_openAiProfile(), request)
+          .events
+          .toList();
+      expect(
+        jsonEvents.whereType<DirectStreamError>().single.message,
+        'The provider returned an invalid response.',
+      );
+    },
+  );
 }
 
 DirectToolRuntime _localToolRuntime({

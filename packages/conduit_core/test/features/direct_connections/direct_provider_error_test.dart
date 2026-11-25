@@ -67,4 +67,51 @@ void main() {
     check(normalized.statusCode).equals(502);
     check(normalized.message).equals('The provider returned HTTP 502.');
   });
+
+  test('Pydantic HTTP 422 detail lists surface field errors and redact secrets', () async {
+    final flat = _httpError(
+      422,
+      ResponseBody.fromString(
+        '{"detail":[{"type":"literal_error","loc":["body","reasoning_effort"],'
+        '"msg":"Input should be \'low\', \'medium\' or \'high\'"}]}',
+        422,
+      ),
+    );
+    final flatNormalized = await normalizeDirectProviderErrorWithBody(flat);
+    check(flatNormalized.statusCode).equals(422);
+    check(flatNormalized.message).equals(
+      "The provider returned HTTP 422: reasoning_effort: Input should be "
+      "'low', 'medium' or 'high'",
+    );
+
+    final key = 'sk-${'b2c3d4e5' * 8}';
+    final wrapped = _httpError(
+      422,
+      ResponseBody.fromString(
+        '{"object":"error","message":{"detail":['
+        '{"type":"extra_forbidden","loc":["body","messages",1,"assistant","reasoning_content"],'
+        '"msg":"Extra inputs are not permitted for $key"},'
+        '{"loc":["body"],"msg":"Invalid payload"}'
+        ']}}',
+        422,
+      ),
+    );
+    final wrappedNormalized = await normalizeDirectProviderErrorWithBody(
+      wrapped,
+      sensitiveValues: [key],
+    );
+    check(wrappedNormalized.statusCode).equals(422);
+    check(wrappedNormalized.message)
+      ..contains('reasoning_content: Extra inputs are not permitted')
+      ..contains('Invalid payload')
+      ..not((it) => it.contains(key.substring(0, 16)));
+
+    final empty = _httpError(
+      422,
+      ResponseBody.fromString('{"detail":[]}', 422),
+    );
+    final emptyNormalized = await normalizeDirectProviderErrorWithBody(empty);
+    check(emptyNormalized.statusCode).equals(422);
+    check(emptyNormalized.message).equals('The provider returned HTTP 422.');
+  });
 }
