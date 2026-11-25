@@ -24,7 +24,10 @@ import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/push_sync.dart';
-import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -171,6 +174,34 @@ final class _HeldReadClient extends FakeSyncApiClient {
   }
 }
 
+/// Holds the first write of [title] to a chat row, once [hold] is set:
+/// [reached] completes as it gets to the database.
+final class _HeldTitleWrite extends QueryInterceptor {
+  String? title;
+  Completer<void>? hold;
+  final Completer<void> reached = Completer<void>();
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final held = hold;
+    if (held != null && statement.contains('"chats"') && args.contains(title)) {
+      hold = null;
+      reached.complete();
+      await held.future;
+    }
+    return executor.runUpdate(statement, args);
+  }
+}
+
+final class _NoPulls extends SyncEngine {
+  @override
+  Future<PullResult?> requestPull({required String reason}) async => null;
+}
+
 final class _NoCompletions implements RequestCompletionRunner {
   @override
   Future<void> run({
@@ -194,11 +225,13 @@ void main() {
   late OutboxDrainer drainer;
   late _ServerApi api;
   late ProviderContainer container;
+  late _HeldTitleWrite heldWrites;
 
   setUp(() async {
     server = FakeOpenWebUiServer();
     client = _HeldReadClient(server);
-    db = AppDatabase(NativeDatabase.memory());
+    heldWrites = _HeldTitleWrite();
+    db = AppDatabase(NativeDatabase.memory().interceptWith(heldWrites));
     locks = ConversationLocks();
     remapper = IdRemapper(db);
     pull = PullSync(client: client, db: db, locks: locks, remapper: remapper);
@@ -543,6 +576,83 @@ void main() {
     await queueSave();
     await drainer.drain();
     expect(serverTitle(), _renamed);
+  });
+
+  group('another device\'s title pulled while a title written here is still '
+      'being stored', () {
+    // The chat list as the apps have it: read from the database.
+    late ProviderContainer listed;
+
+    setUp(() {
+      final onDevice = AppDatabase(NativeDatabase.memory());
+      addTearDown(onDevice.close);
+      listed = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(database: db),
+          directLocalDatabaseProvider.overrideWithValue(onDevice),
+          apiServiceProvider.overrideWithValue(api),
+          openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+          chatLocksProvider.overrideWithValue(locks),
+          modelsProvider.overrideWith(_NoModels.new),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          reviewerModeProvider.overrideWithValue(false),
+          socketServiceProvider.overrideWithValue(null),
+          syncEngineProvider.overrideWith(_NoPulls.new),
+          legacyConversationCachePurgerProvider.overrideWith(
+            (ref) => () async {},
+          ),
+        ],
+      );
+      addTearDown(listed.dispose);
+    });
+
+    for (final (:name, :write, refused: _, hold: _) in titleWrites) {
+      test('is the title kept, shown and saved after $name', () async {
+        const elsewhere = 'Renamed on another device';
+        final shown = listed.listen(conversationsProvider, (_, _) {});
+        addTearDown(shown.close);
+        await listed.read(conversationsProvider.future);
+        server.tick(200);
+        heldWrites
+          ..title = _renamed
+          ..hold = Completer<void>();
+        final stored = heldWrites.hold!;
+
+        final writing = write(listed);
+        await heldWrites.reached.future;
+        // Written on the server, and stored once the chat is free: another
+        // device renames it meanwhile, and a pull reads that and waits.
+        server
+          ..tick()
+          ..updateChat(_chatId, {'title': elsewhere});
+        client.read = Completer<void>();
+        final pulling = pull.pullChat(_chatId);
+        await client.read.future;
+        await pumpEventQueue();
+        stored.complete();
+        await writing;
+        // Shown again by the caller, as the phone does after a rename: the
+        // list's copy of the title written here, written behind the pull.
+        listed
+            .read(conversationsProvider.notifier)
+            .updateConversation(_chatId, (c) => c.copyWith(title: _renamed));
+        await pulling;
+        await locks.runExclusive(_chatId, () async {});
+
+        expect(await storedTitle(), elsewhere);
+        expect(await storedServerTitle(), elsewhere);
+        // The list follows the database a moment after each write (a real
+        // timer gathers them); read afresh, it shows what is stored.
+        listed.invalidate(conversationsProvider);
+        expect(
+          (await listed.read(conversationsProvider.future)).single.title,
+          elsewhere,
+        );
+        await queueSave();
+        await drainer.drain();
+        expect(serverTitle(), elsewhere);
+      });
+    }
   });
 
   test('a rename the server refuses leaves the chat its title', () async {

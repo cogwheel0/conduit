@@ -234,6 +234,10 @@ Future<bool> renameOpenWebUiConversation(
   final database = _readProvider(ref, appDatabaseProvider);
   final ChatLocks titleLocks = _readProvider(ref, chatTitleLocksProvider);
   final ChatLocks chatLocks = _readProvider(ref, chatLocksProvider);
+  final Conversations chats = _readProvider(
+    ref,
+    conversationsProvider.notifier,
+  );
   bool current() =>
       identical(api, _readProvider(ref, apiServiceProvider)) &&
       identical(session, _readProvider(ref, openWebUiAuthSessionEpochProvider));
@@ -249,7 +253,6 @@ Future<bool> renameOpenWebUiConversation(
       databases.serverIdForDatabase(database) != null) {
     throw const OpenWebUiAccountChangedException();
   }
-  int? writtenAt;
   try {
     // A title being generated for this chat waits for the rename, and keeps
     // it.
@@ -259,26 +262,21 @@ Future<bool> renameOpenWebUiConversation(
         if (!current()) throw const OpenWebUiAccountChangedException();
         await api.updateConversation(rawId, title: title);
         database?.chatsDao.noteTitleWritten(rawId, title);
-        writtenAt = database?.chatsDao.localTitleClock;
         await database?.chatsDao.updateServerGeneratedTitle(
           rawId,
           title,
           renamedHere: true,
         );
+        // Shown as stored, in the same turn of the chat's lock: what writes
+        // the chat next, a pull of another device's title, say, shows its
+        // own.
+        if (current()) chats.showTitle(rawId, title);
       }),
     );
   } finally {
     await lease?.release();
   }
-  if (!current()) return false;
-  // Shown as stored, after a title written before it and applied later (one
-  // generated while the rename waited for the chat), unless one is written
-  // after it.
-  _readProvider(
-    ref,
-    conversationsProvider.notifier,
-  ).applyServerGeneratedTitle(rawId, title, titleSince: writtenAt);
-  return true;
+  return current();
 }
 
 /// Renames a LibreChat chat: locally at once, on the server when the outbox

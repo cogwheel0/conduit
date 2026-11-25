@@ -66,6 +66,7 @@ Future<GeneratedConversationTitle> generateConversationTitle(
   final ChatLocks titleLocks = ref.read(chatTitleLocksProvider);
   final ChatLocks chatLocks = ref.read(chatLocksProvider);
   final DatabaseManager databases = ref.read(databaseManagerProvider);
+  final Conversations chats = ref.read(conversationsProvider.notifier);
   final lease = database == null
       ? null
       : databases.tryAcquireLease(database);
@@ -142,7 +143,6 @@ Future<GeneratedConversationTitle> generateConversationTitle(
     // Told apart from the title the server stored, not the chat list's copy,
     // which can lag it or show an empty title as "Chat".
     var saved = false;
-    int? writtenAt;
     await titleLocks.runExclusive(
       rawConversationId,
       // In the chat's own lock too: a full save of the chat sends the title it
@@ -163,37 +163,18 @@ Future<GeneratedConversationTitle> generateConversationTitle(
         );
         saved = true;
         database?.chatsDao.noteTitleWritten(rawConversationId, title);
-        writtenAt = database?.chatsDao.localTitleClock;
-        await database?.chatsDao.updateServerGeneratedTitle(
-          rawConversationId,
-          title,
-        );
+        // Stored as a server-made title, so a later save of the chat does
+        // not send the old one back, and shown as stored, in the same turn
+        // of the chat's lock: what writes the chat next, a rename that
+        // waited for it or a pull of another device's title, shows its own.
+        final storedTitle = await database?.chatsDao
+            .updateServerGeneratedTitle(rawConversationId, title);
+        if (stillCurrent()) {
+          chats.showTitle(rawConversationId, storedTitle ?? title);
+        }
       }),
     );
     final current = stillCurrent();
-    if (saved && current) {
-      // Stored as a server-made title, so a later save of the chat does not
-      // send the old one back. A rename that waited for these locks and has
-      // written its title since is kept, stored and shown.
-      ref
-          .read(conversationsProvider.notifier)
-          .applyServerGeneratedTitle(
-            rawConversationId,
-            title,
-            titleSince: writtenAt,
-          );
-      final renamedSince =
-          writtenAt != null &&
-          database!.chatsDao.titleWrittenSince(rawConversationId, writtenAt!);
-      final open = ref.read(activeConversationProvider) as Conversation?;
-      if (!renamedSince &&
-          open != null &&
-          conversationMatchesScopedId(open, conversationId)) {
-        ref
-            .read(activeConversationProvider.notifier)
-            .set(open.copyWith(title: title));
-      }
-    }
     return (
       outcome: saved
           ? ConversationTitleOutcome.saved

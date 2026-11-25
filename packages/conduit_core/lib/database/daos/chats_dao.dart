@@ -316,13 +316,19 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   /// Whether [title], from a copy of chat [chatId] read at a time not known
-  /// here, would replace [storedTitle] while it is still the title this
-  /// device last wrote. A pull, which knows when it read, decides instead.
+  /// here, would change [storedTitle] where this device's last title is one
+  /// of the two: a copy older than that title, or one of that title older
+  /// than what a pull stored since. A pull, which knows when it read,
+  /// decides instead.
   bool _replacesTitleWrittenHere(
     String chatId,
     String storedTitle,
     String title,
-  ) => title != storedTitle && _titlesWrittenHere[chatId] == storedTitle;
+  ) {
+    final writtenHere = _titlesWrittenHere[chatId];
+    return title != storedTitle &&
+        (writtenHere == storedTitle || writtenHere == title);
+  }
 
   /// The model list stored with chat [chatId], or null when it has none.
   Future<List<Object?>?> storedChatModels(String chatId) async {

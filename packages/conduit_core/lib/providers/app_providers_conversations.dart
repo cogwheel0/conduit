@@ -740,15 +740,10 @@ class Conversations extends _$Conversations {
   /// server watermark. Persist the event directly so a title cannot remain
   /// stale merely because the row is outside the loaded page.
   ///
-  /// Written later, so [titleSince] is the [ChatsDao.localTitleClock] of the
-  /// write [title] comes from, or, by default, of the moment it arrived: a
+  /// Stored once the chat is free, so it carries the moment it arrived: a
   /// title this device wrote since (a rename that waited for the chat) is
   /// neither replaced nor hidden.
-  void applyServerGeneratedTitle(
-    String serverId,
-    String title, {
-    int? titleSince,
-  }) {
+  void applyServerGeneratedTitle(String serverId, String title) {
     final normalizedTitle = title.trim();
     final identity = ChatStorageIdentity.parse(serverId);
     final rawId = identity.rawId;
@@ -766,7 +761,7 @@ class Conversations extends _$Conversations {
       return;
     }
     final locks = ref.read(chatLocksProvider);
-    final since = titleSince ?? db.chatsDao.localTitleClock;
+    final since = db.chatsDao.localTitleClock;
     unawaited(
       locks
           .runExclusive(
@@ -850,6 +845,12 @@ class Conversations extends _$Conversations {
           }),
     );
   }
+
+  /// Shows [title] for Open WebUI chat [rawId] in the loaded list and the
+  /// open chat, without storing it: for a writer that has stored it already,
+  /// in the chat's lock.
+  void showTitle(String rawId, String title) =>
+      _applyGeneratedTitleToLoadedState(rawId, title);
 
   void _applyGeneratedTitleToLoadedState(
     String rawId,
