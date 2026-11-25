@@ -435,7 +435,9 @@ administrator, into `%LOCALAPPDATA%\Programs\Conduit`:
   replaced, and before uninstalling removes them (`conduit.iss`'s
   `[Code]`): Restart Manager lists what has the app's `.exe` and `.dll`
   files open, and only the processes running from the install folder are
-  shut down. Inno Setup's `CloseApplications` is off: it shuts down every
+  shut down. Run by hand, Setup asks first, in Inno Setup's own words (its
+  Preparing to Install page's); No stops the install. Inno Setup's
+  `CloseApplications` is off: it shuts down every
   program and service with those files open, such as Windows' Program
   Compatibility Assistant service just after the app starts. Run with
   `/RELAUNCH=1` (as WinSparkle runs an update), Setup starts the app again

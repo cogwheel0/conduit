@@ -182,6 +182,33 @@ class FeedVersions(unittest.TestCase):
         )
 
 
+def pascal_body(text, signature):
+    """An Inno [Code] routine from its signature to its closing `end;`."""
+    body = text[text.index(signature):]
+    return body[:body.index("\nend;")]
+
+
+def pascal_call_args(text, name):
+    """The argument text of each call to `name` (it ends with "("), up to
+    its matching parenthesis, quotes skipped."""
+    calls, at = [], 0
+    while (at := text.find(name, at)) >= 0:
+        if at > 0 and (text[at - 1].isalnum() or text[at - 1] == "_"):
+            at += len(name)
+            continue
+        i, depth, quoted = at + len(name), 1, False
+        while depth:
+            c = text[i]
+            if c == "'":
+                quoted = not quoted
+            elif not quoted and c in "()":
+                depth += 1 if c == "(" else -1
+            i += 1
+        calls.append(text[at + len(name):i - 1])
+        at = i
+    return calls
+
+
 def entry_mime_types():
     line = next(
         l for l in DESKTOP_ENTRY.read_text(encoding="utf-8").splitlines()
@@ -273,19 +300,32 @@ class UpdateInstall(unittest.TestCase):
         # CloseApplications, which shuts down every program and service
         # with those files open.
         self.assertIn("\nCloseApplications=no\n", text)
-        for event in ("function PrepareToInstall(", "procedure CurUninstallStepChanged("):
-            body = text[text.index(event):]
-            body = body[:body.index("\nend;")]
-            self.assertIn("CloseRunningApp;", body, event)
-        close = text[text.index("procedure CloseRunningApp;"):]
-        close = close[:close.index("\nend;")]
-        # RmShutdown runs only in the last session, which registers
-        # Conduit's own processes, never the files.
-        first, last = close[:close.rindex("RmStartSession(")], close[close.rindex("RmStartSession("):]
-        self.assertNotIn("RmShutdown(", first)
-        self.assertIn("RmShutdown(", last)
-        self.assertIn("RmRegisterProcess(", last)
-        self.assertNotIn("RmRegisterFiles(", last)
+        self.assertIn("CloseRunningApp;", pascal_body(text, "procedure CurUninstallStepChanged("))
+        prepare = pascal_body(text, "function PrepareToInstall(")
+        self.assertIn("FindRunningApp(", prepare)
+        self.assertIn("CloseProcesses(", prepare)
+        # Run by hand, Setup asks first, in Inno's own translated words (its
+        # Preparing to Install page's); No stops it with Inno's message.
+        for used in ("not WizardSilent", "SuppressibleMsgBox(", "SetupMessage(msgApplicationsFound)",
+                     "SetupMessage(msgCloseApplications)", "Result := SetupMessage(msgErrorCloseApplications)"):
+            self.assertIn(used, prepare)
+        # RmShutdown runs only in a session that registers Conduit's own
+        # processes, never the files.
+        self.assertNotIn("RmShutdown(", pascal_body(text, "procedure FindRunningApp("))
+        close = pascal_body(text, "procedure CloseProcesses(")
+        self.assertIn("RmShutdown(", close)
+        self.assertIn("RmRegisterProcess(", close)
+        self.assertNotIn("RmRegisterFiles(", close)
+
+    def test_the_installer_shows_inno_setups_words_only(self):
+        # New text would need a translation in every language the installer
+        # has: what [Code] shows comes from Inno's messages (SetupMessage).
+        code = ISS.read_text(encoding="utf-8").split("\n[Code]\n", 1)[1]
+        shown = [a for name in ("MsgBox(", "SuppressibleMsgBox(", "TaskDialogMsgBox(") for a in pascal_call_args(code, name)]
+        shown += re.findall(r"Result := (.*?);", pascal_body(code, "function PrepareToInstall("), re.S)
+        self.assertGreaterEqual(len(shown), 2)
+        for text in shown:
+            self.assertIsNone(re.search(r"'[^']*[A-Za-z][^']*'", text), text)
 
 
 class PeImports(unittest.TestCase):

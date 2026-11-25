@@ -61,11 +61,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; Rust's Windows target needs Windows 10.
 MinVersion=10.0
 ; A running Conduit and its conduitd hold files this replaces: [Code]
-; closes both first (PrepareToInstall), forced if they don't close, and
-; nothing else. Inno's own CloseApplications would shut down every program
-; and service with those files open. Setup doesn't start the app again: an
-; interactive install offers to at the end, and an update WinSparkle runs
-; does it ([Run]).
+; closes both first (PrepareToInstall; run by hand, Setup asks), forced if
+; they don't close, and nothing else. Inno's own CloseApplications would
+; shut down every program and service with those files open. Setup doesn't
+; start the app again: an interactive install offers to at the end, and an
+; update WinSparkle runs does it ([Run]).
 CloseApplications=no
 ChangesAssociations=yes
 ShowLanguageDialog=no
@@ -172,6 +172,7 @@ type
     StartTimeLow: DWORD;
     StartTimeHigh: DWORD;
   end;
+  TRmUniqueProcesses = array of TRmUniqueProcess;
 
 const
   CCH_RM_SESSION_KEY = 32;
@@ -182,6 +183,8 @@ const
   // buffer (2 bytes a character); a process goes back to Restart Manager as
   // a record, since a String passed in stops at its first zero character.
   RmInfoBytes = 668;
+  RmNameAt = 12;
+  RmNameChars = 256;
   RmTypeAt = 652;
   RmService = 3;
   RmExplorer = 4;
@@ -267,24 +270,24 @@ begin
   end;
 end;
 
-// Shuts down the processes that run from the app's folder and have its
-// files open (Conduit and its conduitd), forced if they don't close; logs
-// what it closed and what it left alone.
-procedure CloseRunningApp;
+// Conduit's running processes: the ones whose image is in the app's folder
+// and that have its .exe or .dll files open (never services, critical
+// processes or Explorer), with Restart Manager's name for each, a line
+// each. The other holders are logged and left alone.
+procedure FindRunningApp(var Ours: TRmUniqueProcesses; var Names: String);
 var
   Session, Status, Reasons: DWORD;
   Needed, Count, Pid, AppType: Cardinal;
-  SessionKey, Infos, AppDir, Image: String;
+  SessionKey, Infos, AppDir, Image, Name: String;
   Files: TArrayOfString;
-  Ours: array of TRmUniqueProcess;
-  Process: TRmUniqueProcess;
-  I, Listed, Closing, Tries: Integer;
+  I, At, Found, Listed, Tries: Integer;
 begin
+  SetArrayLength(Ours, 0);
+  Names := '';
   AppDir := ExpandConstant('{app}');
   AddRunnableFiles(AppDir, Files);
   if GetArrayLength(Files) = 0 then
     Exit;
-  Closing := 0;
   SessionKey := StringOfChar(' ', CCH_RM_SESSION_KEY + 1);
   Status := RmStartSession(Session, 0, SessionKey);
   if Status <> 0 then
@@ -315,18 +318,23 @@ begin
     Listed := Integer(Count);
     for I := 0 to Listed - 1 do
     begin
-      Pid := BufferDword(Infos, I * RmInfoBytes);
-      AppType := BufferDword(Infos, I * RmInfoBytes + RmTypeAt);
+      At := I * RmInfoBytes;
+      Pid := BufferDword(Infos, At);
+      AppType := BufferDword(Infos, At + RmTypeAt);
       Image := ProcessImage(Pid);
       if (AppType <> RmService) and (AppType <> RmExplorer) and (AppType <> RmCritical) and (Image <> '') and
          (CompareText(Copy(Image, 1, Length(AppDir) + 1), AddBackslash(AppDir)) = 0) then
       begin
-        Closing := Closing + 1;
-        SetArrayLength(Ours, Closing);
-        Ours[Closing - 1].ProcessId := Pid;
-        Ours[Closing - 1].StartTimeLow := BufferDword(Infos, I * RmInfoBytes + 4);
-        Ours[Closing - 1].StartTimeHigh := BufferDword(Infos, I * RmInfoBytes + 8);
-        Log(Format('Restart Manager: closing pid %d, %s', [Integer(Pid), Image]));
+        Found := GetArrayLength(Ours);
+        SetArrayLength(Ours, Found + 1);
+        Ours[Found].ProcessId := Pid;
+        Ours[Found].StartTimeLow := BufferDword(Infos, At + 4);
+        Ours[Found].StartTimeHigh := BufferDword(Infos, At + 8);
+        Name := Copy(Infos, (At + RmNameAt) div 2 + 1, RmNameChars);
+        if Pos(#0, Name) > 0 then
+          Name := Copy(Name, 1, Pos(#0, Name) - 1);
+        Names := Names + Name + #13#10;
+        Log(Format('Restart Manager: pid %d is Conduit''s, %s', [Integer(Pid), Image]));
       end
       else
         Log(Format('Restart Manager: leaving pid %d alone (type %d, %s)', [Integer(Pid), Integer(AppType), Image]));
@@ -334,16 +342,29 @@ begin
   finally
     RmEndSession(Session);
   end;
-  if Closing = 0 then
+end;
+
+// Shuts Ours down through a session that registers only them, forced if
+// they don't close.
+procedure CloseProcesses(const Ours: TRmUniqueProcesses);
+var
+  Session, Status, Reasons: DWORD;
+  Needed, Count: Cardinal;
+  SessionKey: String;
+  Process: TRmUniqueProcess;
+  I: Integer;
+begin
+  if GetArrayLength(Ours) = 0 then
   begin
     Log('Restart Manager: no Conduit process has the app''s files open');
     Exit;
   end;
+  Needed := 0;
   SessionKey := StringOfChar(' ', CCH_RM_SESSION_KEY + 1);
   Status := RmStartSession(Session, 0, SessionKey);
   if Status = 0 then
   try
-    for I := 0 to Closing - 1 do
+    for I := 0 to GetArrayLength(Ours) - 1 do
       if Status = 0 then
       begin
         Process := Ours[I];
@@ -351,7 +372,6 @@ begin
       end;
     // How many of them Restart Manager sees running: RmShutdown also
     // reports success for processes it didn't recognise.
-    Needed := 0;
     Count := 0;
     if Status = 0 then
       Status := RmGetList(Session, Needed, Count, '', Reasons);
@@ -366,10 +386,39 @@ begin
   Log(Format('Restart Manager closed %d Conduit processes: status %d', [Integer(Needed), Status]));
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+procedure CloseRunningApp;
+var
+  Ours: TRmUniqueProcesses;
+  Names: String;
 begin
-  CloseRunningApp;
+  FindRunningApp(Ours, Names);
+  CloseProcesses(Ours);
+end;
+
+// Run by hand, Setup asks before it closes a running Conduit, in Inno's own
+// translated words (its Preparing to Install page's); No stops the install,
+// since files in use can't be replaced. A silent install (an update
+// WinSparkle runs, once the app agreed to quit) closes it without asking.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Ours: TRmUniqueProcesses;
+  Names, Choice: String;
+begin
   Result := '';
+  FindRunningApp(Ours, Names);
+  if (GetArrayLength(Ours) > 0) and not WizardSilent then
+  begin
+    Choice := SetupMessage(msgCloseApplications);
+    StringChangeEx(Choice, '&', '', True);
+    if SuppressibleMsgBox(SetupMessage(msgApplicationsFound) + #13#10#13#10 + Names + #13#10 + Choice,
+         mbConfirmation, MB_YESNO, IDYES) <> IDYES then
+    begin
+      Log('Restart Manager: Conduit is left running, as asked; Setup stops');
+      Result := SetupMessage(msgErrorCloseApplications);
+      Exit;
+    end;
+  end;
+  CloseProcesses(Ours);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
