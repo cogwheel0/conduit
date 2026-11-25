@@ -280,6 +280,50 @@ void main() {
     });
   }
 
+  test('a save of the chat on its way when it is renamed lands first, and '
+      'the rename stays', () async {
+    await queueSave();
+    final held = Completer<void>();
+    final sent = Completer<void>();
+    client
+      ..updateChatGate = held.future
+      ..onUpdateChat = (_, _) => sent.complete();
+    final draining = drainer.drain();
+    await sent.future;
+
+    final renaming = renameOpenWebUiConversation(container, _chatId, _renamed);
+    held.complete();
+    await draining;
+    await renaming;
+
+    expect(serverTitle(), _renamed);
+    expect(await storedTitle(), _renamed);
+  });
+
+  test('a save queued when the chat is renamed sends the new title, which '
+      'shows at once', () async {
+    await queueSave();
+
+    await renameOpenWebUiConversation(container, _chatId, _renamed);
+    expect(await storedTitle(), _renamed);
+
+    await drainer.drain();
+    await pull.pullChat(_chatId);
+    expect(serverTitle(), _renamed);
+    expect(await storedTitle(), _renamed);
+  });
+
+  test('a rename the server refuses leaves the chat its title', () async {
+    api.failure = Exception('refused');
+
+    await expectLater(
+      renameOpenWebUiConversation(container, _chatId, _renamed),
+      throwsException,
+    );
+    expect(await storedTitle(), _title);
+    expect(serverTitle(), _title);
+  });
+
   group('in the database of the account the title was written in', () {
     late bool warnedOfReopening;
     late Directory folder;
