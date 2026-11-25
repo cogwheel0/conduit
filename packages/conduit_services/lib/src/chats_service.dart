@@ -835,10 +835,12 @@ final class ChatsService {
     ApiService? account,
   }) async {
     final madeWith = account ?? _container.read(apiServiceProvider);
-    chatId = await _current(chatId);
     // Another account in charge since: its sync, its chats and its windows
-    // are not this change's.
-    if (!identical(_container.read(apiServiceProvider), madeWith)) return;
+    // are not this change's. Asked after each wait.
+    bool changedAccount() =>
+        !identical(_container.read(apiServiceProvider), madeWith);
+    chatId = await _current(chatId);
+    if (changedAccount()) return;
     try {
       await _container.read(primarySyncProvider).pullChatNow(chatId);
     } on Object catch (error) {
@@ -848,6 +850,7 @@ final class ChatsService {
         error: error,
       );
     }
+    if (changedAccount()) return;
     _container.invalidate(loadConversationProvider(chatId));
     _events?.emit(ConduitEventSpecs.chatsChanged, ChatsChanged(chatId: chatId));
   }

@@ -603,6 +603,56 @@ void main() {
       await bob;
       expect(owui.chats.stored[now]!['title'], title);
     });
+
+    step('a rename whose account changed while it re-read the chat tells '
+        'the account in charge nothing of it', () async {
+      await signIn('ada@example.com', 'pw-ada');
+      final told = <Object?>[];
+      final untap = events.tap((event, _, payload) {
+        if (event == ConduitEvents.chatsChanged) told.add(payload);
+      });
+      addTearDown(untap);
+      final (_, now) = await movedChat();
+      bool toldOf(Object? payload) =>
+          payload is Map && payload['chatId'] == now;
+      // The turn that made the chat tells of it once it is stored there:
+      // before the rename, whose own word is the one looked for.
+      if (!told.any(toldOf)) {
+        final settled = Completer<void>();
+        final untapSettled = events.tap((event, _, payload) {
+          if (event == ConduitEvents.chatsChanged &&
+              toldOf(payload) &&
+              !settled.isCompleted) {
+            settled.complete();
+          }
+        });
+        await settled.future;
+        untapSettled();
+      }
+      told.clear();
+      final reread = owui.chats.holdChatReads = Completer<void>();
+      owui.chats.chatReadAsked = Completer<void>();
+
+      final renaming = chats.rename(now, renamed);
+      await owui.chats.chatReadAsked.future;
+      final switched = Completer<void>();
+      final watch = runtime.container.listen<int>(
+        accountSwitchCountProvider,
+        (_, _) {
+          if (!switched.isCompleted) switched.complete();
+        },
+      );
+      final bob = signIn('bob@example.com', 'pw-bob');
+      await switched.future;
+      watch.close();
+      owui.chats.holdChatReads = null;
+      reread.complete();
+      await renaming;
+      await bob;
+
+      expect(owui.chats.stored[now]!['title'], renamed);
+      expect(told.where(toldOf), isEmpty);
+    });
   });
 }
 
