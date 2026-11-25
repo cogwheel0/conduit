@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_manager.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/conversation_title_generation.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -20,6 +23,7 @@ import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/push_sync.dart';
+import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -76,6 +80,17 @@ final class _ServerApi extends ApiService {
     String? chatId,
     ApiAuthSnapshot? authSnapshot,
   }) async => _renamed;
+}
+
+final class _SignedInApi extends Notifier<ApiService?> {
+  _SignedInApi(this.initial);
+
+  final ApiService initial;
+
+  @override
+  ApiService? build() => initial;
+
+  void signInElsewhere() => state = _ServerApi(FakeOpenWebUiServer());
 }
 
 final class _NoModels extends Models {
@@ -217,14 +232,33 @@ void main() {
 
   Object? serverTitle() => server.getChatById(_chatId)!['title'];
 
-  final titleWrites = <(String, Future<void> Function(ProviderContainer))>[
-    ('a rename', (c) => renameOpenWebUiConversation(c, _chatId, _renamed)),
-    (
-      'a generated title',
-      (c) => generateConversationTitle(c, _chatId, selectedModelId: 'llama3'),
-    ),
-  ];
-  for (final (name, write) in titleWrites) {
+  /// Each way this device writes a chat's title: what it does, whether the
+  /// account it was made in is still signed in after it, and how it ends
+  /// when that account's chats are closing before it starts.
+  final titleWrites =
+      <
+        ({
+          String name,
+          Future<bool> Function(ProviderContainer) write,
+          Matcher refused,
+        })
+      >[
+        (
+          name: 'a rename',
+          write: (c) => renameOpenWebUiConversation(c, _chatId, _renamed),
+          refused: throwsA(isA<OpenWebUiAccountChangedException>()),
+        ),
+        (
+          name: 'a generated title',
+          write: (c) async => (await generateConversationTitle(
+            c,
+            _chatId,
+            selectedModelId: 'llama3',
+          )).current,
+          refused: completion(isFalse),
+        ),
+      ];
+  for (final (:name, :write, refused: _) in titleWrites) {
     test('a pull that read the chat before $name does not put the old title '
         'back, nor does the next save', () async {
       final released = Completer<void>();
@@ -245,4 +279,88 @@ void main() {
       expect(serverTitle(), _renamed);
     });
   }
+
+  group('in the database of the account the title was written in', () {
+    late bool warnedOfReopening;
+    late Directory folder;
+    late DatabaseManager databases;
+    late NotifierProvider<_SignedInApi, ApiService?> signedInApi;
+    late ProviderContainer signedIn;
+
+    // The account's database is opened again once it has closed.
+    setUpAll(() {
+      warnedOfReopening = driftRuntimeOptions.dontWarnAboutMultipleDatabases;
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    });
+
+    tearDownAll(() {
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = warnedOfReopening;
+    });
+
+    setUp(() async {
+      folder = Directory.systemTemp.createTempSync('conduit_rename');
+      databases = DatabaseManager(
+        databaseDirectory: () async => folder,
+        openDatabase: (name) =>
+            AppDatabase(NativeDatabase(File('${folder.path}/$name.sqlite'))),
+      );
+      final accountA = databases.openForServerId('account-a');
+      await PullSync(
+        client: FakeSyncApiClient(server),
+        db: accountA,
+        locks: ConversationLocks(),
+      ).pullChat(_chatId);
+      signedInApi = NotifierProvider<_SignedInApi, ApiService?>(
+        () => _SignedInApi(api),
+      );
+      signedIn = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(database: accountA),
+          databaseManagerProvider.overrideWithValue(databases),
+          apiServiceProvider.overrideWith((ref) => ref.watch(signedInApi)),
+          openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+        ],
+      );
+    });
+
+    tearDown(() async {
+      signedIn.dispose();
+      await databases.closeAll();
+      folder.deleteSync(recursive: true);
+    });
+
+    for (final (:name, :write, :refused) in titleWrites) {
+      test(
+        '$name the server took as another server\'s account was signed '
+        'in to is stored with the chats it was made in, and succeeds',
+        () async {
+          api.gate = Completer<void>();
+          final writing = write(signedIn);
+          await api.asked.future;
+          databases.openForServerId('account-b');
+          signedIn.read(signedInApi.notifier).signInElsewhere();
+          await pumpEventQueue();
+          api.gate!.complete();
+
+          expect(await writing, isFalse);
+          expect(serverTitle(), _renamed);
+          if (databases.openForServerIdIfReady('account-a')
+              case DatabaseOpenDeferred(:final retryAfter)) {
+            await retryAfter;
+          }
+          final accountA = databases.openForServerId('account-a');
+          expect((await accountA.chatsDao.getChat(_chatId))!.title, _renamed);
+        },
+      );
+
+      test('$name asked for once another server\'s account was signed in to '
+          'is not sent', () async {
+        databases.openForServerId('account-b');
+
+        await expectLater(write(signedIn), refused);
+        expect(api.asked.isCompleted, isFalse);
+        expect(serverTitle(), _title);
+      });
+    }
+  });
 }

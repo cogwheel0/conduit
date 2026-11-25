@@ -887,10 +887,11 @@ final class ChatsService {
     }
     // Refused while signed out, as the other Open WebUI writes here are.
     final _ = _api;
+    final bool current;
     try {
       // In the chat's lock, so a save of the chat under way cannot put back
       // the title it read before.
-      await renameOpenWebUiConversation(_container, id, trimmed);
+      current = await renameOpenWebUiConversation(_container, id, trimmed);
     } on OpenWebUiAccountChangedException {
       throw const RpcError(
         code: ConduitErrorCodes.sessionExpired,
@@ -898,7 +899,8 @@ final class ChatsService {
         debugMessage: 'the account changed before the chat was renamed',
       );
     }
-    await _afterEnvelopeChange(id);
+    // Renamed in an account signed out of since: not one of these chats.
+    if (current) await _afterEnvelopeChange(id);
     return _refresh();
   }
 

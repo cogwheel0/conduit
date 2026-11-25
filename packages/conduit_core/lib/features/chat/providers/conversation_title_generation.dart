@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/services/chat_title_generation.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -121,32 +122,51 @@ Future<GeneratedConversationTitle> generateConversationTitle(
   final database = ref.read(appDatabaseProvider);
   final ChatLocks titleLocks = ref.read(chatTitleLocksProvider);
   final ChatLocks chatLocks = ref.read(chatLocksProvider);
-  await titleLocks.runExclusive(
-    rawConversationId,
-    // In the chat's own lock too: a full save of the chat sends the title it
-    // read, so one under way finishes before this one is written, and one
-    // after it reads the new title from the database.
-    () => chatLocks.runExclusive(rawConversationId, () async {
-      // Compared as the server stores it, as it was when the title was asked
-      // for: a rename made meanwhile is kept.
-      final stored = await api.getChatRaw(
-        rawConversationId,
-        authSnapshot: authSnapshot,
-      );
-      if (stored == null || stored['title'] != titleAsked) return;
-      await api.updateConversation(
-        rawConversationId,
-        title: title,
-        authSnapshot: authSnapshot,
-      );
-      saved = true;
-      database?.chatsDao.noteTitleWritten(rawConversationId);
-      await database?.chatsDao.updateServerGeneratedTitle(
-        rawConversationId,
-        title,
-      );
-    }),
-  );
+  // Leased, as a rename is: an account switch to another server keeps the
+  // database open for the title, and one closing already is not asked to.
+  final DatabaseManager databases = ref.read(databaseManagerProvider);
+  final lease = database == null
+      ? null
+      : databases.tryAcquireLease(database);
+  if (database != null &&
+      lease == null &&
+      databases.serverIdForDatabase(database) != null) {
+    return (
+      outcome: ConversationTitleOutcome.none,
+      title: null,
+      current: false,
+    );
+  }
+  try {
+    await titleLocks.runExclusive(
+      rawConversationId,
+      // In the chat's own lock too: a full save of the chat sends the title it
+      // read, so one under way finishes before this one is written, and one
+      // after it reads the new title from the database.
+      () => chatLocks.runExclusive(rawConversationId, () async {
+        // Compared as the server stores it, as it was when the title was asked
+        // for: a rename made meanwhile is kept.
+        final stored = await api.getChatRaw(
+          rawConversationId,
+          authSnapshot: authSnapshot,
+        );
+        if (stored == null || stored['title'] != titleAsked) return;
+        await api.updateConversation(
+          rawConversationId,
+          title: title,
+          authSnapshot: authSnapshot,
+        );
+        saved = true;
+        database?.chatsDao.noteTitleWritten(rawConversationId);
+        await database?.chatsDao.updateServerGeneratedTitle(
+          rawConversationId,
+          title,
+        );
+      }),
+    );
+  } finally {
+    await lease?.release();
+  }
   final current = stillCurrent();
   if (saved && current) {
     // Stored as a server-made title, so a later save of the chat does not

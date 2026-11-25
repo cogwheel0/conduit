@@ -826,8 +826,9 @@ Future<void> _saveConversationTitle(
   String conversationId,
   String title,
 ) async {
-  await chat.renameOpenWebUiConversation(ref, conversationId, title);
-  _showConversationTitle(ref, conversationId, title);
+  if (await chat.renameOpenWebUiConversation(ref, conversationId, title)) {
+    _showConversationTitle(ref, conversationId, title);
+  }
 }
 
 /// Shows [title] for the chat [conversationId] in the chat list and the
