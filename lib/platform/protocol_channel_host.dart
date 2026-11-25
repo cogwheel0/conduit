@@ -49,6 +49,7 @@ void startProtocolChannelHost(ProviderContainer container) {
 /// * `conduit/protocol/rpc` (strings): `<session>\n<JSON-RPC message>`
 ///   either way. The reply is the acknowledgement the host counts (an empty
 ///   string); a message for a session that is gone is answered `closed`.
+///   A session's name has no newline, so `open` refuses one that does.
 /// * `conduit/protocol/bytes` (binary): [ByteFrame]s either way, answered
 ///   when taken. The calling contract is [InProcessProtocolHost.receiveBytes]'s.
 ///
@@ -204,7 +205,11 @@ final class ProtocolChannelHost {
     switch (message['op']) {
       case 'hello':
         return _ready;
-      case 'open' when session is String && session.isNotEmpty:
+      // The RPC channel ends a session's name at its first newline.
+      case 'open'
+          when session is String &&
+              session.isNotEmpty &&
+              !session.contains('\n'):
         return _open(session);
       case 'close' when session is String:
         _opening.remove(session);

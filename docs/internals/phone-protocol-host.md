@@ -150,7 +150,8 @@ out.
   `open` or byte stream tries again.
 - **RPC** (strings): `<session>\n<message>` both ways, on one channel rather
   than one per session, so a message for a session that is gone is still
-  answered (`closed`) instead of finding no handler.
+  answered (`closed`) instead of finding no handler. A session's name ends
+  at the first newline, so `open` refuses a name with one.
 - **Bytes** (binary): frames, each answered once taken.
 
 Every send is answered: the reply is the acknowledgement the hold counts. A

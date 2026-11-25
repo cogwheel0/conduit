@@ -269,6 +269,19 @@ void main() {
     check((await failed).single.kind).equals(ByteFrameKind.error);
   });
 
+  test('a session the RPC channel could not address is not opened', () async {
+    await startHost();
+    for (final id in <String>['', '\n', 'phone\nother']) {
+      check(
+            because: jsonEncode(id),
+            await swift.control(<String, Object>{'op': 'open', 'session': id}),
+          )
+          .isA<Map<Object?, Object?>>()
+          .has((it) => it['error'], 'error')
+          .equals('no such request');
+    }
+  });
+
   test(
     'a message for a session that is gone is answered, not dropped',
     () async {
