@@ -141,8 +141,18 @@ void main() {
       paths.gate = started;
     });
 
-    test('a close cancels the open, which never becomes a session', () async {
+    test('a second open is refused, a message for it is answered closed, '
+        'hello changes nothing, and a close cancels the open', () async {
       final opening = open();
+      check(await open())
+          .isA<Map<Object?, Object?>>()
+          .has((it) => it['error'], 'error')
+          .equals('open');
+      check(await swift.rpc('phone', '{}')).equals('closed');
+      check(await swift.control(<String, Object>{'op': 'hello'}))
+          .isA<Map<Object?, Object?>>()
+          .has((it) => it['op'], 'op')
+          .equals('ready');
       check(
         await swift.control(<String, Object>{
           'op': 'close',
@@ -162,25 +172,6 @@ void main() {
           .equals(true);
     });
 
-    test('a second open of the same session is refused, a message for it is '
-        'answered closed, and hello changes nothing', () async {
-      final opening = open();
-      check(await open())
-          .isA<Map<Object?, Object?>>()
-          .has((it) => it['error'], 'error')
-          .equals('open');
-      check(await swift.rpc('phone', '{}')).equals('closed');
-      check(await swift.control(<String, Object>{'op': 'hello'}))
-          .isA<Map<Object?, Object?>>()
-          .has((it) => it['op'], 'op')
-          .equals('ready');
-      started.complete();
-      check(await opening)
-          .isA<Map<Object?, Object?>>()
-          .has((it) => it['ok'], 'ok')
-          .equals(true);
-    });
-
     test('stopping the host answers the open stopped', () async {
       final opening = open();
       final stopped = host.dispose();
@@ -193,26 +184,28 @@ void main() {
     });
   });
 
-  test('a start that fails is answered unavailable, and the next open starts '
-      'again', () async {
+  test('a start that fails is answered unavailable, on the byte channel '
+      'without waiting on the client, and the next client starts it again',
+      () async {
     await startHost();
-    paths.failing = 1;
-    Future<Object?> open() =>
-        swift.control(<String, Object>{'op': 'open', 'session': 'phone'});
-    check(await open())
+    // Two starts fail: an open's, then a byte stream's.
+    paths.failing = 2;
+    check(
+          await swift.control(<String, Object>{
+            'op': 'open',
+            'session': 'phone',
+          }),
+        )
         .isA<Map<Object?, Object?>>()
         .has((it) => it['error'], 'error')
         .equals('unavailable');
-    check(await open())
-        .isA<Map<Object?, Object?>>()
-        .has((it) => it['ok'], 'ok')
-        .equals(true);
-  });
 
-  test('a byte stream opened while the start fails is taken and ends with '
-      'an error, and the next one starts again', () async {
-    await startHost();
-    paths.failing = 1;
+    final taken = Completer<void>();
+    addTearDown(() {
+      if (!taken.isCompleted) taken.complete();
+    });
+    // This client takes the host's frames only once its own open is taken.
+    swift.holdFrames = taken;
     Uint8List download(int stream) => ByteFrame(
       stream,
       ByteFrameKind.open,
@@ -223,7 +216,19 @@ void main() {
     ).encode();
     final failed = swift.answer(1);
     check(await swift.bytes(download(1))).isNotNull();
+    taken.complete();
     check(utf8.decode((await failed).single.payload)).equals('unavailable');
+
+    // The next client starts it again, on either channel.
+    check(
+          await swift.control(<String, Object>{
+            'op': 'open',
+            'session': 'phone',
+          }),
+        )
+        .isA<Map<Object?, Object?>>()
+        .has((it) => it['ok'], 'ok')
+        .equals(true);
     final answered = swift.answer(2);
     await swift.bytes(download(2));
     await swift.bytes(ByteFrame(2, ByteFrameKind.end).encode());
@@ -242,35 +247,10 @@ void main() {
       ..not((it) => it.equals(first));
   });
 
-  test('a byte open the start fails is taken before the client takes the '
-      'error', () async {
+  test('a message for a session that is gone is answered, not dropped, and '
+      'a session the RPC channel could not address is not opened', () async {
     await startHost();
-    paths.failing = 1;
-    final taken = Completer<void>();
-    addTearDown(() {
-      if (!taken.isCompleted) taken.complete();
-    });
-    // This client takes the host's frames only once its own open is taken.
-    swift.holdFrames = taken;
-    final failed = swift.answer(1);
-    check(
-      await swift.bytes(
-        ByteFrame(
-          1,
-          ByteFrameKind.open,
-          payload: _json(<String, Object>{
-            'method': 'GET',
-            'path': '/files/server/file',
-          }),
-        ).encode(),
-      ),
-    ).isNotNull();
-    taken.complete();
-    check((await failed).single.kind).equals(ByteFrameKind.error);
-  });
-
-  test('a session the RPC channel could not address is not opened', () async {
-    await startHost();
+    check(await swift.rpc('nobody', '{}')).equals('closed');
     for (final id in <String>['', '\n', 'phone\nother']) {
       check(
             because: jsonEncode(id),
@@ -281,14 +261,6 @@ void main() {
           .equals('no such request');
     }
   });
-
-  test(
-    'a message for a session that is gone is answered, not dropped',
-    () async {
-      await startHost();
-      check(await swift.rpc('nobody', '{}')).equals('closed');
-    },
-  );
 
   test('a session whose message the client does not take is ended, and the '
       'client is told', () async {
