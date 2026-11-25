@@ -172,6 +172,97 @@ pub fn reasoning_title(block: &MessageBlockDto, l10n: &L10n) -> String {
     }
 }
 
+/// A tool call's row title: "Running …" while it runs, else "Used …", the
+/// tool by its name in words ("Tide Table"); its id stays in the opened
+/// body.
+pub fn tool_title(call: &ToolCallDto, l10n: &L10n) -> String {
+    let raw = call.name.trim();
+    let name = if raw.is_empty() {
+        l10n.desktop_unnamed_tool()
+    } else {
+        tool_display_name(raw)
+    };
+    if call.pending || (!call.done && call.result.is_empty()) {
+        l10n.desktop_tool_running(&name)
+    } else {
+        l10n.desktop_tool_used(&name)
+    }
+}
+
+/// A code run's header: running, ran, or (for an execution) failed.
+pub fn code_title(block: &MessageBlockDto, l10n: &L10n) -> String {
+    if block.kind == MessageBlockKind::CodeExecution && block.is_error == Some(true) {
+        l10n.desktop_code_failed()
+    } else if block.pending == Some(true) {
+        l10n.desktop_running_code()
+    } else {
+        l10n.desktop_ran_code()
+    }
+}
+
+/// A details section's header: its summary, or "Details".
+pub fn details_summary(block: &MessageBlockDto, l10n: &L10n) -> String {
+    block
+        .summary
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| l10n.desktop_details())
+}
+
+/// What a block that is not text shows as its header, in the words its row
+/// draws: what an answer with no text is named by. None for a block whose
+/// body has no words of its own here (embeds) or that the row draws apart
+/// (sources, follow-ups).
+pub fn block_header(block: &MessageBlockDto, l10n: &L10n, t: &ConduitTheme) -> Option<String> {
+    let words = match block.kind {
+        MessageBlockKind::Reasoning => reasoning_title(block, l10n),
+        MessageBlockKind::ToolCalls => block
+            .calls
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|call| tool_title(call, l10n))
+            .collect::<Vec<_>>()
+            .join(", "),
+        MessageBlockKind::CodeInterpreter | MessageBlockKind::CodeExecution => {
+            code_title(block, l10n)
+        }
+        MessageBlockKind::Details => details_summary(block, l10n),
+        MessageBlockKind::Status => status_line(block, l10n)?,
+        // A Hermes failure leads its card with what kind it is.
+        MessageBlockKind::Error => match &block.hermes_error {
+            Some(error) => super::hermes_blocks::error_title(&error.kind, l10n),
+            None => error_text(block, l10n),
+        },
+        MessageBlockKind::Alert => {
+            alert_style(block.r#type.as_deref().unwrap_or_default(), l10n, t).0
+        }
+        MessageBlockKind::ChangedFiles => {
+            let files = block.changed_files.as_deref().unwrap_or_default();
+            if files.is_empty() {
+                return None;
+            }
+            super::hermes_blocks::changed_files_title(files.len(), l10n)
+        }
+        MessageBlockKind::Files => block
+            .files
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|f| f.name.trim().to_string())
+            .filter(|n| !n.is_empty())
+            .collect::<Vec<_>>()
+            .join(", "),
+        MessageBlockKind::Text
+        | MessageBlockKind::Embeds
+        | MessageBlockKind::Sources
+        | MessageBlockKind::FollowUps
+        | MessageBlockKind::Unknown => return None,
+    };
+    let words = words.trim().to_string();
+    (!words.is_empty()).then_some(words)
+}
+
 /// The status row's one line: the summary of a Hermes tool run, else the
 /// last status.
 pub fn status_line(block: &MessageBlockDto, l10n: &L10n) -> Option<String> {
@@ -961,11 +1052,7 @@ impl AssistantRow {
                         let state = self.text_state(&format!("output{ordinal}"), &o, window, cx);
                         chat_text(&state, key.clone().into())
                     });
-                let title = if pending {
-                    l10n.desktop_running_code()
-                } else {
-                    l10n.desktop_ran_code()
-                };
+                let title = code_title(block, &l10n);
                 let body = div()
                     .flex()
                     .flex_col()
@@ -1015,13 +1102,7 @@ impl AssistantRow {
                 let failed = block.is_error == Some(true);
                 let pending = block.pending == Some(true);
                 // The phone's plain line: what happened, then the run's name.
-                let title = if failed {
-                    l10n.desktop_code_failed()
-                } else if pending {
-                    l10n.desktop_running_code()
-                } else {
-                    l10n.desktop_ran_code()
-                };
+                let title = code_title(block, &l10n);
                 let code = block.code.clone().unwrap_or_default();
                 let output = block.output.clone().filter(|o| !o.trim().is_empty());
                 let error = block.error.clone().filter(|e| !e.trim().is_empty());
@@ -1069,11 +1150,7 @@ impl AssistantRow {
             MessageBlockKind::Details => {
                 let x = format!("x{i}");
                 let expanded = self.shows(&x, cx);
-                let summary = block
-                    .summary
-                    .clone()
-                    .filter(|s| !s.trim().is_empty())
-                    .unwrap_or_else(|| l10n.desktop_details());
+                let summary = details_summary(block, &l10n);
                 let body = expanded
                     .then(|| block.body.clone().filter(|b| !b.trim().is_empty()))
                     .flatten()
@@ -1460,19 +1537,13 @@ impl AssistantRow {
         let x = format!("x{i}.{j}");
         let expanded = self.shows(&x, cx);
         let raw = call.name.trim();
-        // The tool by its name in words ("Tide Table"); its id stays in the
-        // opened body.
         let name = if raw.is_empty() {
             l10n.desktop_unnamed_tool()
         } else {
             tool_display_name(raw)
         };
         let running = call.pending || (!call.done && call.result.is_empty());
-        let title = if running {
-            l10n.desktop_tool_running(&name)
-        } else {
-            l10n.desktop_tool_used(&name)
-        };
+        let title = tool_title(call, l10n);
         let detail = LineDetail::words(tool_argument(&call.arguments));
         let r = t.roles;
         let m = t.metrics;

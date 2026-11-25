@@ -839,7 +839,7 @@ impl AssistantRow {
     /// written while the answer streams, which costs nothing per frame).
     fn spoken(&self, cx: &App) -> String {
         if self.item.streaming {
-            return self
+            let written = self
                 .item
                 .blocks
                 .iter()
@@ -847,6 +847,11 @@ impl AssistantRow {
                 .filter_map(|b| b.markdown.as_deref())
                 .collect::<Vec<_>>()
                 .join(" ");
+            return if written.trim().is_empty() {
+                self.spoken_without_text(cx)
+            } else {
+                written
+            };
         }
         let mut out = String::new();
         let mut ordinal = 0;
@@ -867,10 +872,27 @@ impl AssistantRow {
             ordinal += 1;
         }
         if out.is_empty() {
-            self.item.text.trim().to_string()
+            self.spoken_without_text(cx)
         } else {
             out
         }
+    }
+
+    /// What VoiceOver reads for an answer with no text: the headers its
+    /// blocks show (a tool call's "Used …", a status line), never the
+    /// markup it is stored with. With no blocks at all, its stored text is
+    /// all there is.
+    fn spoken_without_text(&self, cx: &App) -> String {
+        if self.item.blocks.is_empty() {
+            return self.item.text.trim().to_string();
+        }
+        let (l10n, t) = (cx.l10n(), cx.conduit());
+        self.item
+            .blocks
+            .iter()
+            .filter_map(|b| super::blocks::block_header(b, l10n, t))
+            .collect::<Vec<_>>()
+            .join(". ")
     }
 
     fn sources_pill(
@@ -2893,6 +2915,171 @@ mod embed_tests {
             embeds: Some(sources.iter().map(|s| page(s)).collect()),
             ..empty_block(MessageBlockKind::Embeds)
         }]
+    }
+
+    /// An answer with no text is named by what its row shows, block by
+    /// block, never by the markup it is stored with.
+    #[gpui_kit::test]
+    fn an_answer_with_no_text_is_named_by_what_it_shows(cx: &mut TestAppContext) {
+        use super::super::blocks::{error_text, reasoning_title, status_line, tool_display_name};
+        use crate::l10n::L10n;
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            conduit_components::theme::install(
+                conduit_components::theme::ConduitTheme::new(
+                    "conduit",
+                    false,
+                    conduit_components::theme::DesignPrefs::default(),
+                    gpui_kit::black(),
+                ),
+                cx,
+            );
+            cx.set_global(conduit_components::Strings::default());
+            cx.set_global(L10n::new("en"));
+        });
+        let l10n = L10n::new("en");
+        let block = |kind: MessageBlockKind, extra: serde_json::Value| {
+            let mut json = serde_json::to_value(empty_block(kind)).unwrap();
+            if let (Some(b), Some(e)) = (json.as_object_mut(), extra.as_object()) {
+                b.extend(e.clone());
+            }
+            serde_json::from_value::<MessageBlockDto>(json).unwrap()
+        };
+        let call = |status: Option<&str>| {
+            block(
+                MessageBlockKind::ToolCalls,
+                serde_json::json!({"calls": [{
+                    "id": "call_tide",
+                    "name": "lookup_tide",
+                    "arguments": "{\"harbour\": \"Port Wren\"}",
+                    "done": true,
+                    "status": status,
+                }]}),
+            )
+        };
+        let reasoning = block(
+            MessageBlockKind::Reasoning,
+            serde_json::json!({"done": true, "durationSeconds": 3}),
+        );
+        let status = block(
+            MessageBlockKind::Status,
+            serde_json::json!({"statuses": [{"description": "Searching the web"}]}),
+        );
+        let error = block(
+            MessageBlockKind::Error,
+            serde_json::json!({"error": "The model is resting."}),
+        );
+        let used = l10n.desktop_tool_used(&tool_display_name("lookup_tide"));
+        let cases: Vec<(&str, Vec<MessageBlockDto>, String)> = vec![
+            ("a tool call", vec![call(None)], used.clone()),
+            (
+                "a stopped tool call",
+                vec![call(Some("incomplete"))],
+                used.clone(),
+            ),
+            (
+                "reasoning, then a tool call",
+                vec![reasoning.clone(), call(None)],
+                format!("{}. {used}", reasoning_title(&reasoning, &l10n)),
+            ),
+            (
+                "a code run",
+                vec![block(
+                    MessageBlockKind::CodeExecution,
+                    serde_json::json!({"name": "tide.py", "done": true}),
+                )],
+                l10n.desktop_ran_code(),
+            ),
+            (
+                "a details section",
+                vec![block(
+                    MessageBlockKind::Details,
+                    serde_json::json!({"summary": "Tide table"}),
+                )],
+                "Tide table".into(),
+            ),
+            (
+                "a status line",
+                vec![status.clone()],
+                status_line(&status, &l10n).unwrap(),
+            ),
+            ("an error", vec![error.clone()], error_text(&error, &l10n)),
+            (
+                "a Hermes error",
+                vec![block(
+                    MessageBlockKind::Error,
+                    serde_json::json!({
+                        "error": "HTTP 429",
+                        "hermesError": {"kind": "contextOverflow", "blocking": true},
+                    }),
+                )],
+                super::super::hermes_blocks::error_title("contextOverflow", &l10n),
+            ),
+            (
+                "an alert",
+                vec![block(
+                    MessageBlockKind::Alert,
+                    serde_json::json!({"type": "warning", "markdown": ""}),
+                )],
+                l10n.alert_warning(),
+            ),
+            (
+                "changed files",
+                vec![block(
+                    MessageBlockKind::ChangedFiles,
+                    serde_json::json!({"changedFiles": [
+                        {"path": "a.txt", "added": 1, "removed": 0, "lines": []},
+                        {"path": "b.txt", "added": 0, "removed": 2, "lines": []},
+                    ]}),
+                )],
+                l10n.hermes_changed_files(2),
+            ),
+            (
+                "a file",
+                vec![block(
+                    MessageBlockKind::Files,
+                    serde_json::json!({"files": [{"name": "tides.csv", "image": false}]}),
+                )],
+                "tides.csv".into(),
+            ),
+            // Nothing the answer's body shows has words of its own here.
+            ("embeds alone", embeds(&["<p>a</p>"]), String::new()),
+            (
+                "sources alone",
+                vec![empty_block(MessageBlockKind::Sources)],
+                String::new(),
+            ),
+        ];
+        let daemon = FakeDaemon::new();
+        let subscribe: Subscribe = Rc::new(|_, _| {});
+        let rpc = daemon.rpc();
+        let store = cx.new(|cx| ChatStore::new(rpc, subscribe, "c1".into(), cx));
+        for (what, blocks, said) in cases {
+            let host = RowHost {
+                store: store.downgrade(),
+                pane: RowSink::None,
+                server_id: None,
+                composer: None,
+            };
+            let item = RowItem {
+                key: "a1".into(),
+                text: "<details type=\"tool_calls\" done=\"true\" name=\"lookup_tide\">".into(),
+                blocks,
+                ..Default::default()
+            };
+            let row = cx.new(|_| AssistantRow::new(host, item, RowFlags::default()));
+            let spoken = row.read_with(cx, |r, cx| r.spoken(cx));
+            assert_eq!(spoken, said, "{what}");
+        }
+        // No blocks, no words (an empty stopped answer): nothing to say.
+        let host = RowHost {
+            store: store.downgrade(),
+            pane: RowSink::None,
+            server_id: None,
+            composer: None,
+        };
+        let empty = cx.new(|_| AssistantRow::new(host, RowItem::default(), RowFlags::default()));
+        assert_eq!(empty.read_with(cx, |r, cx| r.spoken(cx)), "");
     }
 
     #[test]

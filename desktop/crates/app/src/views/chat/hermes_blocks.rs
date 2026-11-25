@@ -144,7 +144,7 @@ pub fn changed_files(
     let m = t.metrics;
     let added: i64 = files.iter().map(|f| f.added).sum();
     let removed: i64 = files.iter().map(|f| f.removed).sum();
-    let title = l10n.hermes_changed_files(files.len() as i64);
+    let title = changed_files_title(files.len(), l10n);
     let row = |i: usize, label: AnyElement, aria: String, window: &mut Window, cx: &mut App| {
         let open = open.clone();
         div()
@@ -267,6 +267,11 @@ pub fn changed_files(
             .children(rows)
             .into_any_element(),
     )
+}
+
+/// The changed-files card's title: how many files.
+pub fn changed_files_title(count: usize, l10n: &L10n) -> String {
+    l10n.hermes_changed_files(count as i64)
 }
 
 /// What a failure's card leads with, in the phone's words.
