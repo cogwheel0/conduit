@@ -1014,9 +1014,13 @@ final class ChatsService {
   /// Carries on past a failure and reports it: a conversation already
   /// deleted elsewhere is no reason to leave the other nineteen alone.
   Future<BulkChatsResult> bulk(BulkChats request) async {
-    // Each id looked up once, as the request arrives, and waited for only
-    // when one may have moved: the batch acts for the account it came
-    // under, or not at all.
+    // Every id checked before any is looked up, so a refusal leaves no
+    // lookup behind; then each looked up once, as the request arrives, and
+    // waited for only when one may have moved: the batch acts for the
+    // account it came under, or not at all.
+    for (final id in request.chatIds) {
+      refuseOtherAccountsChat(_container, id);
+    }
     final lookups = <Future<String>?>[
       for (final id in request.chatIds) _moved(id),
     ];

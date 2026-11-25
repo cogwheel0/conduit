@@ -347,7 +347,57 @@ void main() {
     );
     await pumpEventQueue();
     expect(escaped, isEmpty);
-    expect(await bob, isNot(ada));
+    final bobId = await bob;
+    expect(bobId, isNot(ada));
+    expect(owui.chats.stored.keys, contains(now));
+
+    // A batch that also names a chat of the other backend is refused before
+    // any of its ids is looked up: no lookup is left for a switch to fail.
+    await accounts.switchTo(AccountRef(accountId: ada));
+    await certified(ada);
+    final held = moves.held = Completer<void>();
+    moves.asked = Completer<void>();
+    final theirs = ChatStorageIdentity(
+      rawId: now,
+      storage: ChatStorageKind.libreChat,
+    ).scopedId;
+    final refusedAgain = Completer<Object?>();
+    runZonedGuarded(() {
+      chats
+          .bulk(
+            BulkChats(
+              action: BulkChatAction.delete,
+              chatIds: <String>[old, theirs],
+            ),
+          )
+          .then<void>(
+            (_) => refusedAgain.complete(null),
+            onError: (Object error) => refusedAgain.complete(error),
+          );
+    }, (error, _) => escaped.add(error));
+    expect(
+      await refusedAgain.future,
+      isA<RpcError>().having(
+        (e) => e.code,
+        'code',
+        ConduitErrorCodes.notFound,
+      ),
+    );
+    final switchedAgain = Completer<void>();
+    final watchAgain = runtime.container.listen<int>(
+      accountSwitchCountProvider,
+      (_, _) {
+        if (!switchedAgain.isCompleted) switchedAgain.complete();
+      },
+    );
+    final toBob = accounts.switchTo(AccountRef(accountId: bobId));
+    await switchedAgain.future;
+    watchAgain.close();
+    moves.held = null;
+    held.complete();
+    await toBob;
+    await pumpEventQueue();
+    expect(escaped, isEmpty);
     expect(owui.chats.stored.keys, contains(now));
   });
 
@@ -460,7 +510,7 @@ void main() {
 /// is set; [asked] completes as the first one arrives.
 final class _MoveLookups extends QueryInterceptor {
   Completer<void>? held;
-  final Completer<void> asked = Completer<void>();
+  Completer<void> asked = Completer<void>();
 
   @override
   Future<List<Map<String, Object?>>> runSelect(

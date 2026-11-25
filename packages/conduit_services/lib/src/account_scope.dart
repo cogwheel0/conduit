@@ -228,6 +228,20 @@ final class AccountScope {
 /// raw id names here. An Open WebUI one goes on in raw form; a LibreChat
 /// one keeps its scope, which is how LibreChat's chats are dispatched.
 Future<String>? movedChatId(ProviderContainer container, String chatId) {
+  refuseOtherAccountsChat(container, chatId);
+  final current = currentChatId(container, chatId);
+  if (current == chatId) return null;
+  final account = AccountScope.capture(container);
+  return Future<String>.value(current).then((now) {
+    account.require('the chat\'s id was read');
+    return now;
+  });
+}
+
+/// Refuses [chatId] when it is scoped to the store of an account that is
+/// not in charge ([movedChatId]): synchronous, and starts nothing, so a
+/// request naming several chats checks them all before it looks any up.
+void refuseOtherAccountsChat(ProviderContainer container, String chatId) {
   final owner = ChatStorageIdentity.parse(chatId).storage;
   final inCharge =
       container.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
@@ -241,11 +255,4 @@ Future<String>? movedChatId(ProviderContainer container, String chatId) {
       debugMessage: 'no such chat for the account in charge',
     );
   }
-  final current = currentChatId(container, chatId);
-  if (current == chatId) return null;
-  final account = AccountScope.capture(container);
-  return Future<String>.value(current).then((now) {
-    account.require('the chat\'s id was read');
-    return now;
-  });
 }
