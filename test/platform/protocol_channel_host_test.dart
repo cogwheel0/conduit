@@ -242,6 +242,33 @@ void main() {
       ..not((it) => it.equals(first));
   });
 
+  test('a byte open the start fails is taken before the client takes the '
+      'error', () async {
+    await startHost();
+    paths.failing = 1;
+    final taken = Completer<void>();
+    addTearDown(() {
+      if (!taken.isCompleted) taken.complete();
+    });
+    // This client takes the host's frames only once its own open is taken.
+    swift.holdFrames = taken;
+    final failed = swift.answer(1);
+    check(
+      await swift.bytes(
+        ByteFrame(
+          1,
+          ByteFrameKind.open,
+          payload: _json(<String, Object>{
+            'method': 'GET',
+            'path': '/files/server/file',
+          }),
+        ).encode(),
+      ),
+    ).isNotNull();
+    taken.complete();
+    check((await failed).single.kind).equals(ByteFrameKind.error);
+  });
+
   test(
     'a message for a session that is gone is answered, not dropped',
     () async {
@@ -444,6 +471,7 @@ final class _Swift {
           data.lengthInBytes,
         );
         _frames.add(ByteFrame.decode(Uint8List.fromList(bytes)));
+        await holdFrames?.future;
         return ByteData(0);
       });
   }
@@ -460,6 +488,10 @@ final class _Swift {
   final StreamController<ByteFrame> _frames =
       StreamController<ByteFrame>.broadcast(sync: true);
   var _nextId = 1;
+
+  /// When set, the host's frames are seen at once but taken only once it
+  /// completes.
+  Completer<void>? holdFrames;
 
   Future<ByteData?> _takeRpc(ByteData? data) async {
     final message = _stringCodec.decodeMessage(data)!;

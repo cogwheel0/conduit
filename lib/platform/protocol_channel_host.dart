@@ -289,17 +289,17 @@ final class ProtocolChannelHost {
         return ByteData(0);
       }
       if (decoded.kind == ByteFrameKind.open) {
-        try {
-          await _sendFrame(
+        // Not awaited: the client may take it only after this frame is
+        // taken, as with any of the host's sends.
+        unawaited(
+          _sendFrame(
             ByteFrame(
               decoded.stream,
               ByteFrameKind.error,
               payload: Uint8List.fromList(utf8.encode('unavailable')),
             ).encode(),
-          );
-        } on Object catch (error, stack) {
-          _logSend(error, stack);
-        }
+          ).then<void>((_) {}, onError: _logSend),
+        );
       }
       return ByteData(0);
     }
