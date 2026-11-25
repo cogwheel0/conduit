@@ -233,6 +233,134 @@ void main() {
     expect(row?.archived, isTrue);
   });
 
+  group('a chat named by an id scoped to its store, with both stores '
+      'holding its raw id', () {
+    late AppDatabase libreChat;
+    late AppDatabase openWebUi;
+    late AppDatabase direct;
+    late _OwuiApi owui;
+
+    Future<void> seed(AppDatabase database, String title) =>
+        database.chatsDao.upsertServerChat(
+          rows: ChatBlobMapper.blobToRows(
+            chatId: 'shared-chat',
+            blob: <String, dynamic>{
+              'title': title,
+              'history': <String, dynamic>{
+                'messages': <String, dynamic>{},
+                'currentId': null,
+              },
+            },
+            title: title,
+            createdAt: 1,
+            updatedAt: 1,
+          ),
+        );
+
+    ProviderContainer signedIn(PrimaryAccountKind primary) {
+      final container = ProviderContainer(
+        overrides: [
+          syncEngineProvider.overrideWith(() => engine),
+          conversationsProvider.overrideWith(_Conversations.new),
+          foldersProvider.overrideWith(_Folders.new),
+          currentUserProvider2.overrideWithValue(null),
+          primaryAccountKindProvider.overrideWithValue(primary),
+          libreChatDatabaseProvider.overrideWithValue(libreChat),
+          appDatabaseProvider.overrideWithValue(openWebUi),
+          directLocalDatabaseProvider.overrideWithValue(direct),
+          apiServiceProvider.overrideWithValue(owui),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    String scopedTo(ChatStorageKind storage) =>
+        ChatStorageIdentity(rawId: 'shared-chat', storage: storage).scopedId;
+
+    setUp(() async {
+      final warned = driftRuntimeOptions.dontWarnAboutMultipleDatabases;
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+      addTearDown(
+        () => driftRuntimeOptions.dontWarnAboutMultipleDatabases = warned,
+      );
+      libreChat = AppDatabase(NativeDatabase.memory());
+      addTearDown(libreChat.close);
+      openWebUi = AppDatabase(NativeDatabase.memory());
+      addTearDown(openWebUi.close);
+      direct = AppDatabase(NativeDatabase.memory());
+      addTearDown(direct.close);
+      owui = _OwuiApi();
+      addTearDown(owui.dispose);
+      await seed(libreChat, 'Seed swap');
+      await seed(openWebUi, 'Seed swap');
+    });
+
+    // CodeRabbit PRRT_kwDOPbNgI867t6Q3: an id that said "Open WebUI" lost
+    // its owner on the way in, and LibreChat's chat changed instead.
+    test('with LibreChat in charge, an Open WebUI one is not found, and '
+        'LibreChat\'s chat is left alone', () async {
+      final container = signedIn(PrimaryAccountKind.libreChat);
+      final service = ChatsService(container, now: () => now);
+      final turns = TurnsService(container, EventBus());
+      addTearDown(turns.dispose);
+      final notFound = throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.notFound,
+        ),
+      );
+      final id = scopedTo(ChatStorageKind.openWebUi);
+
+      await expectLater(service.setPinned(id, value: true), notFound);
+      await expectLater(service.setArchived(id, value: true), notFound);
+      await expectLater(
+        turns.deleteMessages(
+          DeleteMessages(chatId: id, messageIds: const <String>['m-1']),
+        ),
+        notFound,
+      );
+
+      final row = await libreChat.chatsDao.getChat('shared-chat');
+      expect(row?.pinned, isFalse);
+      expect(row?.archived, isFalse);
+      expect(owui.toggles, isEmpty);
+    });
+
+    test('with Open WebUI in charge, a LibreChat one is not found, and '
+        'neither chat changes', () async {
+      final container = signedIn(PrimaryAccountKind.openWebUi);
+      final service = ChatsService(container, now: () => now);
+      final turns = TurnsService(container, EventBus());
+      addTearDown(turns.dispose);
+      final notFound = throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.notFound,
+        ),
+      );
+      final id = scopedTo(ChatStorageKind.libreChat);
+
+      await expectLater(service.setPinned(id, value: true), notFound);
+      await expectLater(service.setArchived(id, value: true), notFound);
+      await expectLater(
+        turns.deleteMessages(
+          DeleteMessages(chatId: id, messageIds: const <String>['m-1']),
+        ),
+        notFound,
+      );
+
+      for (final database in <AppDatabase>[libreChat, openWebUi]) {
+        final row = await database.chatsDao.getChat('shared-chat');
+        expect(row?.pinned, isFalse);
+        expect(row?.archived, isFalse);
+      }
+      expect(owui.toggles, isEmpty);
+    });
+  });
+
   // CodeRabbit 4651867121: a pull's write of what it read before a pin or
   // archive made here could land between that change and its note.
   test('an Open WebUI pin or archive made here is noted before the chat is '

@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:conduit_core/auth/auth_state_manager.dart' show AuthStatus;
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageIdentity, ChatStorageKind;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show authStatusProvider, currentUserProvider2;
 import 'package:conduit_core/models/openwebui_registry.dart'
@@ -11,6 +13,8 @@ import 'package:conduit_core/providers/app_providers.dart'
     show currentChatId;
 import 'package:conduit_core/providers/app_providers.dart'
     show activeServerProvider, openWebUiAuthSessionEpochProvider;
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
 import 'package:conduit_core/providers/primary_account_providers.dart'
     show PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -217,7 +221,26 @@ final class AccountScope {
 /// is, so the request goes on with no wait and under the account it came
 /// under. Otherwise the request is refused once another account is in
 /// charge, as one that reached the core then would be.
+///
+/// An id scoped to an account's store (Open WebUI's or LibreChat's) names
+/// that store's chat, and only the account in charge has its store open:
+/// one scoped to the other is not found, rather than taken for the chat its
+/// raw id names here. An Open WebUI one goes on in raw form; a LibreChat
+/// one keeps its scope, which is how LibreChat's chats are dispatched.
 Future<String>? movedChatId(ProviderContainer container, String chatId) {
+  final owner = ChatStorageIdentity.parse(chatId).storage;
+  final inCharge =
+      container.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+      ? ChatStorageKind.libreChat
+      : ChatStorageKind.openWebUi;
+  if ((owner == ChatStorageKind.openWebUi ||
+          owner == ChatStorageKind.libreChat) &&
+      owner != inCharge) {
+    throw const RpcError(
+      code: ConduitErrorCodes.notFound,
+      debugMessage: 'no such chat for the account in charge',
+    );
+  }
   final current = currentChatId(container, chatId);
   if (current == chatId) return null;
   final account = AccountScope.capture(container);
