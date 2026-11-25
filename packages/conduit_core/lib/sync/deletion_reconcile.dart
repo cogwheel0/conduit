@@ -133,6 +133,8 @@ class DeletionReconcile {
 
     // Before any list page is requested; see applyServerReadStates.
     final readStateSince = _db.chatsDao.localReadStateClock;
+    // And a chat renamed here meanwhile keeps its new title.
+    final titleSince = _db.chatsDao.localTitleClock;
 
     // 1. Enumerate the COMPLETE server id set: both the main list (pinned +
     //    folders + root, archived excluded server-side) and the archived list,
@@ -166,6 +168,7 @@ class DeletionReconcile {
     final reconciledTitles = await _reconcileServerTitles(
       completeServerChats,
       localServerChats,
+      titleSince: titleSince,
     );
     // Reads and unreads on another device also leave `updated_at` alone.
     final reconciledReadStates = await applyServerReadStates(
@@ -404,8 +407,9 @@ class DeletionReconcile {
 
   Future<int> _reconcileServerTitles(
     Map<String, String> serverChats,
-    List<ServerChatReconcileEntry> localChats,
-  ) async {
+    List<ServerChatReconcileEntry> localChats, {
+    required int titleSince,
+  }) async {
     var updated = 0;
     for (final local in localChats) {
       final serverTitle = serverChats[local.id];
@@ -420,7 +424,8 @@ class DeletionReconcile {
           final current = await _db.chatsDao.getChat(local.id);
           if (current == null ||
               current.dirty ||
-              current.title == serverTitle) {
+              current.title == serverTitle ||
+              _db.chatsDao.titleWrittenSince(local.id, titleSince)) {
             return false;
           }
           final persisted = await _db.chatsDao.updateServerGeneratedTitle(

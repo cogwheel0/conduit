@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
@@ -109,8 +111,13 @@ final class _TitlingApi extends SidebarTestSidebarApiService {
     List<String>? models,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    final refused = saveFailure;
+    if (refused != null) throw refused;
     savedTitles.add((id: id, title: title));
   }
+
+  /// Thrown by the title's save when set.
+  Object? saveFailure;
 }
 
 void main() {
@@ -377,4 +384,65 @@ void main() {
     await tester.pumpAndSettle();
     await done;
   });
+
+  for (final refused in [false, true]) {
+    testWidgets(
+      'a rename ${refused ? 'refused' : 'saved'} once its page has closed '
+      '${refused ? 'says so' : 'shows in the chat list'}',
+      (tester) async {
+        const renamed = 'The shelf question';
+        final server = chat('server');
+        final api = _TitlingApi()
+          ..saveFailure = refused ? Exception('refused') : null;
+
+        await tester.pumpWidget(
+          sidebarTestBuildHarness(
+            controllers: SidebarTestSidebarHarnessControllers(),
+            conversations: [server],
+            apiService: api,
+            profilePage: const SizedBox(),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(ConduitContextMenu).first),
+        );
+        // A save of the chat under way holds the rename.
+        final saving = Completer<void>();
+        final save = container
+            .read(chatLocksProvider)
+            .runExclusive('server', () => saving.future);
+
+        final rename = menuOf(
+          tester,
+          server,
+        ).actions.singleWhere((action) => action.label == l10n.rename);
+        final renaming = rename.onSelected();
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(EditableText), renamed);
+        await tester.tap(find.text(l10n.save));
+        await tester.pumpAndSettle();
+
+        NavigationService.router.go(Routes.profile);
+        await tester.pumpAndSettle();
+        expect(find.byType(SidebarPage), findsNothing);
+        saving.complete();
+        await save;
+        await tester.pumpAndSettle();
+
+        if (refused) {
+          expect(find.text(l10n.failedToRenameChat), findsOneWidget);
+          await tester.tap(find.text(l10n.ok));
+          await tester.pumpAndSettle();
+        } else {
+          expect(api.savedTitles.single, (id: 'server', title: renamed));
+          expect(
+            container.read(conversationsProvider).requireValue.single.title,
+            renamed,
+          );
+        }
+        await renaming;
+      },
+    );
+  }
 }

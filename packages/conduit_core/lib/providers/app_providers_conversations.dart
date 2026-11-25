@@ -739,6 +739,10 @@ class Conversations extends _$Conversations {
   /// Title generation updates the server row and blob but does not advance the
   /// server watermark. Persist the event directly so a title cannot remain
   /// stale merely because the row is outside the loaded page.
+  ///
+  /// Stored once the chat is free, so it carries the moment it arrived: a
+  /// title this device wrote since (a rename that waited for the chat) is
+  /// neither replaced nor hidden.
   void applyServerGeneratedTitle(String serverId, String title) {
     final normalizedTitle = title.trim();
     final identity = ChatStorageIdentity.parse(serverId);
@@ -757,12 +761,17 @@ class Conversations extends _$Conversations {
       return;
     }
     final locks = ref.read(chatLocksProvider);
+    final since = db.chatsDao.localTitleClock;
     unawaited(
       locks
           .runExclusive(
             rawId,
-            () =>
-                db.chatsDao.updateServerGeneratedTitle(rawId, normalizedTitle),
+            () async => db.chatsDao.titleWrittenSince(rawId, since)
+                ? null
+                : db.chatsDao.updateServerGeneratedTitle(
+                    rawId,
+                    normalizedTitle,
+                  ),
           )
           .then<void>((persistedTitle) {
             if (persistedTitle != null) {
@@ -836,6 +845,12 @@ class Conversations extends _$Conversations {
           }),
     );
   }
+
+  /// Shows [title] for Open WebUI chat [rawId] in the loaded list and the
+  /// open chat, without storing it: for a writer that has stored it already,
+  /// in the chat's lock.
+  void showTitle(String rawId, String title) =>
+      _applyGeneratedTitleToLoadedState(rawId, title);
 
   void _applyGeneratedTitleToLoadedState(
     String rawId,
@@ -922,6 +937,7 @@ class Conversations extends _$Conversations {
               lastReadAt: lastReadAt == null
                   ? null
                   : _epochSecondsOf(lastReadAt),
+              keepTitleWrittenHere: true,
             );
           })
           .then((_) => folderConversationRefresh.bumpIfMounted())
@@ -967,6 +983,7 @@ class Conversations extends _$Conversations {
                     pinned: Value(conversation.pinned),
                     archived: Value(conversation.archived),
                     updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
+                    keepTitleWrittenHere: true,
                   );
           })
           .then((_) => folderConversationRefresh.bumpIfMounted())

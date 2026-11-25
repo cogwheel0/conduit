@@ -5,7 +5,9 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         archiveConversation,
         copyLibreChatConversation,
         pinConversation,
+        OpenWebUiAccountChangedException,
         renameLibreChatConversation,
+        renameOpenWebUiConversation,
         captureChatMutationOwner,
         chatActionAvailability,
         chatMenuAvailability,
@@ -826,8 +828,19 @@ final class ChatsService {
   /// chats whose timestamp moved, so it would never look at this one; and
   /// the windows are told only afterwards, or they would refetch the old
   /// copy.
-  Future<void> _afterEnvelopeChange(String chatId) async {
+  /// [account] is the API client the change was made with, when it was
+  /// read before an earlier wait; otherwise the one signed in now.
+  Future<void> _afterEnvelopeChange(
+    String chatId, {
+    ApiService? account,
+  }) async {
+    final madeWith = account ?? _container.read(apiServiceProvider);
+    // Another account in charge since: its sync, its chats and its windows
+    // are not this change's. Asked after each wait.
+    bool changedAccount() =>
+        !identical(_container.read(apiServiceProvider), madeWith);
     chatId = await _current(chatId);
+    if (changedAccount()) return;
     try {
       await _container.read(primarySyncProvider).pullChatNow(chatId);
     } on Object catch (error) {
@@ -837,6 +850,7 @@ final class ChatsService {
         error: error,
       );
     }
+    if (changedAccount()) return;
     _container.invalidate(loadConversationProvider(chatId));
     _events?.emit(ConduitEventSpecs.chatsChanged, ChatsChanged(chatId: chatId));
   }
@@ -883,8 +897,22 @@ final class ChatsService {
       await renameLibreChatConversation(_container, id, trimmed);
       return _refresh();
     }
-    await _api.updateConversation(id, title: trimmed);
-    await _afterEnvelopeChange(id);
+    // Refused while signed out, as the other Open WebUI writes here are.
+    final api = _api;
+    final bool current;
+    try {
+      // In the chat's lock, so a save of the chat under way cannot put back
+      // the title it read before.
+      current = await renameOpenWebUiConversation(_container, id, trimmed);
+    } on OpenWebUiAccountChangedException {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the account changed before the chat was renamed',
+      );
+    }
+    // Renamed in an account signed out of since: not one of these chats.
+    if (current) await _afterEnvelopeChange(id, account: api);
     return _refresh();
   }
 
@@ -1384,6 +1412,7 @@ final class ChatsService {
       );
     }
     try {
+      final account = _container.read(apiServiceProvider);
       final GeneratedConversationTitle generated;
       try {
         generated = await generateConversationTitle(_container, chatId);
@@ -1395,8 +1424,10 @@ final class ChatsService {
           debugMessage: 'the title could not be made: $error',
         );
       }
-      if (generated.outcome == ConversationTitleOutcome.saved) {
-        await _afterEnvelopeChange(chatId);
+      // Saved in an account signed out of since: not one of these chats.
+      if (generated.outcome == ConversationTitleOutcome.saved &&
+          generated.current) {
+        await _afterEnvelopeChange(chatId, account: account);
       }
       return GeneratedTitle(
         outcome: switch (generated.outcome) {

@@ -199,6 +199,86 @@ void _drainLibreChat(dynamic ref) {
   );
 }
 
+/// A change to an Open WebUI chat that waited for the chat while another
+/// account (or another session of it) took charge: made for no account.
+final class OpenWebUiAccountChangedException implements Exception {
+  const OpenWebUiAccountChangedException();
+
+  @override
+  String toString() => 'The Open WebUI account changed';
+}
+
+/// Renames Open WebUI chat [conversationId] to [title] on its server, and
+/// stores the title as the server's own.
+///
+/// In the chat's lock, as a save of the chat is: a save under way finishes
+/// first, so it cannot land after the rename with the title it read before;
+/// and a save queued for later reads the new title from the stored copy,
+/// which it sends whole. Throws [OpenWebUiAccountChangedException] when the
+/// account changed while it waited for the chat, and leaves the stored copy
+/// alone when the server refuses the rename.
+///
+/// Returns whether the account renamed in is still the signed-in one. When
+/// it changed during the request, the rename stands and is stored with that
+/// account's chats, and the caller leaves the new account's alone. [ref] is
+/// read after the request: pass one that outlives the caller's page.
+Future<bool> renameOpenWebUiConversation(
+  dynamic ref,
+  String conversationId,
+  String title,
+) async {
+  final rawId = ChatStorageIdentity.parse(conversationId).rawId;
+  final api = _readProvider(ref, apiServiceProvider);
+  if (api == null) throw StateError('No Open WebUI account is signed in.');
+  final session = _readProvider(ref, openWebUiAuthSessionEpochProvider);
+  final database = _readProvider(ref, appDatabaseProvider);
+  final ChatLocks titleLocks = _readProvider(ref, chatTitleLocksProvider);
+  final ChatLocks chatLocks = _readProvider(ref, chatLocksProvider);
+  final Conversations chats = _readProvider(
+    ref,
+    conversationsProvider.notifier,
+  );
+  bool current() =>
+      identical(api, _readProvider(ref, apiServiceProvider)) &&
+      identical(session, _readProvider(ref, openWebUiAuthSessionEpochProvider));
+  // The title is stored where the account keeps its chats, which a switch
+  // to another server closes unless it is leased. One already closing is
+  // another account's turn: the server is not asked.
+  final DatabaseManager databases = _readProvider(ref, databaseManagerProvider);
+  final lease = database == null
+      ? null
+      : databases.tryAcquireLease(database);
+  if (database != null &&
+      lease == null &&
+      databases.serverIdForDatabase(database) != null) {
+    throw const OpenWebUiAccountChangedException();
+  }
+  try {
+    // A title being generated for this chat waits for the rename, and keeps
+    // it.
+    await titleLocks.runExclusive(
+      rawId,
+      () => chatLocks.runExclusive(rawId, () async {
+        if (!current()) throw const OpenWebUiAccountChangedException();
+        await api.updateConversation(rawId, title: title);
+        database?.chatsDao.noteTitleWritten(rawId, title);
+        await database?.chatsDao.updateServerGeneratedTitle(
+          rawId,
+          title,
+          renamedHere: true,
+        );
+        // Shown as stored, in the same turn of the chat's lock: what writes
+        // the chat next, a pull of another device's title, say, shows its
+        // own.
+        if (current()) chats.showTitle(rawId, title);
+      }),
+    );
+  } finally {
+    await lease?.release();
+  }
+  return current();
+}
+
 /// Renames a LibreChat chat: locally at once, on the server when the outbox
 /// drains (now, or once back online).
 Future<void> renameLibreChatConversation(

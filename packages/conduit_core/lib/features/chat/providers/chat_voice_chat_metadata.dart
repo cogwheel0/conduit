@@ -29,6 +29,11 @@ Future<void> _generateVoiceChatMetadata(
   final db = owner.database;
   if (api is! ApiService || db == null) return;
   final titleLocks = ref.read(chatTitleLocksProvider) as ChatTitleLocks;
+  // The locks of the chat's own database, whichever account is signed in by
+  // the time the title is written.
+  final chatLocks = chatLocksOf(db);
+  final databases = ref.read(databaseManagerProvider) as DatabaseManager;
+  final chats = ref.read(conversationsProvider.notifier) as Conversations;
   try {
     final chatId = await _createdChatServerId(
       db,
@@ -55,26 +60,47 @@ Future<void> _generateVoiceChatMetadata(
         chatId: chatId,
         authSnapshot: authSnapshot,
       ))?.trim();
-      if (title != null && title.isNotEmpty) {
-        // A rename the user started meanwhile finishes first. The server's
-        // title shows it, and one made elsewhere, so it is kept.
-        await titleLocks.runExclusive(chatId, () async {
-          final saved = await api.getConversation(
+      // Leased as a rename is: an account switch to another server keeps
+      // the database open for the title, and one closing already is not
+      // asked to.
+      final lease = title == null || title.isEmpty
+          ? null
+          : databases.tryAcquireLease(db);
+      if (title != null &&
+          title.isNotEmpty &&
+          (lease != null || databases.serverIdForDatabase(db) == null)) {
+        try {
+          // A rename the user started meanwhile finishes first. The server's
+          // title shows it, and one made elsewhere, so it is kept. In the
+          // chat's lock too, stored and shown from there, as a rename is: a
+          // pull of a title set elsewhere since lands after it, and keeps
+          // that title.
+          await titleLocks.runExclusive(
             chatId,
-            authSnapshot: authSnapshot,
+            () => chatLocks.runExclusive(chatId, () async {
+              final saved = await api.getConversation(
+                chatId,
+                authSnapshot: authSnapshot,
+              );
+              if (saved.title != initialTitle) return;
+              await api.updateConversation(
+                chatId,
+                title: title,
+                authSnapshot: authSnapshot,
+              );
+              db.chatsDao.noteTitleWritten(chatId, title);
+              final stored = await db.chatsDao.updateServerGeneratedTitle(
+                chatId,
+                title,
+              );
+              if (openWebUiCompletionContextIsCurrent(ref, owner)) {
+                chats.showTitle(chatId, stored ?? title);
+              }
+            }),
           );
-          if (saved.title != initialTitle) return;
-          await api.updateConversation(
-            chatId,
-            title: title,
-            authSnapshot: authSnapshot,
-          );
-          if (openWebUiCompletionContextIsCurrent(ref, owner)) {
-            ref
-                .read(conversationsProvider.notifier)
-                .applyServerGeneratedTitle(chatId, title);
-          }
-        });
+        } finally {
+          await lease?.release();
+        }
       }
     }
     if (tasks['tags_generation'] == true) {

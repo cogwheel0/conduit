@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -225,33 +226,56 @@ class NoteLocks extends ChatLocks {}
 /// Lock domain for the writes of one chat's title, keyed by its server id.
 class ChatTitleLocks extends ChatLocks {}
 
-/// Fresh instance per database identity so locks never leak across servers.
+/// One set of locks per database instance, so locks never leak across
+/// servers, and an account signed in to again while its database is still
+/// leased (a request out across the switches) gets the locks that request
+/// holds, not fresh ones its sync could write past.
+final _chatLocksByDatabase = Expando<ConversationLocks>('chat-locks');
+final _folderLocksByDatabase = Expando<FolderLocks>('folder-locks');
+final _noteLocksByDatabase = Expando<NoteLocks>('note-locks');
+
+T _locksOf<T extends ChatLocks>(
+  Expando<T> byDatabase,
+  AppDatabase? database,
+  T Function() create,
+) => database == null ? create() : byDatabase[database] ??= create();
+
+/// The chat locks of [database], the same for every reader while it lives:
+/// for work that keeps a database of its own past an account switch.
+ConversationLocks chatLocksOf(AppDatabase database) =>
+    _locksOf(_chatLocksByDatabase, database, ConversationLocks.new);
+
+/// The chat locks of the signed-in account's database; see
+/// [_chatLocksByDatabase].
 @Riverpod(keepAlive: true)
-ConversationLocks chatLocks(Ref ref) {
-  ref.watch(appDatabaseProvider);
-  return ConversationLocks();
-}
+ConversationLocks chatLocks(Ref ref) => _locksOf(
+  _chatLocksByDatabase,
+  ref.watch(appDatabaseProvider),
+  ConversationLocks.new,
+);
 
 /// Folder ops own a SEPARATE lock domain from chats (`OutboxDao.isFolderKind`):
 /// [PushSync]/[OutboxDrainer] take this as their `folderLocks`. A distinct
 /// instance from [chatLocksProvider] so a folder op never contends a chat op
-/// (and vice versa). Also recreated per database identity.
+/// (and vice versa). One set per database instance, as the chat locks.
 @Riverpod(keepAlive: true)
-FolderLocks folderLocks(Ref ref) {
-  ref.watch(appDatabaseProvider);
-  return FolderLocks();
-}
+FolderLocks folderLocks(Ref ref) => _locksOf(
+  _folderLocksByDatabase,
+  ref.watch(appDatabaseProvider),
+  FolderLocks.new,
+);
 
 /// Note ops own a SEPARATE lock domain from chats and folders
 /// (`OutboxDao.isNoteKind`): the Phase 5 notes write path + push take this as
 /// their `noteLocks`. A distinct [ChatLocks] instance so a note op never
-/// contends a chat/folder op (and vice versa). Recreated per database identity
-/// so locks never leak across servers. The per-key id is the NOTE id.
+/// contends a chat/folder op (and vice versa). One set per database instance,
+/// as the chat locks. The per-key id is the NOTE id.
 @Riverpod(keepAlive: true)
-NoteLocks noteLocks(Ref ref) {
-  ref.watch(appDatabaseProvider);
-  return NoteLocks();
-}
+NoteLocks noteLocks(Ref ref) => _locksOf(
+  _noteLocksByDatabase,
+  ref.watch(appDatabaseProvider),
+  NoteLocks.new,
+);
 
 /// Orders a rename the user makes and a title generated for them, so neither
 /// overwrites the other while the first is still reaching the server. A

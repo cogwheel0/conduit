@@ -542,6 +542,118 @@ void main() {
     expect(owui.chats.stored[now]!['title'], 'The shelf question');
     expect(owui.chats.stored[now]!['archived'], isTrue);
   });
+
+  // How a rename and a save of the chat are ordered is tested in the core
+  // (`rename_openwebui_conversation_test.dart`); here, what the Mac is told.
+  group('a rename of an Open WebUI chat and a save of the chat it overlaps',
+      () {
+    const renamed = 'The shelf question';
+
+    /// A Direct answer stored in [chatId]: the save of the chat that
+    /// carries it goes out next.
+    Future<void> answerIn(String chatId) async {
+      final next = await turns.send(
+        SendTurn(model: model, text: 'And the drawer?', chatId: chatId),
+      );
+      await finished(chatId, messageId: next.assistantMessageId);
+    }
+
+    /// That save, held at the server once it is on its way (it read the
+    /// chat, title included, under the chat's lock): what lets it land.
+    Future<Completer<void>> saveOnItsWay(String chatId) async {
+      final held = owui.chats.holdChatSaves = Completer<void>();
+      owui.chats.chatSaveAsked = Completer<void>();
+      await answerIn(chatId);
+      await owui.chats.chatSaveAsked.future;
+      // Only that save: the rename's own write goes through.
+      owui.chats.holdChatSaves = null;
+      return held;
+    }
+
+    step('a rename that waited for the chat while another account took '
+        'charge is refused, and the chat keeps its title', () async {
+      await signIn('ada@example.com', 'pw-ada');
+      final (_, now) = await movedChat();
+      final title = owui.chats.stored[now]!['title'];
+      final save = await saveOnItsWay(now);
+
+      final renaming = chats.rename(now, renamed);
+      final switched = Completer<void>();
+      final watch = runtime.container.listen<int>(
+        accountSwitchCountProvider,
+        (_, _) {
+          if (!switched.isCompleted) switched.complete();
+        },
+      );
+      final bob = signIn('bob@example.com', 'pw-bob');
+      await switched.future;
+      watch.close();
+      save.complete();
+
+      await expectLater(
+        renaming,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
+      await bob;
+      expect(owui.chats.stored[now]!['title'], title);
+    });
+
+    step('a rename whose account changed while it re-read the chat tells '
+        'the account in charge nothing of it', () async {
+      await signIn('ada@example.com', 'pw-ada');
+      final told = <Object?>[];
+      final untap = events.tap((event, _, payload) {
+        if (event == ConduitEvents.chatsChanged) told.add(payload);
+      });
+      addTearDown(untap);
+      final (_, now) = await movedChat();
+      bool toldOf(Object? payload) =>
+          payload is Map && payload['chatId'] == now;
+      // The turn that made the chat tells of it once it is stored there:
+      // before the rename, whose own word is the one looked for.
+      if (!told.any(toldOf)) {
+        final settled = Completer<void>();
+        final untapSettled = events.tap((event, _, payload) {
+          if (event == ConduitEvents.chatsChanged &&
+              toldOf(payload) &&
+              !settled.isCompleted) {
+            settled.complete();
+          }
+        });
+        await settled.future;
+        untapSettled();
+      }
+      told.clear();
+      final reread = owui.chats.holdChatReads = Completer<void>();
+      owui.chats.chatReadAsked = Completer<void>();
+
+      final renaming = chats.rename(now, renamed);
+      await owui.chats.chatReadAsked.future;
+      final switched = Completer<void>();
+      final watch = runtime.container.listen<int>(
+        accountSwitchCountProvider,
+        (_, _) {
+          if (!switched.isCompleted) switched.complete();
+        },
+      );
+      final bob = signIn('bob@example.com', 'pw-bob');
+      await switched.future;
+      watch.close();
+      owui.chats.holdChatReads = null;
+      reread.complete();
+      await renaming;
+      await bob;
+
+      expect(owui.chats.stored[now]!['title'], renamed);
+      expect(told.where(toldOf), isEmpty);
+    });
+  });
 }
 
 /// Holds the lookups of a chat's move (its `chat_remap:` row) while [held]

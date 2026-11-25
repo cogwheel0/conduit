@@ -1007,6 +1007,12 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
   String serverTitle = 'Plan a weekend in Oslo';
   Completer<void>? titleGate;
 
+  /// Holds the answer to the title's save, once the server has taken it
+  /// ([renameApplied]).
+  Completer<void>? renameResponse;
+  final renameApplied = Completer<void>();
+  final tagAsked = Completer<void>();
+
   /// Each request's name, and whether it carried a session snapshot.
   final requests = <String, bool>{};
   final tagged = <(String, String)>[];
@@ -1070,6 +1076,8 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
     requests['rename'] = authSnapshot != null;
     renamed.add((id, title));
     if (title != null) serverTitle = title;
+    if (!renameApplied.isCompleted) renameApplied.complete();
+    await renameResponse?.future;
   }
 
   @override
@@ -1080,6 +1088,7 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
   }) async {
     requests['tag'] = authSnapshot != null;
     tagged.add((chatId, name));
+    if (!tagAsked.isCompleted) tagAsked.complete();
     return [
       {'id': name.toLowerCase(), 'name': name},
     ];
@@ -6553,6 +6562,49 @@ void main() {
 
           check(api.renamed).isEmpty();
           check(api.serverTitle).equals('My trip');
+        });
+
+        test('keeps a title another device gave it while its own was on '
+            'its way back', () async {
+          const elsewhere = 'Oslo, renamed elsewhere';
+          final api = _VoiceMetadataApi()..renameResponse = Completer<void>();
+          final engine = _RemappingSyncEngine(db, api, remapOnDrain: true);
+          final container = _container(
+            db: db,
+            active: null,
+            messages: const [],
+            api: api,
+            syncEngine: engine,
+          );
+          addTearDown(container.dispose);
+
+          await durableSend(
+            container,
+            'Plan a weekend in Oslo',
+            null,
+            contextAttachments: const [],
+            voice: exchange,
+          );
+          await api.renameApplied.future;
+          // Renamed on another device once the server took this title, and
+          // stored here by a pull, in the chat's lock, before the answer to
+          // this title's save came back.
+          api.serverTitle = elsewhere;
+          final locks = container.read(chatLocksProvider);
+          final pulled = locks.runExclusive(
+            'server-chat',
+            () => db.chatsDao.updateServerGeneratedTitle(
+              'server-chat',
+              elsewhere,
+            ),
+          );
+          api.renameResponse!.complete();
+          await pulled;
+          await api.tagAsked.future;
+          await locks.runExclusive('server-chat', () async {});
+
+          check((await db.chatsDao.getChat('server-chat'))!.title)
+              .equals(elsewhere);
         });
 
         test('follows the auto-title and auto-tag settings', () async {
