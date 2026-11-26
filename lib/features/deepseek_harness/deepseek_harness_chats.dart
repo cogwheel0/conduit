@@ -145,13 +145,12 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
     });
   }
 
-  Future<void> _workspace(String? id, {String? liveTitle}) async {
+  Future<void> _workspace({String? id, String? title}) async {
     if (_showingWorkspace) return;
     _showingWorkspace = true;
     try {
-      String? title;
       if (id != null) {
-        title = liveTitle ?? _summary?.title ?? '';
+        title ??= _summary?.title ?? '';
         if (title.isEmpty) {
           // Harness can assign a title after the first turn in a new session.
           try {
@@ -241,7 +240,7 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
               summary: _summary,
               drafts: _draftsBySignIn[widget.connection] ??= {},
               onBack: _back,
-              onWorkspace: (title) => _workspace(session, liveTitle: title),
+              onWorkspace: (title) => _workspace(id: session, title: title),
             )
           : FutureBuilder(
               key: ObjectKey(widget.connection),
@@ -275,7 +274,7 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
                         icon: Icons.open_in_browser,
                         iosSymbol: 'safari',
                         semanticLabel: l10n.deepSeekHarnessOpenWorkspace,
-                        onPressed: () => _workspace(null),
+                        onPressed: _workspace,
                       ),
                       AdaptiveAppBarAction(
                         icon: Icons.settings_outlined,
@@ -358,7 +357,7 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
                                               ? l10n.deepSeekHarnessOpenWorkspace
                                               : l10n.newChat,
                                           onPressed: workspaces.isEmpty
-                                              ? () => _workspace(null)
+                                              ? _workspace
                                               : _creating
                                               ? null
                                               : () => _newChat(workspaces),
@@ -385,16 +384,18 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
                                       ),
                                       subtitle: row.needsWorkspace
                                           ? Text(
-                                              l10n.deepSeekHarnessReviewRequest,
+                                              l10n.deepSeekHarnessOpenWorkspace,
                                             )
                                           : row.running
                                           ? Text(l10n.scheduledTaskRunning)
                                           : null,
                                       trailing: const Icon(Icons.chevron_right),
-                                      onTap: () => setState(() {
-                                        _selectedId = row.id;
-                                        _summary = row;
-                                      }),
+                                      onTap: row.needsWorkspace
+                                          ? () => _workspace(title: row.title)
+                                          : () => setState(() {
+                                              _selectedId = row.id;
+                                              _summary = row;
+                                            }),
                                     );
                                   },
                                 ),

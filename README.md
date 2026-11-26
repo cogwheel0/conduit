@@ -307,8 +307,9 @@ signing key each time it starts, so every restart signs Conduit out.
    keeps the conversation history and must be reachable from your phone.
 
 Conduit saves the server-issued sign-in in device secure storage. If Harness
-asks you to sign in again, use a fresh launch link. Choose **Forget connection**
-in the workspace to remove the saved sign-in from this device.
+asks you to sign in again, use a fresh launch link. To remove the saved sign-in
+from this device, open the connection settings above the Harness chat list and
+choose **Forget connection**.
 
 </details>
 

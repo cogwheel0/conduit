@@ -27,6 +27,7 @@ class _Client extends Fake implements DeepSeekHarnessClient {
   Future<List<HarnessSession>> listSessions() async => const [
     HarnessSession('tray', 'Tray notes', false, false),
     HarnessSession('fern', 'Fern log', false, false),
+    HarnessSession('archive', 'Archived tray', false, true),
   ];
 
   @override
@@ -154,6 +155,26 @@ void main() {
     of: find.byKey(const ValueKey('harness-message-field')),
     matching: find.byType(EditableText),
   );
+
+  testWidgets('sessions requiring the workspace open there directly', (
+    tester,
+  ) async {
+    await open(tester);
+    final archived = find.byKey(const ValueKey('archive'));
+    expect(
+      find.descendant(
+        of: archived,
+        matching: find.text('Open Harness workspace'),
+      ),
+      findsOneWidget,
+    );
+    await choose(tester, 'Archived tray');
+    expect(opened, ['Archived tray']);
+    expect(client.observed, isEmpty);
+    closeWorkspace.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Tray notes'), findsOneWidget);
+  });
 
   testWidgets(
     'failed send and navigating between sessions preserve only the matching draft',
