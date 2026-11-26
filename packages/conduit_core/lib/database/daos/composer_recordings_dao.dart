@@ -49,7 +49,7 @@ class ComposerRecordingsDao extends DatabaseAccessor<AppDatabase>
         .watch();
   }
 
-  Future<void> append(String id, Uint8List pcm) =>
+  Future<void> append(String id, Uint8List pcm, {bool longForm = false}) =>
       attachedDatabase.transaction(() async {
         if (pcm.isEmpty || pcm.length.isOdd) {
           throw ArgumentError('PCM must contain complete 16-bit samples');
@@ -60,7 +60,7 @@ class ComposerRecordingsDao extends DatabaseAccessor<AppDatabase>
         // Discard or chat deletion wins over an already queued capture chunk.
         if (row == null) return;
         await _checkChat(row.scope, row.chatId);
-        if (row.byteCount + pcm.length > 16000 * 2 * 600) {
+        if (!longForm && row.byteCount + pcm.length > 32000 * 600) {
           throw StateError('Recording exceeds the ten-minute limit');
         }
         await into(composerRecordingChunks).insert(
@@ -77,15 +77,31 @@ class ComposerRecordingsDao extends DatabaseAccessor<AppDatabase>
         );
       });
 
+  Stream<Uint8List> pcmChunks(String id) async* {
+    var offset = 0;
+    while (true) {
+      final page =
+          await (select(composerRecordingChunks)
+                ..where(
+                  (r) =>
+                      r.recordingId.equals(id) &
+                      r.sequence.isBiggerOrEqualValue(offset),
+                )
+                ..orderBy([(r) => OrderingTerm.asc(r.sequence)])
+                ..limit(16))
+              .get();
+      if (page.isEmpty) return;
+      for (final chunk in page) {
+        yield chunk.pcm;
+        offset = chunk.sequence + chunk.pcm.length;
+      }
+    }
+  }
+
   Future<Uint8List> readPcm(String id) async {
-    final chunks =
-        await (select(composerRecordingChunks)
-              ..where((r) => r.recordingId.equals(id))
-              ..orderBy([(r) => OrderingTerm.asc(r.sequence)]))
-            .get();
     final bytes = BytesBuilder(copy: false);
-    for (final chunk in chunks) {
-      bytes.add(chunk.pcm);
+    await for (final chunk in pcmChunks(id)) {
+      bytes.add(chunk);
     }
     return bytes.takeBytes();
   }

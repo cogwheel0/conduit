@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/database/app_database.dart';
@@ -112,12 +113,22 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
     final shareOrigin = origin == null
         ? null
         : origin.localToGlobal(Offset.zero) & origin.size;
+    Directory? staging;
     try {
-      final wav = await widget.owner.store!.recordings.readWav(id);
+      final store = widget.owner.store!.recordings;
+      final XFile audio;
+      if (Platform.isIOS) {
+        staging = await Directory.systemTemp.createTemp('conduit-recording-');
+        final file = File('${staging.path}/recording.wav');
+        await store.writeWav(id, file);
+        audio = XFile(file.path, mimeType: 'audio/wav');
+      } else {
+        audio = XFile.fromData(await store.readWav(id), mimeType: 'audio/wav');
+      }
       if (!_ownsInput) return;
       await ref.read(recordingShareProvider)(
         ShareParams(
-          files: [XFile.fromData(wav, mimeType: 'audio/wav')],
+          files: [audio],
           fileNameOverrides: ['recording.wav'],
           sharePositionOrigin: shareOrigin,
         ),
@@ -129,6 +140,8 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
           _error = _RecordingError.export;
         });
       }
+    } finally {
+      if (staging != null) await staging.delete(recursive: true);
     }
   }
 
@@ -170,8 +183,9 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
     if (_busy != null || !_ownsInput) return;
     final generation = ++_transcriptionGeneration;
     final speech = ref.read(serverSpeechProviderProvider);
+    final settings = ref.read(appSettingsProvider);
     final language = SettingsService.normalizeSttLanguageCode(
-      ref.read(appSettingsProvider).sttLanguageCode,
+      settings.sttLanguageCode,
     );
     setState(() {
       _busy = id;
@@ -181,7 +195,17 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
     try {
       final store = widget.owner.store!.recordings;
       final String text;
-      if (onDevice) {
+      if (onDevice && Platform.isIOS) {
+        final locale = SettingsService.normalizeVoiceLocaleId(
+          settings.voiceLocaleId,
+        );
+        text = await _nativeStt.transcribeChunks(
+          store.pcmChunks(id),
+          localeId: locale == SettingsService.voiceLocaleSystemDefault
+              ? null
+              : locale,
+        );
+      } else if (onDevice) {
         final pcm = await store.readPcm(id);
         if (!_ownsInput || generation != _transcriptionGeneration) return;
         text = await _nativeStt.transcribeRecording(pcm, localeId: language);

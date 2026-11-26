@@ -1609,11 +1609,11 @@
   "@sttEngineServer": {
     "description": "Chip label for server speech recognition."
   },
-  "sttEngineDeviceDescription": "Zvuk zůstane v tomto zařízení. Hlasový vstup přestane fungovat, pokud zařízení nepodporuje rozpoznávání řeči.",
+  "sttEngineDeviceDescription": "Zvuk zůstane v tomto zařízení. Hlasový vstup přestane fungovat, pokud zařízení nepodporuje rozpoznávání řeči. Na iPhonu a iPadu pokračuje nahrávání zprávy i během pauz, dokud ho nezastavíte nebo ho systém nepřeruší.",
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Nahrávky se k přepisu odesílají na server chatu: do Open WebUI, Hermes nebo u chatů Direct a Apple k poskytovateli hlasu.",
+  "sttEngineServerDescription": "Nahrávky se k přepisu odesílají na server chatu: do Open WebUI, Hermes nebo u chatů Direct a Apple k poskytovateli hlasu. Jedna nahrávka pro server může trvat až 10 minut.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },

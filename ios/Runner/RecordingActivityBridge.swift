@@ -2,7 +2,7 @@ import ActivityKit
 import Flutter
 import Foundation
 
-/// Contains only a random capture id and timing. Chat names, transcripts and
+/// Contains only a random capture id, timing and coarse amplitude levels. Chat names, transcripts and
 /// audio never leave the app's draft store for the lock screen.
 @available(iOS 16.2, *)
 @MainActor
@@ -23,7 +23,7 @@ final class RecordingActivityBridge: NSObject, ConduitBridge {
     }
 
     /// Accepts UUID-scoped start/update/end requests; generations reject superseded starts.
-    /// Updates carry saved duration only and become stale after 20 seconds without a heartbeat.
+    /// Updates carry saved duration and recent levels and become stale after 20 seconds without a heartbeat.
     func attach(to host: ConduitBridgeHost) {
         channel?.setMethodCallHandler(nil)
         let channel = FlutterMethodChannel(name: "app.cogwheel.conduit/recording_activity", binaryMessenger: host.messenger)
@@ -58,7 +58,8 @@ final class RecordingActivityBridge: NSObject, ConduitBridge {
                     guard let activity = self.activity, activity.attributes.recordingId == id else { result(false); return }
                     let now = Date()
                     let savedSeconds = max(0, data["savedSeconds"] as? Double ?? 0)
-                    await activity.update(ActivityContent(state: .init(savedSeconds: savedSeconds), staleDate: now.addingTimeInterval(20)))
+                    let levels = (data["levels"] as? [Int] ?? []).suffix(12).map { min(15, max(0, $0)) }
+                    await activity.update(ActivityContent(state: .init(savedSeconds: savedSeconds, levels: levels), staleDate: now.addingTimeInterval(20)))
                     result(true)
                 case "end":
                     guard self.currentId == id else { result(false); return }

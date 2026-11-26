@@ -1912,11 +1912,11 @@
   "@sttEngineServer": {
     "description": "Chip label for server speech recognition."
   },
-  "sttEngineDeviceDescription": "Processed on this device.",
+  "sttEngineDeviceDescription": "Processed on this device. On iPhone and iPad, the composer keeps recording through pauses until you stop it or iOS interrupts.",
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Send recordings to the chat's server for transcription: Open WebUI, Hermes, or the Voice Provider for Direct and Apple chats.",
+  "sttEngineServerDescription": "Send recordings to the chat's server for transcription: Open WebUI, Hermes, or the Voice Provider for Direct and Apple chats. Each server recording can last up to 10 minutes.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },

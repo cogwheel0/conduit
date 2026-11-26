@@ -7,6 +7,7 @@ import WidgetKit
 struct ConduitRecordingAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var savedSeconds: Double
+        var levels: [Int]? = nil
     }
     var recordingId: String
     var startedAt: Date
@@ -32,12 +33,29 @@ struct StopConduitRecordingIntent: LiveActivityIntent {
 }
 
 #if CONDUIT_WIDGET
+private struct RecordingWaveform: View {
+    let levels: [Int]
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(levels.indices, id: \.self) { index in
+                Capsule().frame(width: 2, height: CGFloat(2 + levels[index]))
+            }
+        }
+        .foregroundStyle(.red)
+        .accessibilityHidden(true)
+    }
+}
+
 @available(iOS 17.0, *)
 struct ConduitRecordingActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ConduitRecordingAttributes.self) { context in
             HStack(spacing: 16) {
-                Image(systemName: "waveform").font(.title2).foregroundStyle(.red)
+                if !context.isStale, let levels = context.state.levels, !levels.isEmpty {
+                    RecordingWaveform(levels: levels)
+                } else {
+                    Image(systemName: context.isStale ? "mic.slash" : "mic.fill").font(.title2).foregroundStyle(.red)
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(context.isStale ? "Recording interrupted" : "Recording audio")
                         .font(.headline)
@@ -75,7 +93,10 @@ struct ConduitRecordingActivity: Widget {
                     if context.isStale {
                         Text("Recording interrupted. Open Conduit to recover the saved audio.")
                     } else {
-                        Text(context.attributes.startedAt, style: .timer).monospacedDigit()
+                        HStack {
+                            Text(context.attributes.startedAt, style: .timer).monospacedDigit()
+                            RecordingWaveform(levels: context.state.levels ?? [])
+                        }
                     }
                 }
             } compactLeading: {

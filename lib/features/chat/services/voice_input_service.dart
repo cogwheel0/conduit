@@ -42,12 +42,14 @@ class VoiceInputRecording {
     required this.close,
     this.prepare,
     this.capturesAudio = true,
+    this.longForm = false,
   });
 
   final void Function(Uint8List pcm) add;
   final Future<void> Function() close;
   final Future<void> Function()? prepare;
   final bool capturesAudio;
+  final bool longForm;
 }
 
 class VoiceInputService implements VoiceModeInput {
@@ -649,11 +651,12 @@ class VoiceInputService implements VoiceModeInput {
     }
     if (isFinal) {
       _receivedFinalResult = true;
-      if (_shouldSettleNativeDictation(
-        isFinal: true,
-        nativeAccumulateResults: _nativeAccumulateResultsForCurrentListen,
-        usingServerStt: _usingServerStt,
-      )) {
+      if (_recording?.longForm != true &&
+          _shouldSettleNativeDictation(
+            isFinal: true,
+            nativeAccumulateResults: _nativeAccumulateResultsForCurrentListen,
+            usingServerStt: _usingServerStt,
+          )) {
         _scheduleNativeDictationSettle();
       }
     } else {
@@ -805,11 +808,11 @@ class VoiceInputService implements VoiceModeInput {
 
     if (shouldUseLocal) {
       _autoStopTimer?.cancel();
-      _autoStopTimer = Timer(_localRecognitionMaxDuration, () {
-        if (_isListening) {
-          unawaited(_stopListening());
-        }
-      });
+      if (recording?.longForm != true) {
+        _autoStopTimer = Timer(_localRecognitionMaxDuration, () {
+          if (_isListening) unawaited(_stopListening());
+        });
+      }
       try {
         debugPrint('Starting local recognition...');
         await _startLocalRecognition(
@@ -965,6 +968,15 @@ class VoiceInputService implements VoiceModeInput {
   Future<void> _stopListening({
     bool holdServerRecorderForResponseWait = false,
   }) async {
+    // A call notification and a recognizer error can arrive together. Only
+    // the first stop may close the sink while the native tap drains its tail.
+    if (_isListening &&
+        !_usingServerStt &&
+        _recording != null &&
+        _stopsInFlight.isNotEmpty) {
+      await Future.wait(_stopsInFlight.toList());
+      return;
+    }
     final generation = ++_listenGeneration;
     if (!_isListening) {
       // Earlier stops may still be waiting for the server's transcript.

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import '../../../database/app_database.dart';
@@ -19,6 +20,7 @@ class ComposerRecordingStore {
     required String scope,
     required String chatId,
     required void Function() onFailure,
+    bool longForm = false,
   }) async {
     await _database.trackComposerDraftWrite(
       () => _database.composerRecordingsDao.create(
@@ -30,16 +32,36 @@ class ComposerRecordingStore {
     );
     return ComposerRecordingWriter(
       (pcm) => _database.trackComposerDraftWrite(
-        () => _database.composerRecordingsDao.append(id, pcm),
+        () =>
+            _database.composerRecordingsDao.append(id, pcm, longForm: longForm),
       ),
       onFailure: onFailure,
     );
   }
 
+  Stream<Uint8List> pcmChunks(String id) =>
+      _database.composerRecordingsDao.pcmChunks(id);
+
   Future<Uint8List> readPcm(String id) =>
       _database.composerRecordingsDao.readPcm(id);
 
   Future<Uint8List> readWav(String id) async => pcm16Wav(await readPcm(id));
+
+  Future<void> writeWav(String id, File destination) async {
+    final file = await destination.open(mode: FileMode.write);
+    try {
+      await file.writeFrom(_wavHeader(0));
+      var length = 0;
+      await for (final chunk in pcmChunks(id)) {
+        await file.writeFrom(chunk);
+        length += chunk.length;
+      }
+      await file.setPosition(0);
+      await file.writeFrom(_wavHeader(length));
+    } finally {
+      await file.close();
+    }
+  }
 
   Future<void> discard(String id) => _database.trackComposerDraftWrite(
     () => _database.composerRecordingsDao.discard(id),
@@ -105,13 +127,22 @@ class ComposerRecordingWriter {
 
 /// Mono 16-bit little-endian PCM at 16 kHz, shared by capture and retry.
 Uint8List pcm16Wav(Uint8List pcm) {
-  if (pcm.length.isOdd) throw ArgumentError('Incomplete PCM sample');
   final wav = Uint8List(44 + pcm.length);
+  wav.setAll(0, _wavHeader(pcm.length));
+  wav.setAll(44, pcm);
+  return wav;
+}
+
+Uint8List _wavHeader(int length) {
+  if (length.isOdd || length > 0xffffffff - 36) {
+    throw ArgumentError('Audio length cannot be represented in a PCM WAV');
+  }
+  final wav = Uint8List(44);
   final header = ByteData.sublistView(wav);
   void text(int offset, String value) =>
       wav.setRange(offset, offset + 4, ascii.encode(value));
   text(0, 'RIFF');
-  header.setUint32(4, 36 + pcm.length, Endian.little);
+  header.setUint32(4, 36 + length, Endian.little);
   text(8, 'WAVE');
   text(12, 'fmt ');
   header.setUint32(16, 16, Endian.little);
@@ -122,7 +153,6 @@ Uint8List pcm16Wav(Uint8List pcm) {
   header.setUint16(32, 2, Endian.little);
   header.setUint16(34, 16, Endian.little);
   text(36, 'data');
-  header.setUint32(40, pcm.length, Endian.little);
-  wav.setRange(44, wav.length, pcm);
+  header.setUint32(40, length, Endian.little);
   return wav;
 }

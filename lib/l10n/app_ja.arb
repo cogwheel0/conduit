@@ -1609,11 +1609,11 @@
   "@sttEngineServer": {
     "description": "Chip label for server speech recognition."
   },
-  "sttEngineDeviceDescription": "音声をこのデバイス内に保持します。オンデバイス音声認識がサポートされていない場合、音声入力は動作しません。",
+  "sttEngineDeviceDescription": "音声をこのデバイス内に保持します。オンデバイス音声認識がサポートされていない場合、音声入力は動作しません。iPhoneとiPadでは、メッセージ入力中の録音は、話を休んでも、自分で停止するかシステムが中断するまで続きます。",
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "録音をチャットのサーバー（Open WebUI、Hermes、Direct と Apple のチャットでは音声プロバイダー）に送信して文字起こしします。",
+  "sttEngineServerDescription": "録音をチャットのサーバー（Open WebUI、Hermes、Direct と Apple のチャットでは音声プロバイダー）に送信して文字起こしします。サーバーで文字起こしする録音は1回につき最長10分です。",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },

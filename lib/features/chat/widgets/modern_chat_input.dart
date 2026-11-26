@@ -6139,6 +6139,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   void _showRecordingSaveFailure(ComposerRecordingSession recording) {
+    if (identical(_recordingSession, recording) &&
+        _voiceInputService.isListening) {
+      unawaited(_stopVoiceListening(recording: recording));
+    }
     if (!mounted || _isDeactivated) return;
     final l10n = AppLocalizations.of(context)!;
     AdaptiveSnackBar.show(
@@ -6168,6 +6172,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       await session?.close().catchError((Object _) {});
       if (mounted) {
         setState(() {
+          if (session != null &&
+              session.interrupted &&
+              (session.writer?.savedBytes ?? 0) > 0) {
+            _recordingCaptureErrorId = session.id;
+          }
           _isTranscribing = false;
           _isRecording = false;
         });

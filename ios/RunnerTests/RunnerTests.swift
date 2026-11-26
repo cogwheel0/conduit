@@ -1,3 +1,4 @@
+import ActivityKit
 import AVFoundation
 import Darwin
 import Flutter
@@ -10,6 +11,43 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  @MainActor
+  func testRecordingActivityShowsSavedTimeAndRecentLevels() async throws {
+    guard #available(iOS 17, *) else { throw XCTSkip("Requires the recording widget") }
+    try XCTSkipUnless(ActivityAuthorizationInfo().areActivitiesEnabled)
+    let messenger = SelectionMenuTestMessenger()
+    let host = SelectionMenuTestHost(messenger: messenger, controller: UIViewController())
+    let bridge = RecordingActivityBridge()
+    bridge.attach(to: host)
+    let handler = try XCTUnwrap(messenger.handler)
+    let id = UUID().uuidString
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+
+    func send(_ method: String, _ payload: [String: Any] = [:]) async -> Bool {
+      var arguments = payload
+      arguments["id"] = id
+      let call = FlutterMethodCall(methodName: method, arguments: arguments)
+      return await withCheckedContinuation { continuation in
+        handler(codec.encode(call)) { reply in
+          continuation.resume(returning: reply.flatMap { codec.decodeEnvelope($0) as? Bool } == true)
+        }
+      }
+    }
+
+    let started = await send("start")
+    XCTAssertTrue(started)
+    let activity = try XCTUnwrap(Activity<ConduitRecordingAttributes>.activities.first {
+      $0.attributes.recordingId == id
+    })
+    let updated = await send("update", ["savedSeconds": 12.5, "levels": [0, 7, 15]])
+    XCTAssertTrue(updated)
+    XCTAssertEqual(activity.content.state.savedSeconds, 12.5)
+    XCTAssertEqual(activity.content.state.levels, [0, 7, 15])
+    XCTAssertNotNil(activity.content.staleDate)
+    let ended = await send("end")
+    XCTAssertTrue(ended)
+  }
+
   /// Runs the main loop for [seconds], however often it returns early.
   private func spin(_ seconds: TimeInterval) {
     let deadline = Date().addingTimeInterval(seconds)

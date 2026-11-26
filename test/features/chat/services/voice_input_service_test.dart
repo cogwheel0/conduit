@@ -11,6 +11,7 @@ import 'package:conduit_core/features/chat/services/server_vad_recorder.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:dio/dio.dart'
     show DioException, DioExceptionType, RequestOptions;
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -149,7 +150,9 @@ void main() {
         );
         await pumpEventQueue();
       };
-      await service.stopListening();
+      final previousStops = native.stopCalls;
+      await Future.wait([service.stopListening(), service.stopListening()]);
+      expect(native.stopCalls, previousStops + 1);
       native.onStop = null;
       expect(bytes, [1, 2, 3, 4]);
       expect(closed, isTrue);
@@ -161,6 +164,57 @@ void main() {
       await nextSub.cancel();
     },
   );
+
+  test('iOS composer keeps recording past pauses and five minutes', () async {
+    final native = _FakeNativeSttService();
+    final service = _SupportedVoiceInputService(nativeStt: native);
+    addTearDown(service.dispose);
+    await service.initialize(forceLocalStt: true);
+    var closed = false;
+    final clock = FakeAsync();
+    late Stream<String> stream;
+    clock.run((_) async {
+      stream = await service.startListening(
+        recording: VoiceInputRecording(
+          longForm: true,
+          add: (_) {},
+          close: () async => closed = true,
+        ),
+      );
+    });
+    clock.flushMicrotasks();
+    final messages = <String>[];
+    final sub = stream.listen(messages.add);
+    clock.run(
+      (_) => native.emit(
+        const NativeSttEvent(type: 'result', text: 'Cedar.', isFinal: true),
+      ),
+    );
+    clock.flushMicrotasks();
+    expect(messages, ['Cedar.']);
+
+    final stopCalls = native.stopCalls;
+    clock.elapse(const Duration(seconds: 1));
+    expect(
+      native.stopCalls,
+      stopCalls,
+      reason: 'A pause must not stop capture',
+    );
+    expect(service.isListening, isTrue);
+    expect(closed, isFalse);
+
+    clock.elapse(const Duration(minutes: 5));
+    expect(
+      native.stopCalls,
+      stopCalls,
+      reason: 'Five minutes must not stop capture',
+    );
+    expect(service.isListening, isTrue);
+    expect(closed, isFalse);
+    await service.stopListening();
+    expect(closed, isTrue);
+    await sub.cancel();
+  });
 
   test('incomplete recovery audio reports its typed error and drains the saved prefix', () async {
     final native = _FakeNativeSttService();

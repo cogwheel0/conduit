@@ -93,6 +93,9 @@ void main() {
         expect(header.getUint32(24, Endian.little), 16000);
         expect(header.getUint32(40, Endian.little), 6);
         expect(wav.sublist(44), [1, 2, 3, 4, 5, 6]);
+        final export = File('${directory.path}/recording.wav');
+        await ComposerDraftStore(db).recordings.writeWav('first', export);
+        expect(await export.readAsBytes(), wav);
       } finally {
         await db.close();
       }
@@ -120,6 +123,23 @@ void main() {
       expect(await dao.watch('chat', 'birch').first, isEmpty);
     },
   );
+
+  test('saves audio after the first ten minutes', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final dao = db.composerRecordingsDao;
+    await dao.create(id: 'walk', scope: 'new:', chatId: '', createdAt: 1);
+    final minute = Uint8List(32000 * 60);
+    for (var i = 0; i < 10; i++) {
+      await dao.append('walk', minute);
+    }
+    await expectLater(dao.append('walk', Uint8List(2)), throwsStateError);
+    await dao.append('walk', Uint8List.fromList([1, 2]), longForm: true);
+    expect(
+      (await dao.watch('new:', '').first).single.byteCount,
+      32000 * 600 + 2,
+    );
+  });
 
   test('audio-only drafts follow remaps and exact chat deletion', () async {
     final db = AppDatabase(NativeDatabase.memory());
