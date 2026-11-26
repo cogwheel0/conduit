@@ -7,6 +7,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/deepseek_harness/deepseek_harness.dart';
 import 'package:conduit_core/features/deepseek_harness/deepseek_harness_client.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -255,6 +256,21 @@ void main() {
       expect(find.text('Archived tray'), findsOneWidget);
     },
   );
+
+  testWidgets('the iOS navigation bar leaves the workspace row tappable', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    tester.view.padding = const FakeViewPadding(top: 59);
+    addTearDown(tester.view.resetPadding);
+
+    await open(tester);
+    await tapKey(tester, 'harness-workspaces-button');
+    await tapKey(tester, 'harness-workspace-terrarium');
+    expect(selections, ['terrarium']);
+    expect(find.text('Fern log'), findsOneWidget);
+  });
 
   testWidgets('a deleted active workspace returns to All chats on reload', (
     tester,

@@ -153,7 +153,6 @@ class DeepSeekHarnessWorkspacePage extends ConsumerWidget {
     final connection = ref.watch(deepSeekHarnessConnectionProvider);
     return AdaptiveRouteShell(
       bodySafeArea: true,
-      safeAreaTop: false,
       appBar: AdaptiveAppBar(
         title: l10n.deepSeekHarnessTitle,
         leading: ConduitAdaptiveAppBarIconButton(

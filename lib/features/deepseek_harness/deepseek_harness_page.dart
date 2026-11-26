@@ -165,7 +165,6 @@ class _HarnessPageState extends ConsumerState<DeepSeekHarnessPage> {
       },
       child: AdaptiveRouteShell(
         bodySafeArea: true,
-        safeAreaTop: false,
         appBar: AdaptiveAppBar(
           title: l10n.deepSeekHarnessTitle,
           leading: ConduitAdaptiveAppBarIconButton(

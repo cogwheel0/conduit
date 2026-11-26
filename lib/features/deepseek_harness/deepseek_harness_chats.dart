@@ -373,7 +373,6 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
         snapshot.connectionState == ConnectionState.done;
     return AdaptiveRouteShell(
       bodySafeArea: true,
-      safeAreaTop: false,
       appBar: AdaptiveAppBar(
         title: docked && selected != null
             ? selected.name
@@ -826,7 +825,6 @@ class _SessionChatState extends State<_SessionChat>
     final canSend = canAct && !running && !(view?.hasPendingRequest ?? false);
     return AdaptiveRouteShell(
       bodySafeArea: true,
-      safeAreaTop: false,
       appBar: AdaptiveAppBar(
         title: title.isEmpty ? l10n.newChat : title,
         leading: ConduitAdaptiveAppBarIconButton(

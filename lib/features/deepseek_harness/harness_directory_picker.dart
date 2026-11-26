@@ -180,7 +180,6 @@ class _DirectoryPickerState extends State<_DirectoryPicker> {
         : entries;
     return AdaptiveRouteShell(
       bodySafeArea: true,
-      safeAreaTop: false,
       appBar: AdaptiveAppBar(
         title: l10n.deepSeekHarnessNewWorkspace,
         leading: ConduitAdaptiveAppBarIconButton(
