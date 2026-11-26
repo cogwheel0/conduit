@@ -273,6 +273,11 @@ class SettingsController {
         if (context == null || value is! String) return true;
         await switchToSavedAccount(context, ref, value);
         return true;
+      case nativeHarnessWorkspaceActionId:
+        unawaited(
+          NavigationService.router.pushNamed<void>(RouteNames.deepSeekHarness),
+        );
+        return true;
       case nativeAccountAddActionId:
         if (context == null) return true;
         await showAddAccountSheet(

@@ -6383,6 +6383,83 @@
   "@backendChooserOpenWebUISubtitle": {
     "description": "Description of the Open WebUI option on the backend chooser."
   },
+  "deepSeekHarnessTitle": "DeepSeek Harness",
+  "@deepSeekHarnessTitle": {
+    "description": "Name of the DeepSeek Harness backend."
+  },
+  "deepSeekHarnessChooserSubtitle": "Open your Harness workspace, chats, and tool approvals.",
+  "@deepSeekHarnessChooserSubtitle": {
+    "description": "Description of the Harness workspace in the chooser."
+  },
+  "deepSeekHarnessConnectionHelp": "Paste the launch link from dsh web, or enter the server address and launch token separately.",
+  "@deepSeekHarnessConnectionHelp": {
+    "description": "How to pair Conduit with the Harness web server. Keep dsh web as a literal command."
+  },
+  "deepSeekHarnessToken": "Launch token",
+  "@deepSeekHarnessToken": {
+    "description": "Label for the launch token issued by Harness."
+  },
+  "deepSeekHarnessInvalidAddress": "Enter a valid Harness web server address.",
+  "@deepSeekHarnessInvalidAddress": {
+    "description": "Error for an invalid Harness URL."
+  },
+  "deepSeekHarnessUnavailable": "Couldn’t connect to Harness. Check the server address and try again.",
+  "@deepSeekHarnessUnavailable": {
+    "description": "Error when a Harness server cannot be reached."
+  },
+  "deepSeekHarnessUnauthorized": "Enter a fresh launch token from Harness and connect again.",
+  "@deepSeekHarnessUnauthorized": {
+    "description": "Error when Harness requires a fresh launch token."
+  },
+  "deepSeekHarnessUntrustedHost": "Harness does not trust this host and port. Check the address printed by dsh web.",
+  "@deepSeekHarnessUntrustedHost": {
+    "description": "Error when Harness rejects the host and port used to connect."
+  },
+  "deepSeekHarnessCleanupFailed": "Couldn’t clear the previous Harness sign-in and local workspace data. Try again.",
+  "@deepSeekHarnessCleanupFailed": {
+    "description": "Shown when the previous browser session and workspace cache could not be removed."
+  },
+  "deepSeekHarnessForget": "Forget connection",
+  "@deepSeekHarnessForget": {
+    "description": "Action that removes a saved Harness sign-in."
+  },
+  "deepSeekHarnessForgetMessage": "Remove this Harness connection and its saved sign-in from this device?",
+  "@deepSeekHarnessForgetMessage": {
+    "description": "Confirmation before removing a Harness sign-in."
+  },
+  "deepSeekHarnessSelectSession": "Select “{title}” in the workspace sidebar.",
+  "@deepSeekHarnessSelectSession": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    },
+    "description": "Points to the session to choose when continuing in the Harness web workspace."
+  },
+  "deepSeekHarnessSelectCurrentSession": "Select this chat in the workspace sidebar.",
+  "@deepSeekHarnessSelectCurrentSession": {
+    "description": "Fallback when the current Harness session has no title yet."
+  },
+  "deepSeekHarnessOpenWorkspace": "Open Harness workspace",
+  "@deepSeekHarnessOpenWorkspace": {
+    "description": "Action opening the connected server’s full web workspace."
+  },
+  "deepSeekHarnessReviewRequest": "Review request in Harness",
+  "@deepSeekHarnessReviewRequest": {
+    "description": "Action for a pending tool decision in the full workspace."
+  },
+  "deepSeekHarnessNoWorkspaces": "Choose or create a workspace in Harness to start a chat.",
+  "@deepSeekHarnessNoWorkspaces": {
+    "description": "Shown when a new Harness chat has no server workspace to use."
+  },
+  "deepSeekHarnessSendUnconfirmed": "Harness didn’t confirm the send. Check the conversation before sending again.",
+  "@deepSeekHarnessSendUnconfirmed": {
+    "description": "Warning that the host may have accepted a prompt after a connection failure."
+  },
+  "deepSeekHarnessBack": "Back to Conduit",
+  "@deepSeekHarnessBack": {
+    "description": "Action to leave the Harness workspace."
+  },
   "backendChooserHermesTitle": "Hermes Agent",
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."

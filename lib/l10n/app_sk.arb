@@ -5254,6 +5254,31 @@
   "connectOpenWebUITitle": "Pripojiť k Open WebUI",
   "connectOpenWebUISubtitle": "Pridať vlastný server Open WebUI",
   "backendChooserOpenWebUISubtitle": "Prihláste sa na svoj server a majte synchronizované chaty, poznámky a ďalšie.",
+  "deepSeekHarnessTitle": "DeepSeek Harness",
+  "deepSeekHarnessChooserSubtitle": "Otvorte pracovný priestor Harness, konverzácie a žiadosti o schválenie nástrojov.",
+  "deepSeekHarnessConnectionHelp": "Prilepte odkaz z dsh web alebo zadajte adresu servera a spúšťací token osobitne.",
+  "deepSeekHarnessToken": "Spúšťací token",
+  "deepSeekHarnessInvalidAddress": "Zadajte platnú adresu webového servera Harness.",
+  "deepSeekHarnessUnavailable": "Nepodarilo sa pripojiť k Harness. Skontrolujte adresu servera a skúste to znova.",
+  "deepSeekHarnessUnauthorized": "Zadajte nový spúšťací token z Harness a pripojte sa znova.",
+  "deepSeekHarnessUntrustedHost": "Harness nedôveruje tomuto hostiteľovi a portu. Skontrolujte adresu zobrazenú príkazom dsh web.",
+  "deepSeekHarnessCleanupFailed": "Predchádzajúce prihlásenie do Harness a miestne údaje pracovného priestoru sa nepodarilo odstrániť. Skúste to znova.",
+  "deepSeekHarnessForget": "Zabudnúť pripojenie",
+  "deepSeekHarnessForgetMessage": "Odstrániť z tohto zariadenia pripojenie k Harness a uložené prihlásenie?",
+  "deepSeekHarnessSelectSession": "Na bočnom paneli pracovného priestoru vyberte „{title}“.",
+  "@deepSeekHarnessSelectSession": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "deepSeekHarnessSelectCurrentSession": "Na bočnom paneli pracovného priestoru vyberte tento čet.",
+  "deepSeekHarnessOpenWorkspace": "Otvoriť pracovný priestor Harness",
+  "deepSeekHarnessReviewRequest": "Skontrolovať žiadosť v Harness",
+  "deepSeekHarnessNoWorkspaces": "Ak chcete začať konverzáciu, vyberte alebo vytvorte pracovný priestor v Harness.",
+  "deepSeekHarnessSendUnconfirmed": "Harness nepotvrdil odoslanie. Pred opätovným odoslaním skontrolujte konverzáciu.",
+  "deepSeekHarnessBack": "Späť do Conduitu",
   "backendChooserHermesTitle": "Hermes Agent",
   "backendChooserHermesSubtitle": "Chatujte s vlastným agentom, ktorý používa nástroje a pamätá si predchádzajúce relácie.",
   "hermesApprovalRequired": "Vyžaduje sa schválenie",

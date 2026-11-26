@@ -3126,6 +3126,31 @@
   "connectOpenWebUITitle": "Conectar con Open WebUI",
   "connectOpenWebUISubtitle": "Añade un servidor Open WebUI autohospedado",
   "backendChooserOpenWebUISubtitle": "Inicia sesión en tu servidor para tener chats, notas y más sincronizados.",
+  "deepSeekHarnessTitle": "DeepSeek Harness",
+  "deepSeekHarnessChooserSubtitle": "Abre tu espacio de trabajo de Harness, tus chats y las solicitudes de uso de herramientas.",
+  "deepSeekHarnessConnectionHelp": "Pega el enlace de inicio de dsh web o introduce por separado la dirección del servidor y el token de inicio.",
+  "deepSeekHarnessToken": "Token de inicio",
+  "deepSeekHarnessInvalidAddress": "Introduce una dirección válida del servidor web de Harness.",
+  "deepSeekHarnessUnavailable": "No se pudo conectar con Harness. Comprueba la dirección del servidor e inténtalo de nuevo.",
+  "deepSeekHarnessUnauthorized": "Introduce un nuevo token de inicio de Harness y vuelve a conectarte.",
+  "deepSeekHarnessUntrustedHost": "Harness no confía en este servidor y puerto. Comprueba la dirección que muestra dsh web.",
+  "deepSeekHarnessCleanupFailed": "No se pudo borrar el inicio de sesión anterior de Harness ni los datos locales del espacio de trabajo. Inténtalo de nuevo.",
+  "deepSeekHarnessForget": "Olvidar conexión",
+  "deepSeekHarnessForgetMessage": "¿Eliminar de este dispositivo la conexión a Harness y el inicio de sesión guardado?",
+  "deepSeekHarnessSelectSession": "Selecciona «{title}» en la barra lateral del espacio de trabajo.",
+  "@deepSeekHarnessSelectSession": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "deepSeekHarnessSelectCurrentSession": "Selecciona este chat en la barra lateral del espacio de trabajo.",
+  "deepSeekHarnessOpenWorkspace": "Abrir el espacio de trabajo de Harness",
+  "deepSeekHarnessReviewRequest": "Revisar la solicitud en Harness",
+  "deepSeekHarnessNoWorkspaces": "Elige o crea un espacio de trabajo en Harness para iniciar un chat.",
+  "deepSeekHarnessSendUnconfirmed": "Harness no confirmó el envío. Comprueba la conversación antes de volver a enviar el mensaje.",
+  "deepSeekHarnessBack": "Volver a Conduit",
   "backendChooserHermesTitle": "Hermes Agent",
   "backendChooserHermesSubtitle": "Chatea con tu propio agente, que usa herramientas y recuerda sesiones anteriores.",
   "hermesApprovalRequired": "Se requiere aprobación",

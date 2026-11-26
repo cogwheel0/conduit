@@ -26,6 +26,7 @@ class SecureCredentialStorage {
   /// then deleted.
   static const String _serverConfigsKey = 'server_configs_v2';
   static const String _openWebUiRegistryKey = 'openwebui_registry_v1';
+  static const String _deepSeekHarnessKey = 'deepseek_harness_connection_v1';
   static const String _authTokenKey = 'auth_token_v2';
   static const String _hermesApiKeyKey = 'hermes_api_key_v1';
   static const String _hermesSessionKeyKey = 'hermes_session_key_v1';
@@ -898,6 +899,15 @@ class SecureCredentialStorage {
 
   Future<void> deleteOpenWebUiRegistry() =>
       _secureStorage.delete(key: _openWebUiRegistryKey);
+
+  Future<String?> readDeepSeekHarnessConnection() =>
+      _secureStorage.read(key: _deepSeekHarnessKey);
+
+  Future<void> saveDeepSeekHarnessConnection(String connection) =>
+      _secureStorage.write(key: _deepSeekHarnessKey, value: connection);
+
+  Future<void> deleteDeepSeekHarnessConnection() =>
+      _secureStorage.delete(key: _deepSeekHarnessKey);
 
   /// Removes the one-server config list once the registry has replaced it.
   Future<void> deleteLegacyServerConfigs() =>

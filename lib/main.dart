@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import 'package:conduit_core/features/deepseek_harness/deepseek_harness.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:drift/drift.dart';
@@ -373,9 +374,10 @@ void main() {
           postFrameSchedulerProvider.overrideWithValue(
             const FlutterPostFrameScheduler(),
           ),
-          signOutResetTargetsProvider.overrideWithValue(
-            themePreferenceResetTargets,
-          ),
+          signOutResetTargetsProvider.overrideWithValue([
+            ...themePreferenceResetTargets,
+            deepSeekHarnessConnectionProvider,
+          ]),
           // A reply streaming in the background (screen locked, another chat
           // open) is cut off by an account switch just like a visible one.
           accountChangeReplyGuardProvider.overrideWith((ref) {

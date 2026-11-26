@@ -6713,6 +6713,31 @@
   "@backendChooserOpenWebUISubtitle": {
     "description": "Description of the Open WebUI option on the backend chooser."
   },
+  "deepSeekHarnessTitle": "DeepSeek Harness",
+  "deepSeekHarnessChooserSubtitle": "Otwórz obszar roboczy Harness, czaty i prośby o zgodę na użycie narzędzi.",
+  "deepSeekHarnessConnectionHelp": "Wklej link startowy z dsh web lub wpisz osobno adres serwera i token startowy.",
+  "deepSeekHarnessToken": "Token startowy",
+  "deepSeekHarnessInvalidAddress": "Podaj prawidłowy adres serwera WWW Harness.",
+  "deepSeekHarnessUnavailable": "Nie udało się połączyć z Harness. Sprawdź adres serwera i spróbuj ponownie.",
+  "deepSeekHarnessUnauthorized": "Podaj nowy token startowy z Harness i połącz się ponownie.",
+  "deepSeekHarnessUntrustedHost": "Harness nie ufa temu hostowi i portowi. Sprawdź adres wyświetlony przez dsh web.",
+  "deepSeekHarnessCleanupFailed": "Nie udało się usunąć poprzednich danych logowania do Harness i lokalnych danych obszaru roboczego. Spróbuj ponownie.",
+  "deepSeekHarnessForget": "Zapomnij połączenie",
+  "deepSeekHarnessForgetMessage": "Usunąć z tego urządzenia połączenie z Harness i zapisane dane logowania?",
+  "deepSeekHarnessSelectSession": "Wybierz „{title}” na pasku bocznym obszaru roboczego.",
+  "@deepSeekHarnessSelectSession": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "deepSeekHarnessSelectCurrentSession": "Wybierz ten czat na pasku bocznym obszaru roboczego.",
+  "deepSeekHarnessOpenWorkspace": "Otwórz obszar roboczy Harness",
+  "deepSeekHarnessReviewRequest": "Sprawdź prośbę w Harness",
+  "deepSeekHarnessNoWorkspaces": "Wybierz lub utwórz obszar roboczy w Harness, aby rozpocząć czat.",
+  "deepSeekHarnessSendUnconfirmed": "Harness nie potwierdził wysłania. Zanim wyślesz wiadomość ponownie, sprawdź rozmowę.",
+  "deepSeekHarnessBack": "Wróć do Conduit",
   "backendChooserHermesTitle": "Hermes Agent",
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."

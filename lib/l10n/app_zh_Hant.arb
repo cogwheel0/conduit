@@ -3126,6 +3126,31 @@
   "connectOpenWebUITitle": "連線至 Open WebUI",
   "connectOpenWebUISubtitle": "新增自行託管的 Open WebUI 伺服器",
   "backendChooserOpenWebUISubtitle": "登入您的伺服器，同步聊天、筆記等內容。",
+  "deepSeekHarnessTitle": "DeepSeek Harness",
+  "deepSeekHarnessChooserSubtitle": "開啟 Harness 工作區、聊天和工具核准請求。",
+  "deepSeekHarnessConnectionHelp": "貼上 dsh web 的啟動連結，或分別輸入伺服器位址和啟動權杖。",
+  "deepSeekHarnessToken": "啟動權杖",
+  "deepSeekHarnessInvalidAddress": "請輸入有效的 Harness 網頁伺服器位址。",
+  "deepSeekHarnessUnavailable": "無法連線到 Harness。請檢查伺服器位址後再試一次。",
+  "deepSeekHarnessUnauthorized": "請輸入 Harness 的新啟動權杖並重新連線。",
+  "deepSeekHarnessUntrustedHost": "Harness 不信任此主機和連接埠。請檢查 dsh web 顯示的位址。",
+  "deepSeekHarnessCleanupFailed": "無法清除先前的 Harness 登入資訊和本機工作區資料。請再試一次。",
+  "deepSeekHarnessForget": "忘記連線",
+  "deepSeekHarnessForgetMessage": "要從此裝置移除此 Harness 連線及已儲存的登入資訊嗎？",
+  "deepSeekHarnessSelectSession": "請在工作區側邊欄選擇「{title}」。",
+  "@deepSeekHarnessSelectSession": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "deepSeekHarnessSelectCurrentSession": "請在工作區側邊欄選擇此聊天。",
+  "deepSeekHarnessOpenWorkspace": "開啟 Harness 工作區",
+  "deepSeekHarnessReviewRequest": "在 Harness 中檢視請求",
+  "deepSeekHarnessNoWorkspaces": "請在 Harness 中選擇或建立工作區，以開始聊天。",
+  "deepSeekHarnessSendUnconfirmed": "Harness 未確認傳送成功。請先檢查對話，再決定是否重新傳送。",
+  "deepSeekHarnessBack": "返回 Conduit",
   "backendChooserHermesTitle": "Hermes Agent",
   "backendChooserHermesSubtitle": "與您自己的代理程式聊天，它會使用工具並記住過往的工作階段。",
   "hermesApprovalRequired": "需要核准",

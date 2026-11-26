@@ -100,8 +100,9 @@ backgrounds, getting a screenshot into a prompt, starting a chat from the home
 screen. Conduit is a real Flutter app built to close that gap, and as of 4.0 it
 works with or without an Open WebUI server at all.
 
-Your chats live on your device first. Nothing routes through a backend the
-maintainer operates.
+Conduit keeps chats on your device first. When you connect to DeepSeek Harness,
+your own Harness server keeps the session history for both native chat and the
+embedded workspace. Nothing routes through a backend the maintainer operates.
 
 ## Ways to connect
 
@@ -115,6 +116,7 @@ later, and skip any sign-in you don't need.
 | **Direct** | OpenAI-compatible, Ollama, OpenRouter | Talk straight to a provider or a model on your own machine. No Open WebUI account required |
 | **Apple On-Device** | Apple Intelligence | Run Apple's local model offline on eligible iOS 26 devices without an API key |
 | **Apple PCC** | Apple Private Cloud Compute | Use Apple's private cloud model on eligible iOS 27 devices without an API key |
+| **DeepSeek Harness** | Your Harness web server | Chat in Conduit on iOS or Android, resume server sessions, and open Harness to review tool requests |
 | **Hermes** | Your self-hosted agent | An agent that runs tools, asks before sensitive steps, and works on a schedule |
 
 **Direct connections** cover OpenAI-compatible endpoints (Chat Completions or
@@ -287,6 +289,26 @@ If you connect through Hermes' Desktop Gateway and sign in with a Hermes
 password, set `HERMES_DASHBOARD_BASIC_AUTH_SECRET` on the gateway, for example
 to the output of `openssl rand -base64 32`. Without it, the gateway makes a new
 signing key each time it starts, so every restart signs Conduit out.
+
+</details>
+
+<details>
+<summary><strong>DeepSeek Harness on iOS and Android</strong></summary>
+
+1. Start the Harness web interface with `dsh web` on a computer your phone
+   can reach. Its default loopback address works only on the same computer.
+   To connect over a private network, run `dsh web --host <private-address>`.
+   Use HTTPS when connecting over an untrusted network.
+2. In Conduit, choose **DeepSeek Harness** on first launch or in
+   **Settings → Accounts**. Paste the launch link printed by Harness.
+3. Pick a session or tap **New Chat**. Conduit streams replies from the server
+   and lets you select its models or stop a turn. Open the Harness workspace
+   to review a tool request or use its full session controls. Your computer
+   keeps the conversation history and must be reachable from your phone.
+
+Conduit saves the server-issued sign-in in device secure storage. If Harness
+asks you to sign in again, use a fresh launch link. Choose **Forget connection**
+in the workspace to remove the saved sign-in from this device.
 
 </details>
 

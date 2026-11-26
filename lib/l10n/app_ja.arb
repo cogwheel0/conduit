@@ -4948,6 +4948,31 @@
   "connectOpenWebUITitle": "Open WebUI に接続",
   "connectOpenWebUISubtitle": "セルフホストの Open WebUI サーバーを追加",
   "backendChooserOpenWebUISubtitle": "サーバーにサインインして、チャットやノートなどを同期できます。",
+  "deepSeekHarnessTitle": "DeepSeek Harness",
+  "deepSeekHarnessChooserSubtitle": "Harness のワークスペース、チャット、ツールの承認リクエストを開きます。",
+  "deepSeekHarnessConnectionHelp": "dsh web の起動リンクを貼り付けるか、サーバーアドレスと起動トークンを個別に入力してください。",
+  "deepSeekHarnessToken": "起動トークン",
+  "deepSeekHarnessInvalidAddress": "有効な Harness ウェブサーバーのアドレスを入力してください。",
+  "deepSeekHarnessUnavailable": "Harness に接続できませんでした。サーバーアドレスを確認して再試行してください。",
+  "deepSeekHarnessUnauthorized": "Harness の新しい起動トークンを入力して再接続してください。",
+  "deepSeekHarnessUntrustedHost": "Harness はこのホストとポートを信頼していません。dsh web が表示したアドレスを確認してください。",
+  "deepSeekHarnessCleanupFailed": "以前の Harness サインイン情報とローカルのワークスペースデータを消去できませんでした。もう一度お試しください。",
+  "deepSeekHarnessForget": "接続を削除",
+  "deepSeekHarnessForgetMessage": "このデバイスから Harness 接続と保存済みのサインイン情報を削除しますか？",
+  "deepSeekHarnessSelectSession": "ワークスペースのサイドバーで「{title}」を選択してください。",
+  "@deepSeekHarnessSelectSession": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "deepSeekHarnessSelectCurrentSession": "ワークスペースのサイドバーでこのチャットを選択してください。",
+  "deepSeekHarnessOpenWorkspace": "Harness ワークスペースを開く",
+  "deepSeekHarnessReviewRequest": "Harness でリクエストを確認",
+  "deepSeekHarnessNoWorkspaces": "チャットを始めるには、Harness でワークスペースを選択するか作成してください。",
+  "deepSeekHarnessSendUnconfirmed": "送信が Harness に確認されませんでした。再送する前に会話を確認してください。",
+  "deepSeekHarnessBack": "Conduit に戻る",
   "backendChooserHermesTitle": "Hermes Agent",
   "backendChooserHermesSubtitle": "ツールを使い、過去のセッションを覚えている自分専用のエージェントとチャットできます。",
   "hermesApprovalRequired": "承認が必要です",

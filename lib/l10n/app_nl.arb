@@ -3125,6 +3125,31 @@
   "connectOpenWebUITitle": "Verbinden met Open WebUI",
   "connectOpenWebUISubtitle": "Een zelfgehoste Open WebUI-server toevoegen",
   "backendChooserOpenWebUISubtitle": "Log in op je server voor gesynchroniseerde chats, notities en meer.",
+  "deepSeekHarnessTitle": "DeepSeek Harness",
+  "deepSeekHarnessChooserSubtitle": "Open je Harness-werkruimte, chats en goedkeuringsverzoeken voor tools.",
+  "deepSeekHarnessConnectionHelp": "Plak de startlink van dsh web of voer het serveradres en het starttoken apart in.",
+  "deepSeekHarnessToken": "Starttoken",
+  "deepSeekHarnessInvalidAddress": "Voer een geldig adres voor de Harness-webserver in.",
+  "deepSeekHarnessUnavailable": "Verbinding met Harness mislukt. Controleer het serveradres en probeer het opnieuw.",
+  "deepSeekHarnessUnauthorized": "Voer een nieuw starttoken van Harness in en maak opnieuw verbinding.",
+  "deepSeekHarnessUntrustedHost": "Harness vertrouwt deze host en poort niet. Controleer het adres dat dsh web toont.",
+  "deepSeekHarnessCleanupFailed": "De vorige Harness-aanmelding en de lokale werkruimtegegevens konden niet worden gewist. Probeer het opnieuw.",
+  "deepSeekHarnessForget": "Verbinding vergeten",
+  "deepSeekHarnessForgetMessage": "Deze Harness-verbinding en de opgeslagen aanmelding van dit apparaat verwijderen?",
+  "deepSeekHarnessSelectSession": "Kies ‘{title}’ in de zijbalk van de werkruimte.",
+  "@deepSeekHarnessSelectSession": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "deepSeekHarnessSelectCurrentSession": "Kies deze chat in de zijbalk van de werkruimte.",
+  "deepSeekHarnessOpenWorkspace": "Harness-werkruimte openen",
+  "deepSeekHarnessReviewRequest": "Verzoek in Harness bekijken",
+  "deepSeekHarnessNoWorkspaces": "Kies of maak een werkruimte in Harness om een chat te starten.",
+  "deepSeekHarnessSendUnconfirmed": "Harness heeft de verzending niet bevestigd. Controleer het gesprek voordat je het bericht opnieuw verstuurt.",
+  "deepSeekHarnessBack": "Terug naar Conduit",
   "backendChooserHermesTitle": "Hermes Agent",
   "backendChooserHermesSubtitle": "Chat met je eigen agent die tools gebruikt en eerdere sessies onthoudt.",
   "hermesApprovalRequired": "Toestemming vereist",

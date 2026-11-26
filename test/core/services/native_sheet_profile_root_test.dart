@@ -642,11 +642,13 @@ void main() {
         'openWebUi',
         null,
         null,
+        null,
       ]);
       final rows = kinds(libreChat: true);
       expect(rows.map((row) => row.actionValue), [
         'openWebUi',
         'libreChat',
+        null,
         null,
         null,
       ]);
@@ -663,6 +665,13 @@ void main() {
       final hermes = rows[2];
       expect(hermes.id, hermesConnectConnectionPageId);
       expect(hermes.dismissOnSelect, isFalse);
+      final harness = rows[3];
+      expect(harness.actionId, nativeHarnessWorkspaceActionId);
+      expect(harness.dismissOnSelect, isTrue);
+      expect(
+        _item(accountsPage().sections, nativeHarnessWorkspaceActionId).title,
+        harness.title,
+      );
       final direct = rows.last;
       expect(direct.id, directConnectionAddAccountPageId);
       expect(direct.dismissOnSelect, isFalse);
