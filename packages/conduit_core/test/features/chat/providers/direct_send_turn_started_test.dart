@@ -190,6 +190,103 @@ void main() {
     check(steps).deepEquals(['placeholder', 'started']);
   });
 
+  test(
+    'Direct progress is visible while waiting and settled with the answer',
+    () async {
+      final adapter = _WaitingAdapter();
+      final container = _directContainer(adapter);
+      final send = durableSend(container, 'Check a synthetic plan', null);
+      await adapter.asked.future;
+      final shown = Completer<void>();
+      final subscription = container.listen(chatMessagesProvider, (_, next) {
+        if (next.last.statusHistory.isNotEmpty && !shown.isCompleted) {
+          shown.complete();
+        }
+      });
+      addTearDown(subscription.close);
+      adapter.events.add(
+        const DirectProgressUpdate(
+          DirectProgressPhase.promptProcessing,
+          fraction: 0.5,
+        ),
+      );
+      await shown.future;
+      final waiting = container.read(chatMessagesProvider).last;
+      expect(waiting.content, isEmpty);
+      expect(
+        waiting.statusHistory.single.description,
+        'Prompt processing · 50%',
+      );
+      expect(waiting.statusHistory.single.done, isFalse);
+      var publications = 0;
+      final checkpoint = Completer<void>();
+      final changes = container.listen(chatMessagesProvider, (_, next) {
+        publications++;
+        if (next.last.usage?['total_tokens'] == 1 && !checkpoint.isCompleted) {
+          checkpoint.complete();
+        }
+      });
+      addTearDown(changes.close);
+      adapter.events
+        ..add(
+          const DirectProgressUpdate(
+            DirectProgressPhase.promptProcessing,
+            fraction: 0.5,
+          ),
+        )
+        ..add(DirectUsageUpdate({'total_tokens': 1}));
+      await checkpoint.future;
+      expect(
+        publications,
+        1,
+        reason: 'unchanged progress must not publish another transcript',
+      );
+
+      final restored = Completer<void>();
+      final reload = container.listen(chatMessagesProvider, (_, next) {
+        if (next.last.usage?['total_tokens'] == 2 &&
+            next.last.statusHistory.isNotEmpty &&
+            !restored.isCompleted) {
+          restored.complete();
+        }
+      });
+      addTearDown(reload.close);
+      final messages = container.read(chatMessagesProvider);
+      container.read(chatMessagesProvider.notifier).setMessages([
+        ...messages.take(messages.length - 1),
+        messages.last.copyWith(statusHistory: const []),
+      ]);
+      adapter.events.add(DirectUsageUpdate({'total_tokens': 2}));
+      await restored.future;
+      adapter.events
+        ..add(const DirectContentDelta('The plan is ready.'))
+        ..add(const DirectStreamDone());
+      await adapter.finish();
+      await send;
+      final completed = container.read(chatMessagesProvider).last;
+      expect(completed.statusHistory.single.done, isTrue);
+      expect(completed.isStreaming, isFalse);
+      expect(completed.content, 'The plan is ready.');
+    },
+  );
+
+  test('dispatcher failures settle pending progress', () async {
+    final adapter = _WaitingAdapter();
+    final container = _directContainer(adapter);
+    final send = durableSend(container, 'Check a synthetic plan', null);
+    final failure = expectLater(send, throwsA(isA<DirectProviderException>()));
+    await adapter.asked.future;
+    adapter.events
+      ..add(const DirectProgressUpdate(DirectProgressPhase.modelLoad))
+      ..addError(StateError('Synthetic transport failure'));
+    await failure;
+    await adapter.finish();
+    final completed = container.read(chatMessagesProvider).last;
+    expect(completed.statusHistory.single.done, isTrue);
+    expect(completed.isStreaming, isFalse);
+    expect(completed.error, isNotNull);
+  });
+
   // A chat begun with only a picture is named for it, not "New Chat".
   test('a Direct send without words is titled by its files', () async {
     final image = 'data:image/png;base64,${base64Encode([1, 2, 3])}';

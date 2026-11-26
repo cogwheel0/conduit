@@ -4,6 +4,7 @@ import 'package:clock/clock.dart';
 import 'package:crypto/crypto.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/features/chat/views/chat_status_display.dart';
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/services/answer_tail_cursor.dart';
@@ -1126,6 +1127,7 @@ final class DirectStreamingAccumulator {
   Map<String, dynamic>? _mcpApproval;
   final List<Map<String, dynamic>> _fileAnnotations = [];
   final Set<String> _fileAnnotationHashes = <String>{};
+  final _progress = <DirectProgressPhase, ChatStatusUpdate>{};
   DirectStreamError? _error;
   bool _hasUsableOutput = false;
   bool _hasStreamingProjection = false;
@@ -1157,6 +1159,8 @@ final class DirectStreamingAccumulator {
   List<Map<String, dynamic>> get fileAnnotations =>
       List.unmodifiable(_fileAnnotations);
   DirectStreamError? get error => _error;
+  List<ChatStatusUpdate> get statusHistory =>
+      List.unmodifiable(_progress.values);
   bool get hasUsableOutput => _hasUsableOutput;
   bool get hasGeneratedImages => _generatedImageFiles.isNotEmpty;
   List<Map<String, dynamic>> get generatedImageFiles => List.unmodifiable(
@@ -1200,7 +1204,28 @@ final class DirectStreamingAccumulator {
 
   bool apply(DirectStreamEvent event) {
     switch (event) {
+      case DirectProgressUpdate():
+        finishProgress();
+        final action = switch (event.phase) {
+          DirectProgressPhase.modelLoad => 'model_load',
+          DirectProgressPhase.promptProcessing => 'prompt_processing',
+        };
+        final fraction = event.fraction;
+        final percent = fraction != null && fraction.isFinite
+            ? (fraction.clamp(0, 1) * 100).round()
+            : null;
+        final label = resolveStatusDescription(
+          ChatStatusUpdate(action: action),
+        );
+        _progress.remove(event.phase);
+        _progress[event.phase] = ChatStatusUpdate(
+          action: action,
+          description: percent == null ? label : '$label · $percent%',
+          done: event.done,
+        );
+        return true;
       case DirectContentDelta():
+        if (event.content.isNotEmpty) finishProgress();
         _text.write(event.content);
         // Fragment-wise HTML escaping is compositional only outside Markdown
         // code. Once a possible code delimiter appears, authoritative full
@@ -1212,6 +1237,7 @@ final class DirectStreamingAccumulator {
         if (event.content.trim().isNotEmpty) _hasUsableOutput = true;
         return event.content.isNotEmpty;
       case DirectReasoningDelta():
+        if (event.content.isNotEmpty) finishProgress();
         if (!_reasoningWatch.isRunning) _reasoningWatch.start();
         _reasoning.write(event.content);
         if (!_reasoningHasVisibleText && event.content.trim().isNotEmpty) {
@@ -1241,6 +1267,7 @@ final class DirectStreamingAccumulator {
             !_generatedImageUrls.add(event.dataUrl)) {
           return false;
         }
+        finishProgress();
         _generatedImageFiles.add(<String, dynamic>{
           'type': 'image',
           'source': 'direct_openrouter_image',
@@ -1250,6 +1277,7 @@ final class DirectStreamingAccumulator {
         _hasUsableOutput = true;
         return true;
       case DirectToolCallStarted():
+        finishProgress();
         _toolExecutions.add(
           _DirectToolExecution(
             id: event.id,
@@ -1282,6 +1310,7 @@ final class DirectStreamingAccumulator {
         _hasUsableOutput = true;
         return true;
       case DirectMcpApprovalRequested():
+        finishProgress();
         _mcpApproval = event.request.toMetadata('pending');
         return true;
       case DirectMcpApprovalResolved():
@@ -1297,12 +1326,18 @@ final class DirectStreamingAccumulator {
         }
         return true;
       case DirectStreamError():
+        finishProgress();
         _error = event;
         return true;
       case DirectStreamDone():
+        finishProgress();
         if (_reasoningWatch.isRunning) _reasoningWatch.stop();
         return true;
     }
+  }
+
+  void finishProgress() {
+    _progress.updateAll((_, status) => status.copyWith(done: true));
   }
 
   /// Returns the smallest safe UI update after [event] has been [apply]ed.
@@ -1393,7 +1428,8 @@ final class DirectStreamingAccumulator {
         return _fullStreamingProjection(logicalLength);
       case DirectMcpApprovalRequested() || DirectMcpApprovalResolved():
         return null;
-      case DirectUsageUpdate() ||
+      case DirectProgressUpdate() ||
+          DirectUsageUpdate() ||
           DirectProviderMetadataUpdate() ||
           DirectFileAnnotationsUpdate() ||
           DirectSourceFound() ||

@@ -2456,6 +2456,8 @@ void main() {
 
   test('OpenAI adapter normalizes SSE and owns request routing keys', () async {
     final sse = utf8.encode(
+      'event: model_load.start\ndata: {"type":"model_load.start"}\n\n'
+      'data: {"provider_progress":{"phase":"prompt","fraction":0.5}}\n\n'
       'data: {"choices":[{"delta":{"reasoning_content":"think","content":"Hi 你"}}]}\n\n'
       'data: {"usage":{"total_tokens":3}}\n\n'
       'data: [DONE]\n\n',
@@ -2487,6 +2489,11 @@ void main() {
     final events = await run.events.toList();
     await run.done;
 
+    expect(events.whereType<DirectProgressUpdate>().map((e) => e.phase), [
+      DirectProgressPhase.modelLoad,
+      DirectProgressPhase.promptProcessing,
+    ]);
+    expect(events.whereType<DirectProgressUpdate>().last.fraction, 0.5);
     expect(events.whereType<DirectReasoningDelta>().single.content, 'think');
     expect(events.whereType<DirectContentDelta>().single.content, 'Hi 你');
     expect(
@@ -3090,6 +3097,7 @@ void main() {
     final http = _QueuedAdapter([
       _Reply.stream([
         utf8.encode(
+          'event: model_load.end\ndata: {"type":"model_load.end"}\n\n'
           'data: {"usage":{"total_tokens":0}}\n\n'
           'data: [DONE]\n\n',
         ),
@@ -3111,6 +3119,7 @@ void main() {
         .events
         .toList();
 
+    expect(events.whereType<DirectProgressUpdate>(), hasLength(1));
     expect(events.whereType<DirectContentDelta>(), isEmpty);
     expect(events.whereType<DirectStreamError>(), hasLength(1));
     expect(events.whereType<DirectStreamDone>(), isEmpty);
@@ -3385,6 +3394,7 @@ void main() {
         'capabilities': ['completion', 'vision'],
       }),
       _Reply.stream([
+        utf8.encode('{"provider_progress":{"phase":"load_start"}}\n'),
         utf8.encode(
           '{"thinking":"duplicate","message":{"thinking":"hmm","content":"Hi"}}\n',
         ),
@@ -3435,6 +3445,10 @@ void main() {
     expect(
       http.requests.last.uri.toString(),
       'http://localhost:11434/api/chat',
+    );
+    expect(
+      events.whereType<DirectProgressUpdate>().single.phase,
+      DirectProgressPhase.modelLoad,
     );
     expect(events.whereType<DirectReasoningDelta>().single.content, 'hmm');
     expect(
@@ -4329,6 +4343,7 @@ void main() {
     final http = _QueuedAdapter([
       _Reply.stream([
         utf8.encode(
+          'event: response.provider_progress\ndata: {"phase":"prompt","fraction":0.25}\n\n'
           'data: ${jsonEncode({'type': 'response.reasoning_summary_text.delta', 'output_index': 0, 'summary_index': 0, 'delta': 'summary '})}\n\n'
           'data: ${jsonEncode({'type': 'response.reasoning.delta', 'delta': 'detail'})}\n\n'
           'data: ${jsonEncode({'type': 'response.output_text.delta', 'output_index': 0, 'content_index': 0, 'delta': 'answer'})}\n\n'
@@ -4400,6 +4415,7 @@ void main() {
           .join(),
       'summary detail',
     );
+    expect(events.whereType<DirectProgressUpdate>().single.fraction, 0.25);
     expect(events.whereType<DirectContentDelta>().single.content, 'answer');
     expect(
       events.whereType<DirectUsageUpdate>().single.usage['total_tokens'],

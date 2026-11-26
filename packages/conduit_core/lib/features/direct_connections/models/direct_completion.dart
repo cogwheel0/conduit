@@ -259,6 +259,16 @@ sealed class DirectStreamEvent {
   const DirectStreamEvent();
 }
 
+enum DirectProgressPhase { modelLoad, promptProcessing }
+
+final class DirectProgressUpdate extends DirectStreamEvent {
+  const DirectProgressUpdate(this.phase, {this.fraction, this.done = false});
+
+  final DirectProgressPhase phase;
+  final double? fraction;
+  final bool done;
+}
+
 final class DirectContentDelta extends DirectStreamEvent {
   const DirectContentDelta(this.content);
   final String content;

@@ -1557,6 +1557,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
             normalizedEvent = normalizedImage.image;
             normalizedBudget.add(normalizedImage.image.mediaType);
             break;
+          case DirectProgressUpdate():
           case DirectStreamDone():
             break;
         }
@@ -1589,6 +1590,18 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               uiProjectionIsCurrent &&
               identical(visibleProjectionToken, uiProjectionToken);
           notifier.reconcileDirectStreamingMessageById(assistantMessageId);
+          final statusHistory = accumulator.statusHistory;
+          final visibleStatusHistory =
+              (ref.read(chatMessagesProvider) as List<ChatMessage>)
+                  .where((message) => message.id == assistantMessageId)
+                  .firstOrNull
+                  ?.statusHistory;
+          if (!listEquals(visibleStatusHistory, statusHistory)) {
+            notifier.updateMessageById(
+              assistantMessageId,
+              (current) => current.copyWith(statusHistory: statusHistory),
+            );
+          }
           if (projectedEvent is DirectUsageUpdate) {
             notifier.updateMessageById(
               assistantMessageId,
@@ -1826,6 +1839,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         data: {'errorType': terminalFailure.runtimeType.toString()},
       );
     }
+    accumulator.finishProgress();
     final completedContent = accumulator.render(done: true);
     final visible = ownerIsActive
         ? (ref.read(chatMessagesProvider) as List<ChatMessage>)
@@ -1876,6 +1890,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         ),
       ],
       sources: accumulator.sources,
+      statusHistory: accumulator.statusHistory,
       metadata: completedMetadata,
       usage: accumulator.usage,
       error: accumulator.error != null

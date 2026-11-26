@@ -91,7 +91,8 @@ Stream<DirectStreamEvent> splitInlineReasoningTags(
           case DirectStreamDone() || DirectStreamError():
             releaseEverything(sink);
             sink.add(event);
-          case DirectUsageUpdate() ||
+          case DirectProgressUpdate() ||
+              DirectUsageUpdate() ||
               DirectProviderMetadataUpdate() ||
               DirectFileAnnotationsUpdate() ||
               DirectSourceFound():

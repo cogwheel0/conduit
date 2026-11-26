@@ -65,6 +65,86 @@ Map<String, dynamic> _directDocumentDescriptor(int index, String text) {
 }
 
 void main() {
+  test(
+    'progress replaces a phase and settles before output without becoming text',
+    () {
+      final accumulator = DirectStreamingAccumulator();
+      for (var percent = 0; percent < 100; percent++) {
+        accumulator.apply(
+          DirectProgressUpdate(
+            DirectProgressPhase.modelLoad,
+            fraction: percent / 100,
+          ),
+        );
+      }
+      expect(accumulator.statusHistory, hasLength(1));
+      expect(accumulator.statusHistory.single.description, 'Model load · 99%');
+      expect(accumulator.statusHistory.single.done, isFalse);
+      expect(accumulator.hasUsableOutput, isFalse);
+      expect(accumulator.render(done: false), isEmpty);
+      accumulator.apply(
+        const DirectProgressUpdate(DirectProgressPhase.promptProcessing),
+      );
+      accumulator.apply(
+        const DirectProgressUpdate(DirectProgressPhase.modelLoad),
+      );
+      expect(accumulator.statusHistory.last.action, 'model_load');
+      expect(accumulator.statusHistory.last.done, isFalse);
+      accumulator.apply(const DirectReasoningDelta('Planning'));
+      expect(accumulator.statusHistory, hasLength(2));
+      expect(accumulator.statusHistory.every((s) => s.done == true), isTrue);
+    },
+  );
+
+  test('tool work and approval settle prompt progress before any text', () {
+    for (final event in <DirectStreamEvent>[
+      DirectToolCallStarted(id: 'call-one', name: 'sample-tool', arguments: {}),
+      const DirectMcpApprovalRequested(
+        DirectToolApprovalRequest(
+          id: 'approval-one',
+          serverName: 'Sample server',
+          toolName: 'sample-tool',
+          callId: 'call-one',
+          argumentsJson: '{}',
+        ),
+      ),
+    ]) {
+      final accumulator = DirectStreamingAccumulator();
+      accumulator.apply(
+        const DirectProgressUpdate(DirectProgressPhase.promptProcessing),
+      );
+      accumulator.apply(event);
+      expect(accumulator.statusHistory.single.done, isTrue);
+    }
+  });
+
+  test('only accepted generated images settle loading progress', () {
+    final accumulator = DirectStreamingAccumulator();
+    const progress = DirectProgressUpdate(DirectProgressPhase.modelLoad);
+    for (var index = 0; index < 10; index++) {
+      final image = DirectGeneratedImage(
+        dataUrl: 'data:image/png;base64,${base64Encode([index])}',
+        mediaType: 'image/png',
+      );
+      accumulator.apply(progress);
+      expect(accumulator.apply(image), isTrue);
+      expect(accumulator.statusHistory.single.done, isTrue);
+      accumulator.apply(progress);
+      expect(accumulator.apply(image), isFalse);
+      expect(accumulator.statusHistory.single.done, isFalse);
+    }
+    expect(
+      accumulator.apply(
+        DirectGeneratedImage(
+          dataUrl: 'data:image/png;base64,${base64Encode([10])}',
+          mediaType: 'image/png',
+        ),
+      ),
+      isFalse,
+    );
+    expect(accumulator.statusHistory.single.done, isFalse);
+  });
+
   group('normalizeDirectUsageMetadata', () {
     test('creates a detached deeply immutable JSON value', () {
       final shared = <Object?>[1, 'yes'];
