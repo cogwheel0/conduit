@@ -13,10 +13,87 @@ part 'harness_transcript.dart';
 typedef _Json = Map<String, dynamic>;
 
 class HarnessWorkspace {
-  const HarnessWorkspace(this.id, this.name, this.sessionIds);
+  const HarnessWorkspace(this.id, this.name, this.sessionIds, {this.path = ''});
+
+  static HarnessWorkspace? _parse(Object? row, {bool receipt = false}) {
+    if (row
+        case {
+          'workspaceId': final String id,
+          'title': final String name,
+          'sessionIds': final List ids,
+        }
+        when id.isNotEmpty) {
+      final path = row['path'];
+      if (receipt &&
+          (path is! String || path.isEmpty || ids.any((id) => id is! String))) {
+        return null;
+      }
+      return HarnessWorkspace(
+        id,
+        name,
+        ids.whereType<String>().toList(growable: false),
+        path: path is String ? path : '',
+      );
+    }
+    return null;
+  }
+
   final String id;
   final String name;
   final List<String> sessionIds;
+  final String path;
+}
+
+class HarnessDirectoryEntry {
+  const HarnessDirectoryEntry({
+    required this.name,
+    required this.path,
+    required this.hidden,
+  });
+  final String name;
+  final String path;
+  final bool hidden;
+
+  factory HarnessDirectoryEntry._fromJson(_Json value) {
+    if (value
+        case {
+          'name': final String name,
+          'path': final String path,
+          'hidden': final bool hidden,
+        }
+        when path.isNotEmpty) {
+      return HarnessDirectoryEntry(name: name, path: path, hidden: hidden);
+    }
+    throw _invalid;
+  }
+}
+
+class HarnessDirectoryListing {
+  const HarnessDirectoryListing({
+    required this.path,
+    required this.home,
+    required this.crumbs,
+    required this.entries,
+    required this.truncated,
+  });
+  final String path;
+  final String home;
+  final List<HarnessDirectoryEntry> crumbs;
+  final List<HarnessDirectoryEntry> entries;
+  final bool truncated;
+}
+
+enum HarnessWorkspaceIssue {
+  invalidPath,
+  directoryExists,
+  createFailed,
+  browseUnavailable,
+}
+
+class HarnessWorkspaceException extends DeepSeekHarnessException {
+  const HarnessWorkspaceException(this.issue)
+    : super(DeepSeekHarnessFailure.unavailable);
+  final HarnessWorkspaceIssue issue;
 }
 
 class HarnessSession {
@@ -90,11 +167,14 @@ class DeepSeekHarnessClient {
     }
   }
 
-  Future<_Json> _call(String endpoint, _Json args) async {
+  Future<_Json> _call(String endpoint, _Json args) =>
+      _callValue<_Json>(endpoint, args);
+
+  Future<T> _callValue<T extends Object>(String endpoint, _Json args) async {
     _check();
     final http = HttpClient()..connectionTimeout = _deadline;
     _requests.add(http);
-    Future<_Json> execute() async {
+    Future<T> execute() async {
       final id = const Uuid().v4();
       final req = await http.postUrl(connection.root.resolve('api/$endpoint'));
       req.followRedirects = false;
@@ -118,8 +198,27 @@ class DeepSeekHarnessClient {
           body['rpcId'] != id) {
         throw _invalid;
       }
-      if (body['result'] case {'ok': true, 'value': final _Json value}) {
+      if (body['result'] case {'ok': true, 'value': final T value}) {
         return value;
+      }
+      if (body['result'] case {
+        'ok': false,
+        'error': {'code': final String code},
+      }) {
+        throw switch (code) {
+          'workspace/invalid-path' || 'directory-picker/unreadable' =>
+            const HarnessWorkspaceException(HarnessWorkspaceIssue.invalidPath),
+          'directory-picker/exists' => const HarnessWorkspaceException(
+            HarnessWorkspaceIssue.directoryExists,
+          ),
+          'directory-picker/create-failed' => const HarnessWorkspaceException(
+            HarnessWorkspaceIssue.createFailed,
+          ),
+          'directory-picker/unavailable' => const HarnessWorkspaceException(
+            HarnessWorkspaceIssue.browseUnavailable,
+          ),
+          _ => _invalid,
+        };
       }
       throw _invalid;
     }
@@ -177,19 +276,61 @@ class DeepSeekHarnessClient {
     if (baseline['type'] != 'baseline' || baseline['value'] is! _Json) {
       throw _invalid;
     }
-    return [
-      for (final row in _objects(baseline['value']['items']))
-        if (row case {
-          'workspaceId': final String id,
-          'title': final String name,
-          'sessionIds': final List ids,
-        })
-          HarnessWorkspace(
-            id,
-            name,
-            ids.whereType<String>().toList(growable: false),
-          ),
-    ];
+    final rows = baseline['value']['items'];
+    if (rows is! List) throw _invalid;
+    return [for (final row in rows) ?HarnessWorkspace._parse(row)];
+  }
+
+  /// Registers an existing server directory, or resolves its existing workspace.
+  Future<HarnessWorkspace> createWorkspace(String path) async {
+    if (path.trim().isEmpty) {
+      throw const HarnessWorkspaceException(HarnessWorkspaceIssue.invalidPath);
+    }
+    final value = await _call('workspace/create', {
+      'request': {'path': path},
+    });
+    if (value['created'] is! bool) throw _invalid;
+    return HarnessWorkspace._parse(value['workspace'], receipt: true) ??
+        (throw _invalid);
+  }
+
+  Future<HarnessDirectoryListing> listDirectories([String? path]) async {
+    final value = await _call('directoryPicker/list', {'path': ?path});
+    if (value
+        case {
+          'path': final String folder,
+          'home': final String home,
+          'truncated': final bool truncated,
+        }
+        when folder.isNotEmpty && home.isNotEmpty) {
+      return HarnessDirectoryListing(
+        path: folder,
+        home: home,
+        crumbs: _objects(value['crumbs'])
+            .map(HarnessDirectoryEntry._fromJson)
+            .toList(growable: false),
+        entries: _objects(value['entries'])
+            .map(HarnessDirectoryEntry._fromJson)
+            .toList(growable: false),
+        truncated: truncated,
+      );
+    }
+    throw _invalid;
+  }
+
+  Future<String> createDirectory(String parentPath, String name) async {
+    if (name.trim().isEmpty ||
+        name == '.' ||
+        name == '..' ||
+        name.contains(RegExp(r'[/\\\x00]'))) {
+      throw const HarnessWorkspaceException(HarnessWorkspaceIssue.createFailed);
+    }
+    final path = await _callValue<String>('directoryPicker/createDirectory', {
+      'path': parentPath,
+      'name': name,
+    });
+    if (path.isEmpty) throw _invalid;
+    return path;
   }
 
   Future<String> createSession({required String workspaceId}) async {

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit/features/deepseek_harness/deepseek_harness_chats.dart';
+import 'package:conduit/features/deepseek_harness/harness_workspace_sidebar.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -24,12 +25,40 @@ class _Client extends Fake implements DeepSeekHarnessClient {
   bool sendFails = false;
   Completer<void>? acknowledgment;
 
-  @override
-  Future<List<HarnessSession>> listSessions() async => const [
+  List<HarnessSession> sessions = const [
     HarnessSession('tray', 'Tray notes', false, false),
     HarnessSession('fern', 'Fern log', false, false),
     HarnessSession('archive', 'Archived tray', false, true),
   ];
+
+  Completer<List<HarnessSession>>? nextSessions;
+
+  @override
+  Future<List<HarnessSession>> listSessions() async {
+    final pending = nextSessions;
+    nextSessions = null;
+    return pending == null ? sessions : await pending.future;
+  }
+
+  @override
+  Future<HarnessDirectoryListing> listDirectories([String? path]) async =>
+      throw const HarnessWorkspaceException(
+        HarnessWorkspaceIssue.browseUnavailable,
+      );
+
+  final addedPaths = <String>[];
+  @override
+  Future<HarnessWorkspace> createWorkspace(String path) async {
+    addedPaths.add(path);
+    final newWorkspace = HarnessWorkspace(
+      'orchard',
+      'Orchard',
+      const [],
+      path: path,
+    );
+    workspaces = [...workspaces, newWorkspace];
+    return newWorkspace;
+  }
 
   List<HarnessWorkspace> workspaces = const [
     HarnessWorkspace('greenhouse', 'Greenhouse', ['tray']),
@@ -119,7 +148,19 @@ void main() {
     closeWorkspace = Completer<void>();
   });
 
-  Future<void> open(WidgetTester tester) async {
+  final selections = <String?>[];
+  Future<void> open(
+    WidgetTester tester, {
+    String? initial,
+    bool tablet = false,
+  }) async {
+    selections.clear();
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = tablet
+        ? const Size(1000, 750)
+        : const Size(390, 844);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -130,6 +171,8 @@ void main() {
           supportedLocales: AppLocalizations.supportedLocales,
           home: DeepSeekHarnessChats(
             connection: _Grant(),
+            initialWorkspaceId: initial,
+            onWorkspaceSelected: (id) async => selections.add(id),
             onExit: () {},
             onReady: () {},
             onEditConnection: () {},
@@ -184,25 +227,125 @@ void main() {
     expect(find.text('Tray notes'), findsOneWidget);
   });
 
-  testWidgets('a refreshed single workspace can still be unfiltered', (
+  Future<void> tapKey(WidgetTester tester, String key) async {
+    await tester.tap(find.byKey(ValueKey(key)).hitTestable());
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets(
+    'phone sidebar filters chats and targets the selected workspace',
+    (tester) async {
+      await open(tester);
+      await tapKey(tester, 'harness-workspaces-button');
+      await tapKey(tester, 'harness-workspace-greenhouse');
+      expect(selections, ['greenhouse']);
+      expect(find.text('Tray notes'), findsOneWidget);
+      expect(find.text('Fern log'), findsNothing);
+      await tester.tap(find.byTooltip('New Chat'));
+      await tester.pump();
+      await tester.pump();
+      expect(client.created, ['greenhouse']);
+      client.emit();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Workspaces'));
+      await tester.pumpAndSettle();
+      await tapKey(tester, 'harness-all-chats');
+      expect(selections, ['greenhouse', null]);
+      expect(find.text('Fern log'), findsOneWidget);
+      expect(find.text('Archived tray'), findsOneWidget);
+    },
+  );
+
+  testWidgets('a deleted active workspace returns to All chats on reload', (
     tester,
   ) async {
-    await open(tester);
-    await choose(tester, 'All');
-    await tester.pumpAndSettle();
-    await choose(tester, 'Greenhouse');
-    await tester.pumpAndSettle();
+    await open(tester, initial: 'greenhouse');
     expect(find.text('Fern log'), findsNothing);
-    client.workspaces = [client.workspaces.first];
+    client.workspaces = [client.workspaces.last];
     await choose(tester, 'Reload');
     await tester.pumpAndSettle();
-    await choose(tester, 'Greenhouse');
-    await tester.pumpAndSettle();
-    await choose(tester, 'All');
-    await tester.pumpAndSettle();
+    expect(selections, [null]);
     expect(find.text('Fern log'), findsOneWidget);
-    expect(find.text('Greenhouse'), findsNothing);
-    expect(find.text('All'), findsNothing);
+    await tapKey(tester, 'harness-workspaces-button');
+    expect(
+      find.byKey(const ValueKey('harness-workspace-terrarium')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('harness-new-workspace')).hitTestable(),
+      findsOneWidget,
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('harness-workspaces-button')).hitTestable(),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('add the first workspace, then start its first chat', (
+    tester,
+  ) async {
+    client.sessions = [];
+    client.workspaces = [];
+    await open(tester);
+    await tester.tap(find.text('New workspace').hitTestable());
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), '/gardens/Orchard');
+    await tester.tap(find.text('Use this folder').hitTestable());
+    await tester.pumpAndSettle();
+    expect(client.addedPaths, ['/gardens/Orchard']);
+    expect(selections, ['orchard']);
+    expect(find.text('Orchard'), findsOneWidget);
+    await tester.tap(find.text('New Chat').hitTestable());
+    await tester.pump();
+    await tester.pump();
+    expect(client.created, ['orchard']);
+    client.emit();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a late title lookup cannot open the previous workspace', (
+    tester,
+  ) async {
+    await open(tester, initial: 'greenhouse');
+    await tester.tap(find.byTooltip('New Chat'));
+    await tester.pump();
+    await tester.pump();
+    client.emit();
+    await tester.pumpAndSettle();
+    final pending = Completer<List<HarnessSession>>();
+    client.nextSessions = pending;
+    await tester.tap(find.byTooltip('Open Harness workspace'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Workspaces'));
+    await tester.pumpAndSettle();
+    await tapKey(tester, 'harness-workspace-terrarium');
+    pending.completeError(
+      const DeepSeekHarnessException(DeepSeekHarnessFailure.unavailable),
+    );
+    await tester.pumpAndSettle();
+    expect(opened, isEmpty);
+    expect(find.text('Fern log'), findsOneWidget);
+  });
+
+  testWidgets('tablet keeps workspaces beside the current chat list', (
+    tester,
+  ) async {
+    await open(tester, tablet: true, initial: 'terrarium');
+    expect(find.text('Fern log'), findsOneWidget);
+    expect(find.text('Tray notes'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('harness-workspaces-button')),
+      findsNothing,
+    );
+    await tapKey(tester, 'harness-workspace-greenhouse');
+    expect(find.text('Tray notes'), findsOneWidget);
+    expect(find.byType(HarnessWorkspaceSidebar), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('harness-workspace-terrarium')).hitTestable(),
+      findsOneWidget,
+    );
   });
 
   testWidgets(

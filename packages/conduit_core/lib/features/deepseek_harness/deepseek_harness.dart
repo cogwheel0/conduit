@@ -82,7 +82,7 @@ List<int> _decode(String value) {
 
 /// A host- and directory-scoped browser grant minted by `dsh web`.
 class DeepSeekHarnessConnection {
-  const DeepSeekHarnessConnection._(
+  DeepSeekHarnessConnection._(
     this.root,
     this.cookieName,
     this.cookieValue,
@@ -93,6 +93,9 @@ class DeepSeekHarnessConnection {
   final String cookieName;
   final String cookieValue;
   final DateTime expiresAt;
+  String? _selectedWorkspaceId;
+
+  String? get selectedWorkspaceId => _selectedWorkspaceId;
 
   String get cookiePath => root.path;
   bool get isExpired => !clock.now().isBefore(expiresAt);
@@ -179,12 +182,17 @@ class DeepSeekHarnessConnection {
         'value': String value,
         'expiresAt': int expiresAt,
       }) {
-        return _fromGrant(
+        final grant = _fromGrant(
           root: Uri.parse(root),
           name: name,
           value: value,
           expiresAt: expiresAt,
         );
+        if (json['selectedWorkspaceId'] case final String id
+            when id.isNotEmpty) {
+          grant._selectedWorkspaceId = id;
+        }
+        return grant;
       }
     } on FormatException {
       return null;
@@ -363,6 +371,32 @@ class DeepSeekHarnessConnections
       _watchExpiry(grant);
       if (ref.mounted) state = AsyncData(grant);
       return grant;
+    });
+  }
+
+  Future<void> selectWorkspace(DeepSeekHarnessConnection grant, String? id) {
+    final scope = SecureCredentialStorage.harnessWriteScope;
+    return _lock.synchronized(() async {
+      if (id != null && id.isEmpty) throw _invalidResponse;
+      if (grant.isExpired) {
+        throw const DeepSeekHarnessException(
+          DeepSeekHarnessFailure.unauthorized,
+        );
+      }
+      if (scope == null ||
+          !ref.mounted ||
+          !identical(state.value, grant) ||
+          !await _storage.selectDeepSeekHarnessWorkspace(
+            scope: scope,
+            root: grant.root.toString(),
+            grantValue: grant.cookieValue,
+            workspaceId: id,
+          )) {
+        throw const DeepSeekHarnessException(
+          DeepSeekHarnessFailure.unavailable,
+        );
+      }
+      grant._selectedWorkspaceId = id;
     });
   }
 

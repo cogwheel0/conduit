@@ -935,8 +935,40 @@ class SecureCredentialStorage {
         return identical(harnessWriteScope, scope);
       });
 
-  Future<void> deleteDeepSeekHarnessConnection() =>
-      _secureStorage.delete(key: _deepSeekHarnessKey);
+  Future<bool> selectDeepSeekHarnessWorkspace({
+    required Object scope,
+    required String root,
+    required String grantValue,
+    required String? workspaceId,
+  }) => _harnessWriteLock.synchronized(() async {
+    if (!identical(harnessWriteScope, scope)) return false;
+    final saved = await _secureStorage.read(key: _deepSeekHarnessKey);
+    if (saved == null) return false;
+    late final Object? data;
+    try {
+      data = jsonDecode(saved);
+    } on FormatException {
+      return false;
+    }
+    if (data is! Map<String, dynamic> ||
+        data['root'] != root ||
+        data['value'] != grantValue) {
+      return false;
+    }
+    if (workspaceId == null) {
+      data.remove('selectedWorkspaceId');
+    } else {
+      data['selectedWorkspaceId'] = workspaceId;
+    }
+    await _secureStorage.write(
+      key: _deepSeekHarnessKey,
+      value: jsonEncode(data),
+    );
+    return identical(harnessWriteScope, scope);
+  });
+
+  Future<void> deleteDeepSeekHarnessConnection() => _harnessWriteLock
+      .synchronized(() => _secureStorage.delete(key: _deepSeekHarnessKey));
 
   /// Removes the one-server config list once the registry has replaced it.
   Future<void> deleteLegacyServerConfigs() =>

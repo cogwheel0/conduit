@@ -303,7 +303,11 @@ signing key each time it starts, so every restart signs Conduit out.
    origin across paths on the same scheme, host, and port.
 2. In Conduit, choose **DeepSeek Harness** on first launch or in
    **Settings → Accounts**. Paste the launch link printed by Harness.
-3. Pick a session or tap **New Chat**. Conduit streams replies from the server
+3. Open **Workspaces** to switch between server folders. Use **New workspace**
+   to add an existing directory, or create a folder first on servers that allow
+   directory browsing. A workspace shows its own chats and sets where **New Chat**
+   starts. **All chats** shows the full history.
+4. Pick a session or tap **New Chat**. Conduit streams replies from the server
    and lets you select its models or stop a turn. Open the Harness workspace
    to review a tool request or use its full session controls. Your computer
    keeps the conversation history and must be reachable from your phone.

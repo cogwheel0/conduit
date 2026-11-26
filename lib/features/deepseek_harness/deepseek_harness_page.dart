@@ -145,6 +145,10 @@ class _HarnessPageState extends ConsumerState<DeepSeekHarnessPage> {
       return DeepSeekHarnessChats(
         key: ObjectKey(saved),
         connection: saved,
+        initialWorkspaceId: saved.selectedWorkspaceId,
+        onWorkspaceSelected: (id) => ref
+            .read(deepSeekHarnessConnectionProvider.notifier)
+            .selectWorkspace(saved, id),
         onEditConnection: _edit,
         onExit: widget.onExit,
         onReady: _ready,

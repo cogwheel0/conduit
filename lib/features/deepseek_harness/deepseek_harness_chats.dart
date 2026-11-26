@@ -18,6 +18,10 @@ import '../../shared/widgets/markdown/renderer/block_renderer.dart'
 import '../../shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import '../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../shared/widgets/platform_ui/vocabulary.dart';
+import '../../shared/widgets/sidebar_layout_contract.dart';
+import '../navigation/widgets/responsive_drawer_layout.dart';
+import 'harness_directory_picker.dart';
+import 'harness_workspace_sidebar.dart';
 
 final harnessClientFactoryProvider =
     Provider<DeepSeekHarnessClient Function(DeepSeekHarnessConnection)>(
@@ -67,6 +71,8 @@ class DeepSeekHarnessChats extends ConsumerStatefulWidget {
     required this.onEditConnection,
     required this.onExit,
     required this.onReady,
+    this.initialWorkspaceId,
+    this.onWorkspaceSelected,
   });
 
   final DeepSeekHarnessConnection connection;
@@ -74,12 +80,15 @@ class DeepSeekHarnessChats extends ConsumerStatefulWidget {
   final VoidCallback onEditConnection;
   final VoidCallback onExit;
   final VoidCallback onReady;
+  final String? initialWorkspaceId;
+  final Future<void> Function(String?)? onWorkspaceSelected;
 
   @override
   ConsumerState<DeepSeekHarnessChats> createState() => _ChatsState();
 }
 
 class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
+  final _drawer = GlobalKey<ResponsiveDrawerLayoutState>();
   late DeepSeekHarnessClient _client;
   late Future<(List<HarnessSession>, List<HarnessWorkspace>)> _catalog;
   String? _selectedId;
@@ -87,8 +96,12 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
   String? _workspaceId;
   bool _exiting = false;
   bool _creating = false;
+  bool _pickingWorkspace = false;
   bool _showingWorkspace = false;
   bool _ready = false;
+  int _catalogGeneration = 0;
+  bool _rememberFailed = false;
+  int _selectionRevision = 0;
   Object? _actionError;
 
   @override
@@ -108,21 +121,31 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
 
   void _initClient() {
     _client = ref.read(harnessClientFactoryProvider)(widget.connection);
-    _selectedId = _workspaceId = null;
+    _selectedId = null;
+    _workspaceId = widget.initialWorkspaceId;
+    _rememberFailed = false;
     _summary = null;
     _actionError = null;
-    _ready = _creating = _showingWorkspace = false;
+    _ready = _creating = _pickingWorkspace = _showingWorkspace = false;
     _catalog = _load(_client);
   }
 
   Future<(List<HarnessSession>, List<HarnessWorkspace>)> _load(
     DeepSeekHarnessClient client,
   ) async {
+    final generation = ++_catalogGeneration;
     final sessions = await client.listSessions();
     final workspaces = await client.listWorkspaces();
-    if (mounted && identical(_client, client) && !_ready && !_exiting) {
-      _ready = true;
-      widget.onReady();
+    if (mounted && generation == _catalogGeneration && !_exiting) {
+      if (_workspaceId != null &&
+          !workspaces.any((w) => w.id == _workspaceId)) {
+        _workspaceId = null;
+        unawaited(_rememberWorkspace(null));
+      }
+      if (!_ready) {
+        _ready = true;
+        widget.onReady();
+      }
     }
     return (sessions, workspaces);
   }
@@ -132,7 +155,55 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
     _catalog = _load(_client);
   });
 
+  Future<void> _rememberWorkspace(String? id) async {
+    final revision = ++_selectionRevision;
+    final client = _client;
+    try {
+      await widget.onWorkspaceSelected?.call(id);
+    } catch (_) {
+      if (mounted &&
+          identical(client, _client) &&
+          revision == _selectionRevision) {
+        setState(() => _rememberFailed = true);
+      }
+    }
+  }
+
+  void _selectWorkspace(String? id, {bool reload = false}) {
+    if (_creating || _exiting) return;
+    _drawer.currentState?.close();
+    final refresh = reload || _selectedId != null;
+    setState(() {
+      _selectedId = null;
+      _summary = null;
+      _workspaceId = id;
+      _actionError = null;
+      _rememberFailed = false;
+      if (refresh) _catalog = _load(_client);
+    });
+    unawaited(_rememberWorkspace(id));
+  }
+
+  Future<void> _addWorkspace() async {
+    if (_pickingWorkspace || _creating || _exiting) return;
+    final client = _client;
+    _pickingWorkspace = true;
+    try {
+      final result = await showHarnessWorkspacePicker(context, client);
+      if (mounted && identical(client, _client) && result != null) {
+        _selectWorkspace(result.id, reload: true);
+      }
+    } finally {
+      if (identical(client, _client)) _pickingWorkspace = false;
+    }
+  }
+
   void _back() {
+    if (!usesPersistentTabletSidebar(context) &&
+        _drawer.currentState?.isOpen == true) {
+      _drawer.currentState!.close();
+      return;
+    }
     if (_selectedId == null) {
       _exiting = true;
       widget.onExit();
@@ -148,6 +219,7 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
 
   Future<void> _workspace({String? id, String? title}) async {
     if (_showingWorkspace) return;
+    final client = _client;
     _showingWorkspace = true;
     try {
       if (id != null) {
@@ -169,10 +241,17 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
           }
         }
       }
-      if (mounted && !_exiting) await widget.onOpenWorkspace(title);
+      if (mounted &&
+          identical(client, _client) &&
+          !_exiting &&
+          (id == null || _selectedId == id)) {
+        await widget.onOpenWorkspace(title);
+      }
     } finally {
-      _showingWorkspace = false;
-      if (mounted && id == null) _refresh();
+      if (mounted && identical(client, _client)) {
+        _showingWorkspace = false;
+        if (id == null && !_exiting) _refresh();
+      }
     }
   }
 
@@ -192,6 +271,7 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
                   AppLocalizations.of(context)!.workspaceTitle,
                   workspaces,
                   label: (w) => w.name,
+                  subtitle: (w) => w.path.isEmpty ? null : w.path,
                 ));
       if (!mounted ||
           client != _client ||
@@ -226,192 +306,198 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final session = _selectedId;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (popped, _) {
         if (!popped) _back();
       },
-      child: session != null
-          ? _SessionChat(
-              key: ValueKey((widget.connection, session)),
-              client: _client,
-              sessionId: session,
-              summary: _summary,
-              drafts: _draftsBySignIn[widget.connection] ??= {},
-              onBack: _back,
-              onWorkspace: (title) => _workspace(id: session, title: title),
-            )
-          : FutureBuilder(
-              key: ObjectKey(widget.connection),
-              future: _catalog,
-              builder: (context, snapshot) {
-                final sessions = snapshot.data?.$1 ?? const <HarnessSession>[];
-                final workspaces =
-                    snapshot.data?.$2 ?? const <HarnessWorkspace>[];
-                final selected = workspaces
-                    .where((item) => item.id == _workspaceId)
-                    .firstOrNull;
-                final visible = selected == null
-                    ? sessions
-                    : sessions
-                          .where((s) => selected.sessionIds.contains(s.id))
-                          .toList();
-                final error = snapshot.error ?? _actionError;
-                return AdaptiveRouteShell(
-                  bodySafeArea: true,
-                  safeAreaTop: false,
-                  appBar: AdaptiveAppBar(
-                    title: l10n.deepSeekHarnessTitle,
-                    leading: ConduitAdaptiveAppBarIconButton(
-                      icon: Icons.arrow_back,
-                      iosSymbol: 'chevron.backward',
-                      semanticLabel: l10n.deepSeekHarnessBack,
-                      onPressed: _back,
-                    ),
-                    actions: [
-                      AdaptiveAppBarAction(
-                        icon: Icons.open_in_browser,
-                        iosSymbol: 'safari',
-                        semanticLabel: l10n.deepSeekHarnessOpenWorkspace,
-                        onPressed: _workspace,
-                      ),
-                      AdaptiveAppBarAction(
-                        icon: Icons.settings_outlined,
-                        iosSymbol: 'gearshape',
-                        semanticLabel: l10n.edit,
-                        onPressed: widget.onEditConnection,
-                      ),
-                      AdaptiveAppBarAction(
-                        icon: Icons.edit_square,
-                        iosSymbol: 'square.and.pencil',
-                        semanticLabel: l10n.newChat,
-                        onPressed: workspaces.isEmpty || _creating
-                            ? null
-                            : () => _newChat(workspaces),
-                      ),
-                    ],
-                  ),
-                  body: Column(
-                    children: [
-                      if (snapshot.connectionState == ConnectionState.waiting ||
-                          _creating)
-                        const AdaptiveProgressIndicator.linear(),
-                      if (error != null)
-                        _ErrorRow(
-                          text: _connectionError(l10n, error),
-                          retry: _refresh,
-                        ),
-                      if (workspaces.length > 1 || selected != null)
-                        AdaptiveListTile(
-                          leading: const Icon(Icons.folder_outlined),
-                          title: Text(
-                            selected?.name ?? l10n.workspaceKnowledgeViewAll,
-                          ),
-                          subtitle: Text(l10n.workspaceTitle),
-                          trailing: const Icon(Icons.expand_more),
-                          onTap: () async {
-                            final choices = [
-                              '',
-                              ...workspaces.map((w) => w.id),
-                            ];
-                            final result = await _choose(
-                              context,
-                              l10n.workspaceTitle,
-                              choices,
-                              label: (id) =>
-                                  workspaces
-                                      .where((w) => w.id == id)
-                                      .firstOrNull
-                                      ?.name ??
-                                  l10n.workspaceKnowledgeViewAll,
-                              selected: (id) => id == (selected?.id ?? ''),
-                            );
-                            if (mounted && result != null) {
-                              setState(
-                                () => _workspaceId = result.isEmpty
-                                    ? null
-                                    : result,
-                              );
-                            }
-                          },
-                        ),
-                      if (snapshot.hasData)
-                        Expanded(
-                          child: visible.isEmpty
-                              ? Center(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(Spacing.lg),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          workspaces.isEmpty
-                                              ? l10n.deepSeekHarnessNoWorkspaces
-                                              : l10n.noConversationsYet,
-                                          textAlign: TextAlign.center,
-                                        ),
-                                        const SizedBox(height: Spacing.md),
-                                        AdaptiveButton(
-                                          label: workspaces.isEmpty
-                                              ? l10n.deepSeekHarnessOpenWorkspace
-                                              : l10n.newChat,
-                                          onPressed: workspaces.isEmpty
-                                              ? _workspace
-                                              : _creating
-                                              ? null
-                                              : () => _newChat(workspaces),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                              : ListView.builder(
-                                  itemCount: visible.length,
-                                  itemBuilder: (_, index) {
-                                    final row = visible[index];
-                                    return AdaptiveListTile(
-                                      key: ValueKey(row.id),
-                                      leading: const Icon(
-                                        Icons.chat_bubble_outline,
-                                      ),
-                                      title: Text(
-                                        row.title.isEmpty
-                                            ? l10n.newChat
-                                            : row.title,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      subtitle: row.needsWorkspace
-                                          ? Text(
-                                              l10n.deepSeekHarnessOpenWorkspace,
-                                            )
-                                          : row.running
-                                          ? Text(l10n.scheduledTaskRunning)
-                                          : null,
-                                      trailing: const Icon(Icons.chevron_right),
-                                      onTap: row.needsWorkspace
-                                          ? () => _workspace(title: row.title)
-                                          : () => setState(() {
-                                              _selectedId = row.id;
-                                              _summary = row;
-                                            }),
-                                    );
-                                  },
-                                ),
-                        ),
-                      if (snapshot.hasData)
-                        AdaptiveButton(
-                          label: l10n.terminalPortPreviewReload,
-                          style: AdaptiveButtonStyle.plain,
-                          onPressed: _refresh,
-                        ),
-                    ],
-                  ),
-                );
+      child: FutureBuilder(
+        key: ObjectKey(widget.connection),
+        future: _catalog,
+        builder: (context, snapshot) {
+          final sessions = snapshot.data?.$1 ?? const <HarnessSession>[];
+          final workspaces = snapshot.data?.$2 ?? const <HarnessWorkspace>[];
+          final selected = workspaces
+              .where((w) => w.id == _workspaceId)
+              .firstOrNull;
+          final sessionIds = selected?.sessionIds.toSet();
+          final visible = _workspaceId == null
+              ? sessions
+              : sessions
+                    .where((s) => sessionIds?.contains(s.id) == true)
+                    .toList();
+          final docked = usesPersistentTabletSidebar(context);
+          return ResponsiveDrawerLayout(
+            key: _drawer,
+            tabletDismissible: false,
+            drawer: HarnessWorkspaceSidebar(
+              workspaces: workspaces,
+              selectedId: _workspaceId,
+              onSelect: _creating ? null : _selectWorkspace,
+              onCreate: snapshot.hasData && !_creating ? _addWorkspace : null,
+            ),
+            child: session != null
+                ? _SessionChat(
+                    key: ValueKey((widget.connection, session)),
+                    client: _client,
+                    sessionId: session,
+                    summary: _summary,
+                    drafts: _draftsBySignIn[widget.connection] ??= {},
+                    onBack: _back,
+                    onShowWorkspaces: docked
+                        ? null
+                        : () => _drawer.currentState?.open(),
+                    onWorkspace: (title) =>
+                        _workspace(id: session, title: title),
+                  )
+                : _sessionList(snapshot, workspaces, selected, visible, docked),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _sessionList(
+    AsyncSnapshot<(List<HarnessSession>, List<HarnessWorkspace>)> snapshot,
+    List<HarnessWorkspace> workspaces,
+    HarnessWorkspace? selected,
+    List<HarnessSession> visible,
+    bool docked,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    final error = snapshot.error ?? _actionError;
+    final canCreateChat =
+        workspaces.isNotEmpty &&
+        !_creating &&
+        snapshot.connectionState == ConnectionState.done;
+    return AdaptiveRouteShell(
+      bodySafeArea: true,
+      safeAreaTop: false,
+      appBar: AdaptiveAppBar(
+        title: docked && selected != null
+            ? selected.name
+            : l10n.deepSeekHarnessTitle,
+        leading: ConduitAdaptiveAppBarIconButton(
+          icon: Icons.arrow_back,
+          iosSymbol: 'chevron.backward',
+          semanticLabel: l10n.deepSeekHarnessBack,
+          onPressed: _back,
+        ),
+        actions: [
+          AdaptiveAppBarAction(
+            icon: Icons.open_in_browser,
+            iosSymbol: 'safari',
+            semanticLabel: l10n.deepSeekHarnessOpenWorkspace,
+            onPressed: _workspace,
+          ),
+          AdaptiveAppBarAction(
+            icon: Icons.settings_outlined,
+            iosSymbol: 'gearshape',
+            semanticLabel: l10n.edit,
+            onPressed: widget.onEditConnection,
+          ),
+          AdaptiveAppBarAction(
+            icon: Icons.edit_square,
+            iosSymbol: 'square.and.pencil',
+            semanticLabel: l10n.newChat,
+            onPressed: canCreateChat ? () => _newChat(workspaces) : null,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (snapshot.connectionState == ConnectionState.waiting || _creating)
+            const AdaptiveProgressIndicator.linear(),
+          if (error != null)
+            _ErrorRow(text: _connectionError(l10n, error), retry: _refresh),
+          if (_rememberFailed)
+            _ErrorRow(
+              text: l10n.deepSeekHarnessRememberWorkspaceFailed,
+              retry: () {
+                setState(() => _rememberFailed = false);
+                unawaited(_rememberWorkspace(_workspaceId));
               },
             ),
+          if (!docked && snapshot.hasData)
+            AdaptiveListTile(
+              key: const ValueKey('harness-workspaces-button'),
+              leading: const Icon(Icons.folder_outlined),
+              title: Text(
+                selected?.name ?? l10n.deepSeekHarnessAllChats,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(l10n.deepSeekHarnessWorkspaces),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _drawer.currentState?.open(),
+            ),
+          if (snapshot.hasData)
+            Expanded(
+              child: visible.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(Spacing.lg),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              workspaces.isEmpty
+                                  ? l10n.deepSeekHarnessNoWorkspaces
+                                  : l10n.noConversationsYet,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: Spacing.md),
+                            AdaptiveButton(
+                              label: workspaces.isEmpty
+                                  ? l10n.deepSeekHarnessNewWorkspace
+                                  : l10n.newChat,
+                              onPressed: workspaces.isEmpty
+                                  ? _addWorkspace
+                                  : canCreateChat
+                                  ? () => _newChat(workspaces)
+                                  : null,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: visible.length,
+                      itemBuilder: (_, index) {
+                        final row = visible[index];
+                        return AdaptiveListTile(
+                          key: ValueKey(row.id),
+                          leading: const Icon(Icons.chat_bubble_outline),
+                          title: Text(
+                            row.title.isEmpty ? l10n.newChat : row.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: row.needsWorkspace
+                              ? Text(l10n.deepSeekHarnessOpenWorkspace)
+                              : row.running
+                              ? Text(l10n.scheduledTaskRunning)
+                              : null,
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: row.needsWorkspace
+                              ? () => _workspace(title: row.title)
+                              : () => setState(() {
+                                  _selectedId = row.id;
+                                  _summary = row;
+                                }),
+                        );
+                      },
+                    ),
+            ),
+          if (snapshot.hasData)
+            AdaptiveButton(
+              label: l10n.terminalPortPreviewReload,
+              style: AdaptiveButtonStyle.plain,
+              onPressed: _refresh,
+            ),
+        ],
+      ),
     );
   }
 }
@@ -477,6 +563,7 @@ class _SessionChat extends StatefulWidget {
     required this.summary,
     required this.drafts,
     required this.onBack,
+    required this.onShowWorkspaces,
     required this.onWorkspace,
   });
   final DeepSeekHarnessClient client;
@@ -484,6 +571,7 @@ class _SessionChat extends StatefulWidget {
   final HarnessSession? summary;
   final Map<String, _SessionDraft> drafts;
   final VoidCallback onBack;
+  final VoidCallback? onShowWorkspaces;
   final Future<void> Function(String? title) onWorkspace;
 
   @override
@@ -748,6 +836,13 @@ class _SessionChatState extends State<_SessionChat>
           onPressed: widget.onBack,
         ),
         actions: [
+          if (widget.onShowWorkspaces != null)
+            AdaptiveAppBarAction(
+              icon: Icons.folder_outlined,
+              iosSymbol: 'sidebar.left',
+              semanticLabel: l10n.deepSeekHarnessWorkspaces,
+              onPressed: widget.onShowWorkspaces,
+            ),
           AdaptiveAppBarAction(
             icon: Icons.open_in_browser,
             iosSymbol: 'safari',

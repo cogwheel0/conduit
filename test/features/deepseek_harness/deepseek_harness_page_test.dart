@@ -25,6 +25,9 @@ class _Grant extends Fake implements DeepSeekHarnessConnection {
   final bool isExpired;
 
   @override
+  String? get selectedWorkspaceId => null;
+
+  @override
   final Uri root = Uri.parse('https://workspace.example/harness/');
 
   @override

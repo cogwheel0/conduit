@@ -161,6 +161,51 @@ void main() {
     },
   );
 
+  test(
+    'remembers selection only on its saved grant across hosts and sign-out',
+    () async {
+      final grant = await connections.connect(fixture.launchUrl);
+      expect(grant.selectedWorkspaceId, isNull);
+      await connections.selectWorkspace(grant, 'seedling');
+      expect(host.read(deepSeekHarnessConnectionProvider).value, same(grant));
+      expect(grant.selectedWorkspaceId, 'seedling');
+      final other = newHost();
+      final otherConnections = other.read(
+        deepSeekHarnessConnectionProvider.notifier,
+      );
+      final restored = (await other.read(
+        deepSeekHarnessConnectionProvider.future,
+      ))!;
+      expect(restored.selectedWorkspaceId, 'seedling');
+      await otherConnections.selectWorkspace(restored, null);
+      expect(
+        (await newHost().read(deepSeekHarnessConnectionProvider.future))
+            ?.selectedWorkspaceId,
+        isNull,
+      );
+      final replacement = await connections.connect(fixture.launchUrl);
+      expect(replacement.selectedWorkspaceId, isNull);
+      await expectLater(
+        otherConnections.selectWorkspace(restored, 'stale'),
+        fails(DeepSeekHarnessFailure.unavailable),
+      );
+      await connections.selectWorkspace(replacement, 'cuttings');
+      final current = (await newHost().read(
+        deepSeekHarnessConnectionProvider.future,
+      ))!;
+      expect(current.cookieValue, replacement.cookieValue);
+      expect(current.selectedWorkspaceId, 'cuttings');
+      await newHost()
+          .read(deepSeekHarnessConnectionProvider.notifier)
+          .disconnect();
+      await expectLater(
+        connections.selectWorkspace(replacement, 'stale'),
+        fails(DeepSeekHarnessFailure.unavailable),
+      );
+      expect(await storage.readAll(), isEmpty);
+    },
+  );
+
   test('rejects invalid launch URLs before a network request', () async {
     for (final value in [
       fixture.root.toString(),

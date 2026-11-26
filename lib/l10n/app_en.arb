@@ -6448,7 +6448,75 @@
   "@deepSeekHarnessReviewRequest": {
     "description": "Action for a pending tool decision in the full workspace."
   },
-  "deepSeekHarnessNoWorkspaces": "Choose or create a workspace in Harness to start a chat.",
+  "deepSeekHarnessWorkspaces": "Workspaces",
+  "@deepSeekHarnessWorkspaces": {
+    "description": "Section heading for the directories registered with the connected Harness server."
+  },
+  "deepSeekHarnessNewWorkspace": "New workspace",
+  "@deepSeekHarnessNewWorkspace": {
+    "description": "Create a workspace on the connected Harness server."
+  },
+  "deepSeekHarnessAllChats": "All chats",
+  "@deepSeekHarnessAllChats": {
+    "description": "Show sessions across all Harness workspaces."
+  },
+  "deepSeekHarnessRememberWorkspaceFailed": "Couldn’t save the workspace selection on this device.",
+  "@deepSeekHarnessRememberWorkspaceFailed": {
+    "description": "The selected workspace could not be remembered locally."
+  },
+  "deepSeekHarnessChooseServerFolder": "Choose a folder on your Harness server.",
+  "@deepSeekHarnessChooseServerFolder": {
+    "description": "Instructions for the remote directory picker."
+  },
+  "deepSeekHarnessUseFolder": "Use this folder",
+  "@deepSeekHarnessUseFolder": {
+    "description": "Register the displayed server directory as a workspace."
+  },
+  "deepSeekHarnessEnterFolderPath": "Enter folder path",
+  "@deepSeekHarnessEnterFolderPath": {
+    "description": "Manually enter a path on the Harness server."
+  },
+  "deepSeekHarnessEnterExistingPath": "Enter the path of an existing folder on the Harness server.",
+  "@deepSeekHarnessEnterExistingPath": {
+    "description": "Instructions for the server folder path entry field."
+  },
+  "deepSeekHarnessParentFolder": "Parent folder",
+  "@deepSeekHarnessParentFolder": {
+    "description": "Navigate to the parent of the current server directory."
+  },
+  "deepSeekHarnessShowHiddenFolders": "Show hidden folders",
+  "@deepSeekHarnessShowHiddenFolders": {
+    "description": "Include directories marked hidden by the Harness server."
+  },
+  "deepSeekHarnessNoSubfolders": "No subfolders",
+  "@deepSeekHarnessNoSubfolders": {
+    "description": "The current server directory has no child directories."
+  },
+  "deepSeekHarnessMoreFolders": "Some folders are not shown. Enter a path to use another folder.",
+  "@deepSeekHarnessMoreFolders": {
+    "description": "The server returned a truncated directory listing."
+  },
+  "deepSeekHarnessBrowseFailed": "Couldn’t browse server folders. Retry or enter a folder path.",
+  "@deepSeekHarnessBrowseFailed": {
+    "description": "The server directory picker is unavailable."
+  },
+  "deepSeekHarnessInvalidPath": "Check that the server folder exists and you have access to it.",
+  "@deepSeekHarnessInvalidPath": {
+    "description": "A server directory could not be accessed."
+  },
+  "deepSeekHarnessDirectoryExists": "A folder with that name already exists.",
+  "@deepSeekHarnessDirectoryExists": {
+    "description": "The server refused a duplicate child directory."
+  },
+  "deepSeekHarnessInvalidFolderName": "Enter a single folder name without path separators.",
+  "@deepSeekHarnessInvalidFolderName": {
+    "description": "Validation error for a single child directory name."
+  },
+  "deepSeekHarnessCreateFailed": "Couldn’t create the workspace. Check folder permissions and try again.",
+  "@deepSeekHarnessCreateFailed": {
+    "description": "The server could not register a workspace."
+  },
+  "deepSeekHarnessNoWorkspaces": "Create a workspace to start a chat.",
   "@deepSeekHarnessNoWorkspaces": {
     "description": "Shown when a new Harness chat has no server workspace to use."
   },

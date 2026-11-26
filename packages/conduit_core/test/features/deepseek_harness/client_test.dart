@@ -146,6 +146,222 @@ void main() {
     },
   );
 
+  test('older and malformed workspace rows keep other chats visible', () async {
+    server.listen((req) async {
+      final ws = await WebSocketTransformer.upgrade(req);
+      final open = jsonDecode(await ws.first as String) as Map;
+      ws.add(
+        jsonEncode({
+          'type': 'item',
+          'streamId': open['streamId'],
+          'value': {
+            'type': 'baseline',
+            'value': {
+              'items': [
+                {
+                  'workspaceId': 'older',
+                  'title': 'Seed trays',
+                  'sessionIds': ['visible', false],
+                },
+                null,
+                {'title': 'Broken'},
+                {
+                  'workspaceId': 'empty',
+                  'title': 'Cuttings',
+                  'path': '/garden/cuttings',
+                  'sessionIds': [],
+                },
+              ],
+            },
+          },
+        }),
+      );
+      await ws.close();
+    });
+    final workspaces = await client.listWorkspaces();
+    expect(workspaces.map((w) => w.id), ['older', 'empty']);
+    expect(workspaces.first.path, isEmpty);
+    expect(workspaces.first.sessionIds, ['visible']);
+    expect(workspaces.last.path, '/garden/cuttings');
+  });
+
+  test(
+    'browses server paths, creates a folder, and adopts it idempotently',
+    () async {
+      const parent = r'Q:\Garden';
+      const child = r'Q:\Garden\Fern house';
+      final methods = <String>[];
+      server.listen((req) async {
+        final body = jsonDecode(await utf8.decoder.bind(req).join()) as Map;
+        final method = body['method'] as String;
+        final args = body['payload']['args'];
+        expect(req.uri.path, '/garden/api/$method');
+        final Object value;
+        switch (method) {
+          case 'directoryPicker/list':
+            expect(args, methods.isEmpty ? {} : {'path': parent});
+            value = {
+              'path': parent,
+              'home': parent,
+              'truncated': true,
+              'crumbs': [
+                {'name': 'Garden', 'path': parent, 'hidden': false},
+              ],
+              'entries': [
+                {
+                  'name': '.archive',
+                  'path': r'Q:\Garden\.archive',
+                  'hidden': true,
+                },
+              ],
+            };
+          case 'directoryPicker/createDirectory':
+            expect(args, {'path': parent, 'name': 'Fern house'});
+            value = child;
+          case 'workspace/create':
+            expect(args, {
+              'request': {'path': child},
+            });
+            value = {
+              'created': !methods.contains(method),
+              'workspace': {
+                'workspaceId': 'fern',
+                'title': 'Fern house',
+                'path': child,
+                'sessionIds': ['sprout'],
+              },
+            };
+          default:
+            throw StateError('Unexpected method');
+        }
+        methods.add(method);
+        req.response.write(
+          jsonEncode({
+            'type': 'server-response',
+            'rpcId': body['rpcId'],
+            'result': {'ok': true, 'value': value},
+          }),
+        );
+        await req.response.close();
+      });
+      final home = await client.listDirectories();
+      expect(home.crumbs.single.path, parent);
+      expect(
+        (await client.listDirectories(home.path)).entries.single.hidden,
+        true,
+      );
+      expect(home.entries.single.name, '.archive');
+      expect(home.truncated, true);
+      final directory = await client.createDirectory(home.path, 'Fern house');
+      final workspace = await client.createWorkspace(directory);
+      expect(workspace.path, child);
+      expect(workspace.sessionIds, ['sprout']);
+      expect((await client.createWorkspace(directory)).id, workspace.id);
+    },
+  );
+
+  test('rejects incomplete workspace creation receipts', () async {
+    final workspace = {
+      'workspaceId': 'fern',
+      'title': 'Fern',
+      'path': '/garden/fern',
+      'sessionIds': <Object>[],
+    };
+    final replies = [
+      {'workspace': workspace},
+      {
+        'created': true,
+        'workspace': {...workspace, 'path': null},
+      },
+      {
+        'created': false,
+        'workspace': {
+          ...workspace,
+          'sessionIds': [null],
+        },
+      },
+    ];
+    final next = replies.iterator;
+    server.listen((req) async {
+      final body = jsonDecode(await utf8.decoder.bind(req).join()) as Map;
+      expect(next.moveNext(), true);
+      req.response.write(
+        jsonEncode({
+          'type': 'server-response',
+          'rpcId': body['rpcId'],
+          'result': {'ok': true, 'value': next.current},
+        }),
+      );
+      await req.response.close();
+    });
+    for (var i = 0; i < replies.length; i++) {
+      await expectLater(
+        client.createWorkspace('/garden/fern'),
+        throwsA(
+          isA<DeepSeekHarnessException>().having(
+            (e) => e.reason,
+            'reason',
+            DeepSeekHarnessFailure.invalidResponse,
+          ),
+        ),
+      );
+    }
+  });
+
+  test('exposes only safe, actionable workspace errors', () async {
+    final codes = [
+      'workspace/invalid-path',
+      'directory-picker/exists',
+      'directory-picker/unavailable',
+    ].iterator;
+    server.listen((req) async {
+      final body = jsonDecode(await utf8.decoder.bind(req).join()) as Map;
+      expect(codes.moveNext(), true);
+      req.response.write(
+        jsonEncode({
+          'type': 'server-response',
+          'rpcId': body['rpcId'],
+          'result': {
+            'ok': false,
+            'error': {
+              'code': codes.current,
+              'message': 'example host-specific detail',
+              'details': {},
+            },
+          },
+        }),
+      );
+      await req.response.close();
+    });
+    Matcher issue(HarnessWorkspaceIssue value) => throwsA(
+      isA<HarnessWorkspaceException>()
+          .having((error) => error.issue, 'issue', value)
+          .having(
+            (error) => error.toString(),
+            'description',
+            isNot(contains('host-specific')),
+          ),
+    );
+    await expectLater(
+      client.createWorkspace('/garden/missing'),
+      issue(HarnessWorkspaceIssue.invalidPath),
+    );
+    await expectLater(
+      client.createDirectory('/garden', 'notes'),
+      issue(HarnessWorkspaceIssue.directoryExists),
+    );
+    await expectLater(
+      client.listDirectories(),
+      issue(HarnessWorkspaceIssue.browseUnavailable),
+    );
+    for (final bad in ['', ' ', '.', '..', 'two/segments', r'two\segments']) {
+      await expectLater(
+        client.createDirectory('/garden', bad),
+        issue(HarnessWorkspaceIssue.createFailed),
+      );
+    }
+  });
+
   test(
     'restores history, streams text, and leaves approvals for the user',
     () async {
