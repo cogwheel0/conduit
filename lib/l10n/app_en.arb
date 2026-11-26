@@ -6383,6 +6383,151 @@
   "@backendChooserOpenWebUISubtitle": {
     "description": "Description of the Open WebUI option on the backend chooser."
   },
+  "deepSeekHarnessTitle": "DeepSeek Harness",
+  "@deepSeekHarnessTitle": {
+    "description": "Name of the DeepSeek Harness backend."
+  },
+  "deepSeekHarnessChooserSubtitle": "Open your Harness workspace, chats, and tool approvals.",
+  "@deepSeekHarnessChooserSubtitle": {
+    "description": "Description of the Harness workspace in the chooser."
+  },
+  "deepSeekHarnessConnectionHelp": "Paste the launch link from dsh web, or enter the server address and launch token separately.",
+  "@deepSeekHarnessConnectionHelp": {
+    "description": "How to pair Conduit with the Harness web server. Keep dsh web as a literal command."
+  },
+  "deepSeekHarnessToken": "Launch token",
+  "@deepSeekHarnessToken": {
+    "description": "Label for the launch token issued by Harness."
+  },
+  "deepSeekHarnessInvalidAddress": "Enter a valid Harness web server address.",
+  "@deepSeekHarnessInvalidAddress": {
+    "description": "Error for an invalid Harness URL."
+  },
+  "deepSeekHarnessUnavailable": "Couldn’t connect to Harness. Check the server address and try again.",
+  "@deepSeekHarnessUnavailable": {
+    "description": "Error when a Harness server cannot be reached."
+  },
+  "deepSeekHarnessUnauthorized": "Enter a fresh launch token from Harness and connect again.",
+  "@deepSeekHarnessUnauthorized": {
+    "description": "Error when Harness requires a fresh launch token."
+  },
+  "deepSeekHarnessUntrustedHost": "Harness does not trust this host and port. Check the address printed by dsh web.",
+  "@deepSeekHarnessUntrustedHost": {
+    "description": "Error when Harness rejects the host and port used to connect."
+  },
+  "deepSeekHarnessCleanupFailed": "Couldn’t clear the previous Harness sign-in and local workspace data. Try again.",
+  "@deepSeekHarnessCleanupFailed": {
+    "description": "Shown when the previous browser session and workspace cache could not be removed."
+  },
+  "deepSeekHarnessForget": "Forget connection",
+  "@deepSeekHarnessForget": {
+    "description": "Action that removes a saved Harness sign-in."
+  },
+  "deepSeekHarnessForgetMessage": "Remove this Harness connection and its saved sign-in from this device?",
+  "@deepSeekHarnessForgetMessage": {
+    "description": "Confirmation before removing a Harness sign-in."
+  },
+  "deepSeekHarnessSelectSession": "Select “{title}” in the workspace sidebar.",
+  "@deepSeekHarnessSelectSession": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    },
+    "description": "Points to the session to choose when continuing in the Harness web workspace."
+  },
+  "deepSeekHarnessSelectCurrentSession": "Select this chat in the workspace sidebar.",
+  "@deepSeekHarnessSelectCurrentSession": {
+    "description": "Fallback when the current Harness session has no title yet."
+  },
+  "deepSeekHarnessOpenWorkspace": "Open Harness workspace",
+  "@deepSeekHarnessOpenWorkspace": {
+    "description": "Action opening the connected server’s full web workspace."
+  },
+  "deepSeekHarnessReviewRequest": "Review request in Harness",
+  "@deepSeekHarnessReviewRequest": {
+    "description": "Action for a pending tool decision in the full workspace."
+  },
+  "deepSeekHarnessWorkspaces": "Workspaces",
+  "@deepSeekHarnessWorkspaces": {
+    "description": "Section heading for the directories registered with the connected Harness server."
+  },
+  "deepSeekHarnessNewWorkspace": "New workspace",
+  "@deepSeekHarnessNewWorkspace": {
+    "description": "Create a workspace on the connected Harness server."
+  },
+  "deepSeekHarnessAllChats": "All chats",
+  "@deepSeekHarnessAllChats": {
+    "description": "Show sessions across all Harness workspaces."
+  },
+  "deepSeekHarnessRememberWorkspaceFailed": "Couldn’t save the workspace selection on this device.",
+  "@deepSeekHarnessRememberWorkspaceFailed": {
+    "description": "The selected workspace could not be remembered locally."
+  },
+  "deepSeekHarnessChooseServerFolder": "Choose a folder on your Harness server.",
+  "@deepSeekHarnessChooseServerFolder": {
+    "description": "Instructions for the remote directory picker."
+  },
+  "deepSeekHarnessUseFolder": "Use this folder",
+  "@deepSeekHarnessUseFolder": {
+    "description": "Register the displayed server directory as a workspace."
+  },
+  "deepSeekHarnessEnterFolderPath": "Enter folder path",
+  "@deepSeekHarnessEnterFolderPath": {
+    "description": "Manually enter a path on the Harness server."
+  },
+  "deepSeekHarnessEnterExistingPath": "Enter the path of an existing folder on the Harness server.",
+  "@deepSeekHarnessEnterExistingPath": {
+    "description": "Instructions for the server folder path entry field."
+  },
+  "deepSeekHarnessParentFolder": "Parent folder",
+  "@deepSeekHarnessParentFolder": {
+    "description": "Navigate to the parent of the current server directory."
+  },
+  "deepSeekHarnessShowHiddenFolders": "Show hidden folders",
+  "@deepSeekHarnessShowHiddenFolders": {
+    "description": "Include directories marked hidden by the Harness server."
+  },
+  "deepSeekHarnessNoSubfolders": "No subfolders",
+  "@deepSeekHarnessNoSubfolders": {
+    "description": "The current server directory has no child directories."
+  },
+  "deepSeekHarnessMoreFolders": "Some folders are not shown. Enter a path to use another folder.",
+  "@deepSeekHarnessMoreFolders": {
+    "description": "The server returned a truncated directory listing."
+  },
+  "deepSeekHarnessBrowseFailed": "Couldn’t browse server folders. Retry or enter a folder path.",
+  "@deepSeekHarnessBrowseFailed": {
+    "description": "The server directory picker is unavailable."
+  },
+  "deepSeekHarnessInvalidPath": "Check that the server folder exists and you have access to it.",
+  "@deepSeekHarnessInvalidPath": {
+    "description": "A server directory could not be accessed."
+  },
+  "deepSeekHarnessDirectoryExists": "A folder with that name already exists.",
+  "@deepSeekHarnessDirectoryExists": {
+    "description": "The server refused a duplicate child directory."
+  },
+  "deepSeekHarnessInvalidFolderName": "Enter a single folder name without path separators.",
+  "@deepSeekHarnessInvalidFolderName": {
+    "description": "Validation error for a single child directory name."
+  },
+  "deepSeekHarnessCreateFailed": "Couldn’t create the workspace. Check folder permissions and try again.",
+  "@deepSeekHarnessCreateFailed": {
+    "description": "The server could not register a workspace."
+  },
+  "deepSeekHarnessNoWorkspaces": "Create a workspace to start a chat.",
+  "@deepSeekHarnessNoWorkspaces": {
+    "description": "Shown when a new Harness chat has no server workspace to use."
+  },
+  "deepSeekHarnessSendUnconfirmed": "Harness didn’t confirm the send. Check the conversation before sending again.",
+  "@deepSeekHarnessSendUnconfirmed": {
+    "description": "Warning that the host may have accepted a prompt after a connection failure."
+  },
+  "deepSeekHarnessBack": "Back to Conduit",
+  "@deepSeekHarnessBack": {
+    "description": "Action to leave the Harness workspace."
+  },
   "backendChooserHermesTitle": "Hermes Agent",
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."

@@ -4,7 +4,10 @@ import 'package:conduit_core/conduit_core.dart';
 
 import 'dart:math';
 
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:synchronized/synchronized.dart';
 
 /// Secure credential storage with platform-specific options.
 ///
@@ -26,6 +29,7 @@ class SecureCredentialStorage {
   /// then deleted.
   static const String _serverConfigsKey = 'server_configs_v2';
   static const String _openWebUiRegistryKey = 'openwebui_registry_v1';
+  static const String _deepSeekHarnessKey = 'deepseek_harness_connection_v1';
   static const String _authTokenKey = 'auth_token_v2';
   static const String _hermesApiKeyKey = 'hermes_api_key_v1';
   static const String _hermesSessionKeyKey = 'hermes_session_key_v1';
@@ -41,6 +45,8 @@ class SecureCredentialStorage {
   // finished fake-async widget test does).
   static Future<void>? _openWebUiDirectIdentityKeyQueue;
   static bool _openWebUiDirectIdentityWritesBlocked = false;
+  static final _harnessWriteLock = Lock();
+  static Object? _harnessWriteScope = Object();
 
   /// Save user credentials securely.
   ///
@@ -898,6 +904,71 @@ class SecureCredentialStorage {
 
   Future<void> deleteOpenWebUiRegistry() =>
       _secureStorage.delete(key: _openWebUiRegistryKey);
+
+  /// A sign-in holds the scope it started in, even if the clear finishes
+  /// while the server is still authenticating it.
+  static Object? get harnessWriteScope =>
+      PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear) == true
+      ? null
+      : _harnessWriteScope;
+
+  static Future<void> blockHarnessWritesForAppDataClear() {
+    _harnessWriteScope = null;
+    return _harnessWriteLock.synchronized(() {});
+  }
+
+  static void resumeHarnessWritesAfterAppDataClear() {
+    _harnessWriteScope ??= Object();
+  }
+
+  Future<String?> readDeepSeekHarnessConnection() async {
+    final scope = harnessWriteScope;
+    if (scope == null) return null;
+    final saved = await _secureStorage.read(key: _deepSeekHarnessKey);
+    return identical(scope, harnessWriteScope) ? saved : null;
+  }
+
+  Future<bool> saveDeepSeekHarnessConnection(String connection, Object scope) =>
+      _harnessWriteLock.synchronized(() async {
+        if (!identical(harnessWriteScope, scope)) return false;
+        await _secureStorage.write(key: _deepSeekHarnessKey, value: connection);
+        return identical(harnessWriteScope, scope);
+      });
+
+  Future<bool> selectDeepSeekHarnessWorkspace({
+    required Object scope,
+    required String root,
+    required String grantValue,
+    required String? workspaceId,
+  }) => _harnessWriteLock.synchronized(() async {
+    if (!identical(harnessWriteScope, scope)) return false;
+    final saved = await _secureStorage.read(key: _deepSeekHarnessKey);
+    if (saved == null) return false;
+    late final Object? data;
+    try {
+      data = jsonDecode(saved);
+    } on FormatException {
+      return false;
+    }
+    if (data is! Map<String, dynamic> ||
+        data['root'] != root ||
+        data['value'] != grantValue) {
+      return false;
+    }
+    if (workspaceId == null) {
+      data.remove('selectedWorkspaceId');
+    } else {
+      data['selectedWorkspaceId'] = workspaceId;
+    }
+    await _secureStorage.write(
+      key: _deepSeekHarnessKey,
+      value: jsonEncode(data),
+    );
+    return identical(harnessWriteScope, scope);
+  });
+
+  Future<void> deleteDeepSeekHarnessConnection() => _harnessWriteLock
+      .synchronized(() => _secureStorage.delete(key: _deepSeekHarnessKey));
 
   /// Removes the one-server config list once the registry has replaced it.
   Future<void> deleteLegacyServerConfigs() =>

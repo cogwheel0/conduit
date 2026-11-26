@@ -129,6 +129,11 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
     return Routes.chat;
   }
 
+  // Harness owns its sign-in and sessions, including on an otherwise fresh device.
+  if (location == Routes.deepSeekHarness || location == Routes.deepSeekHarnessWorkspace) {
+    return null;
+  }
+
   // A change of the primary account that the last run left unfinished is
   // settled first: until then, which account is in charge is not known.
   if (read(primaryBootRecoveryPendingProvider)) {

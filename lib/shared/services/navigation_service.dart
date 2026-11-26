@@ -51,6 +51,25 @@ class NavigationService {
     router.routeInformationProvider.addListener(_handleRouteChanged);
   }
 
+  @visibleForTesting
+  static VoidCallback preserveStateForTest() {
+    final previous = _router;
+    final last = _lastRoute;
+    final revision = _routeRevision;
+    final history = List.of(_history);
+    // The test attaches its own router. Leave the previous listener in place.
+    _router = null;
+    return () {
+      _router?.routeInformationProvider.removeListener(_handleRouteChanged);
+      _router = previous;
+      _lastRoute = last;
+      _routeRevision = revision;
+      _history
+        ..clear()
+        ..addAll(history);
+    };
+  }
+
   static void _handleRouteChanged() {
     final route = _router?.routeInformationProvider.value.uri.toString();
     if (route == _lastRoute) return;

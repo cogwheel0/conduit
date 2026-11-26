@@ -9,6 +9,8 @@ class Routes {
   static const String folder = '/folder/:id';
   static const String login = '/login';
   static const String backendChooser = '/backend-chooser';
+  static const String deepSeekHarness = '/deepseek-harness';
+  static const String deepSeekHarnessWorkspace = '$deepSeekHarness/workspace';
   static const String libreChatSignIn = '/librechat-sign-in';
   static const String serverConnection = '/server-connection';
 
@@ -89,6 +91,8 @@ class RouteNames {
   static const String folder = 'folder';
   static const String login = 'login';
   static const String backendChooser = 'backend-chooser';
+  static const String deepSeekHarness = 'deepseek-harness';
+  static const String deepSeekHarnessWorkspace = 'deepseek-harness-workspace';
   static const String libreChatSignIn = 'librechat-sign-in';
   static const String serverConnection = 'server-connection';
   static const String addServer = 'add-server';

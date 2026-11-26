@@ -361,6 +361,7 @@ class AdaptiveScaffold extends StatelessWidget {
         action.title == null) {
       return AdaptiveButton.sfSymbol(
         onPressed: action.onPressed,
+        semanticLabel: action.semanticLabel,
         sfSymbol: SFSymbol(
           action.iosSymbol!,
           color: action.tintColor ?? fallbackTint,

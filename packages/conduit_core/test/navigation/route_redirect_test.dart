@@ -114,6 +114,21 @@ Future<AsyncValue<ServerConfig?>> _refreshing(ServerConfig server) async {
 }
 
 void main() {
+  test('Harness handles its own sign-in alongside each chat backend', () {
+    for (final backend in PreferredBackend.values) {
+      final read = _reader(
+        preferred: backend,
+        activeServer: const AsyncData(null),
+        auth: AuthNavigationState.needsLogin,
+      );
+      check(resolveRouteRedirect(Routes.deepSeekHarness, read)).isNull();
+      check(resolveRouteRedirect(Routes.deepSeekHarnessWorkspace, read)).isNull();
+    }
+    check(
+      resolveRouteRedirect(Routes.deepSeekHarness, _reader(reviewerMode: true)),
+    ).equals(Routes.chat);
+  });
+
   test('a change of the primary account cut short holds the splash until '
       'startup settles it', () {
     // Open WebUI parked by a switch to LibreChat that never finished.

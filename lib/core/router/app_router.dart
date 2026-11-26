@@ -15,6 +15,8 @@ import 'package:conduit_core/ports/browser_auth_port.dart';
 
 import '../../features/auth/views/authentication_page.dart';
 import '../../features/auth/views/backend_chooser_page.dart';
+import '../../features/deepseek_harness/deepseek_harness_page.dart';
+import '../../features/deepseek_harness/deepseek_harness_workspace.dart';
 import '../../features/auth/views/connect_signin_page.dart';
 import '../../features/auth/views/connection_issue_page.dart';
 import '../../features/auth/views/proxy_auth_page.dart';
@@ -66,6 +68,8 @@ import '../../features/settings/pages/direct_connection_page_ids.dart';
 import '../../l10n/app_localizations.dart';
 
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/navigation/route_redirect.dart';
 
 // The redirect policy lives in conduit_core, where it is tested without
@@ -242,6 +246,47 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.backendChooser,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const BackendChooserPage()),
+    ),
+    GoRoute(
+      path: Routes.deepSeekHarness,
+      name: RouteNames.deepSeekHarness,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: DeepSeekHarnessPage(
+          onOpenWorkspace: (sessionTitle) => context.pushNamed<bool>(
+            RouteNames.deepSeekHarnessWorkspace,
+            extra: sessionTitle,
+          ),
+          onConnected: () =>
+              PreferencesStore.put(PreferenceKeys.resumeDeepSeekHarness, true),
+          onDisconnected: () =>
+              PreferencesStore.put(PreferenceKeys.resumeDeepSeekHarness, null),
+          onExit: () {
+            unawaited(
+              PreferencesStore.put(PreferenceKeys.resumeDeepSeekHarness, null),
+            );
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go(Routes.splash);
+            }
+          },
+        ),
+      ),
+      routes: [
+        GoRoute(
+          path: 'workspace',
+          name: RouteNames.deepSeekHarnessWorkspace,
+          pageBuilder: (context, state) => _buildPlatformPage(
+            state: state,
+            child: DeepSeekHarnessWorkspacePage(
+              sessionTitle: state.extra is String ? state.extra as String : null,
+              onExit: () => context.pop(),
+              onReconnect: () => context.pop(true),
+            ),
+          ),
+        ),
+      ],
     ),
     GoRoute(
       path: Routes.libreChatSignIn,
@@ -703,7 +748,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
 
   final router = GoRouter(
     navigatorKey: NavigationService.navigatorKey,
-    initialLocation: Routes.splash,
+    initialLocation:
+        PreferencesStore.getBool(PreferenceKeys.resumeDeepSeekHarness) == true
+        ? Routes.deepSeekHarness
+        : Routes.splash,
     refreshListenable: notifier,
     redirect: notifier.redirect,
     routes: appRoutes,

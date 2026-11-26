@@ -741,6 +741,7 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
             ),
         ],
       ),
+      NativeSheetSectionConfig(items: [_harnessWorkspaceItem(l10n)]),
       NativeSheetSectionConfig(
         items: [
           // Opens the kinds of account to add, as Mail's Add Account does.
@@ -770,6 +771,16 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
     ],
   );
 }
+
+NativeSheetItemConfig _harnessWorkspaceItem(AppLocalizations l10n) =>
+    NativeSheetItemConfig(
+      id: nativeHarnessWorkspaceActionId,
+      title: l10n.deepSeekHarnessTitle,
+      subtitle: l10n.deepSeekHarnessChooserSubtitle,
+      sfSymbol: 'terminal',
+      actionId: nativeHarnessWorkspaceActionId,
+      dismissOnSelect: true,
+    );
 
 /// The Hermes pages Accounts and Add Account open, each filled in as it
 /// appears: Hermes Agent's own page, and the form adding a connection.
@@ -841,6 +852,7 @@ NativeSheetDetailConfig buildNativeAddAccountDetail(
             sfSymbol: 'server.rack',
             iconAsset: 'assets/icons/hermes_agent.png',
           ),
+          _harnessWorkspaceItem(l10n),
           // A provider is a form of Settings's own, not a sign-in.
           NativeSheetItemConfig(
             id: directConnectionAddAccountPageId,
@@ -1055,6 +1067,7 @@ const nativeAccountSignOutActionId = 'account-sign-out';
 /// Signs out of the saved Open WebUI account it names, active or not.
 const nativeAccountSignOutOfActionId = 'account-sign-out-of';
 const nativeHermesUseActionId = 'account-hermes-use';
+const nativeHarnessWorkspaceActionId = 'account-deepseek-harness';
 const nativeLibreChatUseActionId = 'account-librechat-use';
 const nativeLibreChatSignOutActionId = 'account-librechat-sign-out';
 

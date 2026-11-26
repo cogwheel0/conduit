@@ -36,6 +36,7 @@ import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 
+import 'package:conduit_core/features/deepseek_harness/deepseek_harness.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart';

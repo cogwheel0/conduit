@@ -33,6 +33,31 @@ void main() {
     );
   }
 
+  testWidgets('the native iOS toolbar button receives its accessibility label', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AdaptiveRouteShell(
+          appBar: AdaptiveAppBar(
+            title: 'Chats',
+            actions: [
+              AdaptiveAppBarAction(
+                iosSymbol: 'square.and.pencil',
+                semanticLabel: 'New Chat',
+                onPressed: () {},
+              ),
+            ],
+          ),
+          body: const SizedBox.expand(),
+        ),
+      ),
+    );
+
+    final button = tester.widget<CNButton>(find.byType(CNButton));
+    check(button.semanticLabel).equals('New Chat');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('the route colour also fills the strip under the keyboard', (
     tester,
   ) async {

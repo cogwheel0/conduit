@@ -71,6 +71,15 @@ class BackendChooserPage extends ConsumerWidget {
             subtitle: l10n.backendChooserHermesSubtitle,
             onTap: () => context.go(Routes.hermesSettings, extra: true),
           ),
+          _BackendOption(
+            key: const Key('backend-chooser-deepseek-harness'),
+            tile: AuthIconTile(
+              icon: cupertino ? CupertinoIcons.command : Icons.terminal,
+            ),
+            title: l10n.deepSeekHarnessTitle,
+            subtitle: l10n.deepSeekHarnessChooserSubtitle,
+            onTap: () => context.push(Routes.deepSeekHarness),
+          ),
         ],
       ),
       _BackendSection(

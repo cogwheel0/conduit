@@ -210,6 +210,9 @@ final class PreferenceKeys {
   /// Read synchronously by the router for boot-deterministic routing.
   static const String preferredBackend = 'preferred_backend_v1';
 
+  /// Reopen the separate Harness workspace when the mobile app starts.
+  static const String resumeDeepSeekHarness = 'resume_deepseek_harness_v1';
+
   /// Set while Open WebUI is parked: its accounts and their sessions kept,
   /// none active, because another account backend owns the Chats tab. No
   /// account is then active by storage's single-account fallback either.
