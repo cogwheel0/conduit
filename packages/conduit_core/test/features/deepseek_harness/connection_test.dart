@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:conduit_core/features/deepseek_harness/deepseek_harness.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:crypto/crypto.dart';
 import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
@@ -24,6 +25,8 @@ class HarnessFixture {
   int version = 1;
   String? audience;
   String? signedCookie;
+  // Each issuance has its own timestamp even when requests complete together.
+  DateTime _issuedAt = clock.now().toUtc();
 
   Uri get root => Uri.parse('http://127.0.0.1:${server.port}/harness/');
   String get launchUrl =>
@@ -37,7 +40,8 @@ class HarnessFixture {
       final authority = audience ?? root.authority;
       final name =
           'dsh-auth-${encoded(sha256.convert(utf8.encode(authority)).bytes)}';
-      final now = DateTime.now().toUtc();
+      final now = _issuedAt;
+      _issuedAt = now.add(const Duration(milliseconds: 1));
       final expiry = now.add(const Duration(days: 1));
       final payload = encoded(
         utf8.encode(
@@ -369,4 +373,36 @@ void main() {
     await connections.disconnect();
     expect(await storage.readAll(), isEmpty);
   });
+
+  test(
+    'a sign-in from before an app-data clear cannot restore the grant',
+    () async {
+      final verified = Completer<void>();
+      final release = Completer<void>();
+      final result = connections.connect(
+        fixture.launchUrl,
+        beforeSave: () async {
+          verified.complete();
+          await release.future;
+        },
+      );
+      await verified.future;
+      await SecureCredentialStorage.blockHarnessWritesForAppDataClear();
+      addTearDown(SecureCredentialStorage.resumeHarnessWritesAfterAppDataClear);
+      await storage.deleteAll();
+      SecureCredentialStorage.resumeHarnessWritesAfterAppDataClear();
+      release.complete();
+      await expectLater(result, fails(DeepSeekHarnessFailure.unavailable));
+      expect(await storage.readAll(), isEmpty);
+      expect(
+        await newHost().read(deepSeekHarnessConnectionProvider.future),
+        isNull,
+      );
+      await connections.connect(fixture.launchUrl);
+      expect(
+        await newHost().read(deepSeekHarnessConnectionProvider.future),
+        isNotNull,
+      );
+    },
+  );
 }

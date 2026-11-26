@@ -31,6 +31,8 @@ class HarnessSession {
   final String id;
   final String title;
   final bool running;
+
+  /// Subagents and sessions awaiting migration open in the full workspace.
   final bool needsWorkspace;
   final String? modelId;
   final String? modelProvider;
@@ -140,19 +142,19 @@ class DeepSeekHarnessClient {
     final value = await _call('session/list', {'_request': {}});
     return [
       for (final row in _objects(value['items']))
-        if (row case {
-          'sessionId': final String id,
-          'running': final bool running,
-        })
-          HarnessSession(
-            id,
-            _titleProjection(row) ?? '',
-            running,
-            row['origin'] == 'subagent' ||
-                row['formatStatus'] == 'migration-required',
-            modelId: _modelSelection(row)?['model'] as String?,
-            modelProvider: _modelSelection(row)?['provider'] as String?,
-          ),
+        switch (row) {
+          {'sessionId': final String id, 'running': final bool running} =>
+            HarnessSession(
+              id,
+              _titleProjection(row) ?? '',
+              running,
+              row['origin'] == 'subagent' ||
+                  row['formatStatus'] == 'migration-required',
+              modelId: _modelSelection(row)?['model'] as String?,
+              modelProvider: _modelSelection(row)?['provider'] as String?,
+            ),
+          _ => throw _invalid,
+        },
     ];
   }
 
@@ -208,10 +210,16 @@ class DeepSeekHarnessClient {
     });
   }
 
-  Future<void> send(String sessionId, String text) async {
+  /// [requestId] identifies one logical prompt, including any retry after a
+  /// lost receipt. The Harness inbox deduplicates prompts by this identity.
+  Future<void> send(
+    String sessionId,
+    String text, {
+    required String requestId,
+  }) async {
     final res = await _call('session/prompt', {
       'request': {
-        'requestId': const Uuid().v4(),
+        'requestId': requestId,
         'sessionId': sessionId,
         'mode': 'queue',
         'content': [
@@ -377,16 +385,37 @@ class DeepSeekHarnessClient {
   }
 }
 
-List<_Json> _objects(Object? values) {
+Iterable<_Json> _objects(Object? values) sync* {
   if (values is! List) throw _invalid;
-  return values.cast<_Json>();
+  for (final row in values) {
+    if (row is! _Json) throw _invalid;
+    yield row;
+  }
 }
 
+_Json? _projectionValues(_Json row) => switch (row['projections']) {
+  null => null,
+  {'values': final _Json values} => values,
+  _ => throw _invalid,
+};
+
 String? _titleProjection(_Json row) =>
-    row['projections']?['values']?['title'] as String?;
+    switch (_projectionValues(row)?['title']) {
+      final String title => title,
+      null => null,
+      _ => throw _invalid,
+    };
+
 _Json? _modelSelection(_Json row) {
-  final selection = row['projections']?['values']?['modelSelection'];
-  return selection is _Json
-      ? (selection['next'] ?? selection['lastUsed']) as _Json?
-      : null;
+  final selection = _projectionValues(row)?['modelSelection'];
+  if (selection == null) return null;
+  if (selection is! _Json) throw _invalid;
+  final route = selection['next'] ?? selection['lastUsed'];
+  if (route == null) return null;
+  if (route is _Json &&
+      route['model'] is String &&
+      route['provider'] is String) {
+    return route;
+  }
+  throw _invalid;
 }

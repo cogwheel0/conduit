@@ -21,6 +21,8 @@ class HarnessTranscript {
   });
   final List<HarnessMessage> messages;
   final bool running;
+
+  /// The transcript includes richer content or a request for user input.
   final bool needsWorkspace;
   final bool hasPendingRequest;
   final bool lastTurnFailed;
@@ -46,7 +48,7 @@ class _TranscriptProjection {
   String? _title;
   String? _modelId;
   String? _modelProvider;
-  bool _hasState = false;
+  int _runningCursor = -1;
   bool _lastTurnFailed = false;
   String? _attemptId;
   int _revision = 0;
@@ -71,7 +73,7 @@ class _TranscriptProjection {
       running: _running,
       needsWorkspace: _otherContent || _pendingState || _pending.isNotEmpty,
       hasPendingRequest: _pendingState || _pending.isNotEmpty,
-      lastTurnFailed: _lastTurnFailed,
+      lastTurnFailed: _lastTurnFailed && !_running,
       hasMore: _hasMore,
       title: _title,
       modelId: _modelId,
@@ -99,15 +101,18 @@ class _TranscriptProjection {
 
   bool _state(_Json frame) {
     if (frame case {
+      'cursor': final int cursor,
       'running': final bool running,
       'pendingInput': final List pending,
     }) {
-      final changed =
-          running != _running || pending.isNotEmpty != _pendingState;
-      _running = running;
+      final oldRunning = _running;
+      final oldPending = _pendingState;
+      if (cursor >= _runningCursor) {
+        _runningCursor = cursor;
+        _running = running;
+      }
       _pendingState = pending.isNotEmpty;
-      _hasState = true;
-      return changed;
+      return _running != oldRunning || _pendingState != oldPending;
     }
     throw _invalid;
   }
@@ -175,11 +180,14 @@ class _TranscriptProjection {
               true,
             _ => false,
           };
-      if (_lastTurnFailed) _otherContent = true;
-      // The state stream is authoritative when it has already sent a baseline.
-      if (!_opened && _hasState) return false;
-      _running = type == 'turn/start';
-      if (!_running) _streaming.clear();
+      // State observations include every event through their cursor. They
+      // also carry agent status changes made between two journal events.
+      final seq = event['seq'] as int;
+      if (seq > _runningCursor) {
+        _runningCursor = seq;
+        _running = type == 'turn/start';
+        if (!_running) _streaming.clear();
+      }
       return true;
     }
     if (type == 'session/title') {

@@ -5,6 +5,7 @@ import 'package:conduit_core/features/deepseek_harness/deepseek_harness_client.d
 import 'package:flutter/services.dart' show TextCapitalization;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../shared/theme/theme_extensions.dart';
@@ -302,7 +303,7 @@ class _ChatsState extends ConsumerState<DeepSeekHarnessChats> {
                           text: _connectionError(l10n, error),
                           retry: _refresh,
                         ),
-                      if (workspaces.length > 1)
+                      if (workspaces.length > 1 || selected != null)
                         AdaptiveListTile(
                           leading: const Icon(Icons.folder_outlined),
                           title: Text(
@@ -447,6 +448,21 @@ class _ErrorRow extends StatelessWidget {
 
 class _SessionDraft extends TextEditingController {
   bool sending = false;
+  String? _requestId;
+
+  String beginRequest() => _requestId ??= const Uuid().v4();
+
+  void acknowledge(String requestId) {
+    if (_requestId == requestId) clear();
+  }
+
+  @override
+  set value(TextEditingValue next) {
+    // Cursor movement preserves an unconfirmed prompt. Editing starts a new one.
+    if (next.text != text) _requestId = null;
+    super.value = next;
+  }
+
   void setSending(bool value) {
     sending = value;
     notifyListeners();
@@ -604,17 +620,25 @@ class _SessionChatState extends State<_SessionChat>
 
   Future<void> _send() async {
     final draft = _draft.text;
+    final current = _currentSnapshot;
     if (_busy ||
         _draft.sending ||
         draft.trim().isEmpty ||
-        _streamError != null) {
+        current == null ||
+        current.running ||
+        current.hasPendingRequest) {
       return;
     }
     _draft.setSending(true);
+    final requestId = _draft.beginRequest();
     setState(() => _actionError = null);
     try {
-      await widget.client.send(widget.sessionId, draft.trim());
-      if (_draft.text == draft) _draft.clear();
+      await widget.client.send(
+        widget.sessionId,
+        draft.trim(),
+        requestId: requestId,
+      );
+      _draft.acknowledge(requestId);
     } catch (_) {
       if (mounted) {
         setState(
@@ -628,8 +652,13 @@ class _SessionChatState extends State<_SessionChat>
     }
   }
 
-  Future<void> _stop() async {
-    if (_busy) return;
+  HarnessTranscript? get _currentSnapshot =>
+      _subscription != null && !_awaitingSnapshot && _streamError == null
+      ? _view
+      : null;
+
+  Future<void> _stop(HarnessTranscript observed) async {
+    if (_busy || _currentSnapshot != observed || !observed.running) return;
     setState(() {
       _busy = true;
       _actionError = null;
@@ -704,11 +733,9 @@ class _SessionChatState extends State<_SessionChat>
         view?.needsWorkspace ?? widget.summary?.needsWorkspace ?? false;
     final title = view?.title ?? widget.summary?.title ?? '';
     final messages = view?.messages ?? const <HarnessMessage>[];
-    final canSend =
-        !_busy &&
-        !_awaitingSnapshot &&
-        _streamError == null &&
-        !(view?.hasPendingRequest ?? false);
+    final current = _currentSnapshot;
+    final canAct = !_busy && current != null;
+    final canSend = canAct && !running && !(view?.hasPendingRequest ?? false);
     return AdaptiveRouteShell(
       bodySafeArea: true,
       safeAreaTop: false,
@@ -793,9 +820,7 @@ class _SessionChatState extends State<_SessionChat>
                   semanticLabel: l10n.scheduledTaskModelChoose,
                   style: AdaptiveButtonStyle.plain,
                   size: AdaptiveButtonSize.small,
-                  onPressed: _busy || running || _awaitingSnapshot
-                      ? null
-                      : _model,
+                  onPressed: !canAct || running ? null : _model,
                 ),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -819,7 +844,7 @@ class _SessionChatState extends State<_SessionChat>
                             ? l10n.stopGenerating
                             : l10n.send,
                         onPressed: running
-                            ? (_busy ? null : _stop)
+                            ? (canAct ? () => _stop(current) : null)
                             : (canSend &&
                                       !_draft.sending &&
                                       value.text.trim().isNotEmpty

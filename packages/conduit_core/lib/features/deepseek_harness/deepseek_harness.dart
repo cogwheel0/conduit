@@ -313,36 +313,58 @@ class DeepSeekHarnessConnections
   Future<DeepSeekHarnessConnection> connect(
     String launchUrl, {
     Future<void> Function()? beforeSave,
-  }) => _lock.synchronized(() async {
-    final launch = _parseLaunch(launchUrl);
-    final directory = launch.path.endsWith('/')
-        ? launch.path
-        : '${launch.path}/';
-    final root = Uri.parse('${launch.origin}$directory');
-    const timeout = Duration(seconds: 15);
-    final client = HttpClient()..connectionTimeout = timeout;
-    late final DeepSeekHarnessConnection grant;
-    try {
-      grant = await _exchange(
-        client,
-        root,
-        launch.queryParameters['token']!,
-      ).timeout(timeout);
-    } on IOException {
+  }) async {
+    final scope = SecureCredentialStorage.harnessWriteScope;
+    if (scope == null) {
       throw const DeepSeekHarnessException(DeepSeekHarnessFailure.unavailable);
-    } on TimeoutException {
-      throw const DeepSeekHarnessException(DeepSeekHarnessFailure.unavailable);
-    } on FormatException {
-      throw _invalidResponse;
-    } finally {
-      client.close(force: true);
     }
-    if (beforeSave != null) await beforeSave();
-    await _storage.saveDeepSeekHarnessConnection(jsonEncode(grant._toJson()));
-    _watchExpiry(grant);
-    if (ref.mounted) state = AsyncData(grant);
-    return grant;
-  });
+    return _lock.synchronized(() async {
+      final launch = _parseLaunch(launchUrl);
+      final directory = launch.path.endsWith('/')
+          ? launch.path
+          : '${launch.path}/';
+      final root = Uri.parse('${launch.origin}$directory');
+      const timeout = Duration(seconds: 15);
+      final client = HttpClient()..connectionTimeout = timeout;
+      late final DeepSeekHarnessConnection grant;
+      try {
+        grant = await _exchange(
+          client,
+          root,
+          launch.queryParameters['token']!,
+        ).timeout(timeout);
+      } on IOException {
+        throw const DeepSeekHarnessException(
+          DeepSeekHarnessFailure.unavailable,
+        );
+      } on TimeoutException {
+        throw const DeepSeekHarnessException(
+          DeepSeekHarnessFailure.unavailable,
+        );
+      } on FormatException {
+        throw _invalidResponse;
+      } finally {
+        client.close(force: true);
+      }
+      if (!identical(scope, SecureCredentialStorage.harnessWriteScope)) {
+        throw const DeepSeekHarnessException(
+          DeepSeekHarnessFailure.unavailable,
+        );
+      }
+      if (beforeSave != null) await beforeSave();
+      if (!await _storage.saveDeepSeekHarnessConnection(
+        jsonEncode(grant._toJson()),
+        scope,
+      )) {
+        throw const DeepSeekHarnessException(
+          DeepSeekHarnessFailure.unavailable,
+        );
+      }
+      _watchExpiry(grant);
+      if (ref.mounted) state = AsyncData(grant);
+      return grant;
+    });
+  }
 
   Future<void> disconnect() => _lock.synchronized(() async {
     await _storage.deleteDeepSeekHarnessConnection();

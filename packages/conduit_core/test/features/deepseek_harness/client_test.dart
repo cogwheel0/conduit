@@ -38,6 +38,7 @@ void main() {
     'uses correlated, authenticated unary calls for each native action',
     () async {
       final methods = <String>[];
+      final acceptedPrompts = <String>{};
       server.listen((req) async {
         expect(
           req.headers.value(HttpHeaders.cookieHeader),
@@ -92,7 +93,13 @@ void main() {
               'selected': {'provider': 'greenhouse', 'model': 'field'},
             };
           case 'session/prompt':
-            expect(request['requestId'], isNotEmpty);
+            if (acceptedPrompts.add(request['requestId'] as String) &&
+                acceptedPrompts.length == 1) {
+              // Accepted by the agent, but the response does not arrive.
+              req.response.statusCode = HttpStatus.badGateway;
+              await req.response.close();
+              return;
+            }
             expect(request['mode'], 'queue');
             expect(request['content'], [
               {'type': 'text', 'text': 'Label the pots.'},
@@ -118,13 +125,21 @@ void main() {
       final model = (await client.listModels()).single;
       final id = await client.createSession(workspaceId: 'workspace');
       await client.selectModel(id, model);
-      await client.send(id, 'Label the pots.');
+      await expectLater(
+        client.send(id, 'Label the pots.', requestId: 'one'),
+        throwsA(isA<DeepSeekHarnessException>()),
+      );
+      await client.send(id, 'Label the pots.', requestId: 'one');
+      await client.send(id, 'Label the pots.', requestId: 'two');
+      expect(acceptedPrompts, {'one', 'two'});
       await client.interrupt(id);
       expect(methods, [
         'session/list',
         'session/modelCatalog',
         'session/create',
         'session/selectModel',
+        'session/prompt',
+        'session/prompt',
         'session/prompt',
         'session/cancel',
       ]);
@@ -241,7 +256,7 @@ void main() {
                 },
               });
             case 'session/observeState':
-              item(id, {'running': true, 'pendingInput': []});
+              item(id, {'cursor': 4, 'running': true, 'pendingInput': []});
             case r'$events':
               item(id, {'type': 'ready', 'clientId': 'reader', 'host': {}});
               item(id, {
@@ -296,7 +311,11 @@ void main() {
                   'data': {'provider': 'seed', 'model': 'large'},
                 },
               });
-              item('state', {'running': false, 'pendingInput': []});
+              item('state', {
+                'cursor': 6,
+                'running': false,
+                'pendingInput': [],
+              });
           }
         }
         closed.complete();
@@ -346,7 +365,7 @@ void main() {
     server.listen((req) async {
       calls++;
       if (calls == 1) {
-        req.response.statusCode = HttpStatus.temporaryRedirect;
+        req.response.statusCode = HttpStatus.seeOther;
         req.response.headers.set(
           HttpHeaders.locationHeader,
           'http://127.0.0.1:${other.port}/',
@@ -449,11 +468,112 @@ void main() {
       });
       final pages = await client.follow('session').take(2).toList();
       expect(pages.first.lastTurnFailed, true);
-      expect(pages.first.needsWorkspace, true);
+      expect(pages.first.needsWorkspace, false);
       expect(pages.first.hasPendingRequest, false);
       expect(pages.first.messages, isEmpty);
       expect(pages.last.lastTurnFailed, false);
+      expect(pages.last.needsWorkspace, false);
       expect(pages.last.running, true);
+    },
+  );
+
+  test(
+    'malformed session catalog entries return an invalid response',
+    () async {
+      final inputs = <Object?>[
+        null,
+        {},
+        {'sessionId': 'bad', 'running': false, 'projections': 'malformed'},
+      ].iterator;
+      server.listen((req) async {
+        expect(inputs.moveNext(), true);
+        final body = jsonDecode(
+          await req.cast<List<int>>().transform(utf8.decoder).join(),
+        ) as Map;
+        req.response.write(
+          jsonEncode({
+            'type': 'server-response',
+            'rpcId': body['rpcId'],
+            'result': {
+              'ok': true,
+              'value': {
+                'items': [inputs.current],
+              },
+            },
+          }),
+        );
+        await req.response.close();
+      });
+      for (var i = 0; i < 3; i++) {
+        await expectLater(
+          client.listSessions(),
+          throwsA(
+            isA<DeepSeekHarnessException>().having(
+              (e) => e.reason,
+              'reason',
+              DeepSeekHarnessFailure.invalidResponse,
+            ),
+          ),
+        );
+      }
+    },
+  );
+
+  test(
+    'state samples and journal turns respect their inclusive cursor',
+    () async {
+      server.listen((req) async {
+        final ws = await WebSocketTransformer.upgrade(req);
+        await for (final raw in ws) {
+          final frame = jsonDecode(raw as String) as Map;
+          if (frame['streamId'] != 'events') continue;
+          void item(String stream, Map value) => ws.add(
+            jsonEncode({'type': 'item', 'streamId': stream, 'value': value}),
+          );
+          void state(int cursor, bool running) => item('state', {
+            'running': running,
+            'cursor': cursor,
+            'pendingInput': [],
+          });
+          void event(int seq, String type) => item('journal', {
+            'type': 'event',
+            'event': {'seq': seq, 'type': type, 'data': {}},
+          });
+          state(8, true);
+          item('journal', {
+            'type': 'snapshot',
+            'header': {'id': 'session'},
+            'records': [],
+            'assistantStream': {'revision': 0},
+          });
+          event(7, 'turn/end');
+          event(8, 'turn/start');
+          event(9, 'turn/end');
+          state(8, true);
+          event(10, 'turn/start');
+          state(10, false);
+          item('journal', {
+            'type': 'event',
+            'event': {
+              'seq': 11,
+              'type': 'session/title',
+              'data': {'title': 'Finished'},
+            },
+          });
+        }
+      });
+      final frames = <HarnessTranscript>[];
+      await for (final frame in client.follow('session')) {
+        frames.add(frame);
+        if (frame.title == 'Finished') break;
+      }
+      final running = <bool>[];
+      for (final f in frames) {
+        if (running.isEmpty || running.last != f.running) {
+          running.add(f.running);
+        }
+      }
+      expect(running, [true, false, true, false]);
     },
   );
 

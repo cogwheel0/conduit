@@ -1498,6 +1498,32 @@ void main() {
     check(registry).isA<OpenWebUiRegistry>();
   });
 
+  for (final individualDeleteFails in [false, true]) {
+    test('a failed broad wipe keeps the Harness grant removed or fenced '
+        '(individual delete refused: $individualDeleteFails)', () async {
+      const key = 'deepseek_harness_connection_v1';
+      await secure.write(key: key, value: 'synthetic grant');
+      await PreferencesStore.putChecked(
+        PreferenceKeys.incompleteAppDataClear,
+        true,
+      );
+      secure.refusedDeleteKey = individualDeleteFails ? key : null;
+      secure.refusesDeleteAll = true;
+
+      await check(
+        storage.clearAllIf(canClear: () => true, preserveServerDetails: false),
+      ).throws<StateError>();
+
+      if (individualDeleteFails) {
+        check(await secure.read(key: key)).isNotNull();
+        check(PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear))
+            .equals(true);
+      } else {
+        check(await secure.read(key: key)).isNull();
+      }
+    });
+  }
+
   // A failed wipe leaves writes building on what it meant to leave, until
   // one lands; from then on, on what was written.
   test('after a failed wipe, a write builds on the last one written', () async {
@@ -2285,6 +2311,13 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? unreadableKey;
   var failNextRegistryWrite = false;
   bool refusesDeleteAll = false;
+  String? refusedDeleteKey;
+
+  @override
+  Future<void> delete({required String key}) {
+    if (key == refusedDeleteKey) throw StateError('keychain refused to delete');
+    return super.delete(key: key);
+  }
 
   /// Runs before each write, and refuses it by throwing.
   void Function(String key)? beforeWrite;

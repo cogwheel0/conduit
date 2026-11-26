@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data' show BytesBuilder;
 
 import 'package:conduit_core/features/deepseek_harness/deepseek_harness.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart' hide Cookie;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -61,6 +63,75 @@ InAppWebViewSettings harnessWebViewSettings(Uri root) {
           ]
         : [],
   );
+}
+
+WebResourceResponse _denied(int status) => WebResourceResponse(
+  statusCode: status,
+  reasonPhrase: status == 401 ? 'Unauthorized' : 'Unavailable',
+  headers: const {'Cache-Control': 'no-store'},
+  contentType: 'text/plain',
+  contentEncoding: 'utf-8',
+  data: Uint8List(0),
+);
+
+// Chromium enforces a document response policy on the final origin of a
+// redirected subresource. Android's interception callback sees only its first URL.
+Future<WebResourceResponse> harnessAndroidDocument(
+  DeepSeekHarnessConnection connection,
+  Uri url,
+) async {
+  if (!connection.allowsNavigation(url)) return _denied(403);
+  if (connection.isExpired) return _denied(401);
+  final client = HttpClient();
+  Future<WebResourceResponse> load() async {
+    final request = await client.getUrl(url);
+    request.followRedirects = false;
+    request.cookies.add(Cookie(connection.cookieName, connection.cookieValue));
+    final response = await request.close();
+    if (response.statusCode != 200) {
+      return _denied(
+        response.statusCode == 401 || response.statusCode == 403 ? 401 : 502,
+      );
+    }
+    final type = response.headers.contentType;
+    if (type?.mimeType != 'text/html') return _denied(403);
+    final body = BytesBuilder(copy: false);
+    await for (final chunk in response) {
+      if (body.length + chunk.length > 4 * 1024 * 1024) return _denied(502);
+      body.add(chunk);
+    }
+    final ws = connection.root.origin.replaceFirst('http', 'ws');
+    final policy =
+        "default-src 'self' blob: data:; "
+        "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' blob: 'unsafe-inline'; connect-src 'self' $ws; "
+        "worker-src blob:; frame-src blob: about:; object-src 'none'; base-uri 'self'; form-action 'none'";
+    return WebResourceResponse(
+      statusCode: 200,
+      reasonPhrase: 'OK',
+      contentType: 'text/html',
+      contentEncoding: type?.charset ?? 'utf-8',
+      headers: {
+        'Content-Security-Policy': [
+          ...?response.headers['content-security-policy'],
+          policy,
+        ].join(', '),
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+      },
+      data: body.takeBytes(),
+    );
+  }
+
+  try {
+    return await load().timeout(const Duration(seconds: 15));
+  } on IOException {
+    return _denied(502);
+  } on TimeoutException {
+    return _denied(502);
+  } finally {
+    client.close(force: true);
+  }
 }
 
 /// Advanced operations run inside the workspace served by the connected host.
@@ -231,11 +302,11 @@ class _WorkspaceState extends ConsumerState<DeepSeekHarnessWorkspace> {
                 final uri = request.url.uriValue;
                 if ((uri.isScheme('http') || uri.isScheme('https')) &&
                     !connection.allowsNavigation(uri)) {
-                  return WebResourceResponse(
-                    statusCode: 403,
-                    reasonPhrase: 'Forbidden',
-                    data: Uint8List(0),
-                  );
+                  return _denied(403);
+                }
+                if (request.isForMainFrame == true) {
+                  if (request.method != 'GET') return _denied(403);
+                  return harnessAndroidDocument(connection, uri);
                 }
                 return null;
               },

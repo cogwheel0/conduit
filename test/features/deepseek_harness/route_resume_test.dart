@@ -2,6 +2,8 @@ import 'package:conduit/core/router/app_router.dart';
 import 'package:conduit/features/deepseek_harness/deepseek_harness_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/services/navigation_service.dart'
+    show NavigationService;
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -28,6 +30,7 @@ void main() {
   testWidgets('selecting Harness resumes it on restart until the user leaves', (
     tester,
   ) async {
+    addTearDown(NavigationService.preserveStateForTest());
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(405, 915);
     addTearDown(tester.view.resetPhysicalSize);

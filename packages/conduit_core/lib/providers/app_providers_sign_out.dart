@@ -22,6 +22,7 @@ void _resetProvidersAfterFullAppDataClear(Ref ref) {
   }
   ref.invalidate(preferredBackendProvider);
 
+  ref.invalidate(deepSeekHarnessConnectionProvider);
   ref.invalidate(directConnectionProfilesProvider);
   ref.invalidate(directMcpServerStoreProvider);
   ref.invalidate(directMcpServersProvider);
@@ -119,6 +120,8 @@ final class SignOutCoordinator {
       directRuns.resumeAdmissionAfterAppDataClearAbort();
       PreferencesStore.resumeWritesAfterAppDataClear();
       SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+      SecureCredentialStorage.resumeHarnessWritesAfterAppDataClear();
+      _ref.invalidate(deepSeekHarnessConnectionProvider);
     }
 
     Future<void> prepareForClear() async {
@@ -127,6 +130,7 @@ final class SignOutCoordinator {
         await Future.wait<void>([
           PreferencesStore.blockWritesForAppDataClear(),
           SecureCredentialStorage.blockDirectIdentityWritesForAppDataClear(),
+          SecureCredentialStorage.blockHarnessWritesForAppDataClear(),
           directProfiles.blockMutationsForAppDataClear(),
           directMcpServers.blockMutationsForAppDataClear(),
           hermesConfig.blockMutationsForAppDataClear(),
@@ -244,6 +248,7 @@ final class SignOutCoordinator {
           hermesConfig.finishAppDataClear();
           _resetProvidersAfterFullAppDataClear(_ref);
         case FullAppDataClearOutcome.incomplete:
+          _ref.invalidate(deepSeekHarnessConnectionProvider);
           directRuns.commitAppDataClear();
           await Future.wait<void>([
             directProfiles.blockMutationsForAppDataClear(),
@@ -277,6 +282,7 @@ final class SignOutCoordinator {
       if (!committedClearStillNeedsDirectPurge) {
         PreferencesStore.resumeWritesAfterAppDataClear();
         SecureCredentialStorage.resumeDirectIdentityWritesAfterAppDataClear();
+        SecureCredentialStorage.resumeHarnessWritesAfterAppDataClear();
       }
       if (outcome == null) {
         resumeGlobalAdmission();

@@ -16,6 +16,7 @@ class _Grant extends Fake implements DeepSeekHarnessConnection {}
 class _Client extends Fake implements DeepSeekHarnessClient {
   final observed = <(String, int)>[];
   final sent = <(String, String)>[];
+  final requestIds = <String>[];
   final stopped = <String>[];
   final created = <String>[];
   final models = <String>[];
@@ -30,11 +31,13 @@ class _Client extends Fake implements DeepSeekHarnessClient {
     HarnessSession('archive', 'Archived tray', false, true),
   ];
 
-  @override
-  Future<List<HarnessWorkspace>> listWorkspaces() async => const [
+  List<HarnessWorkspace> workspaces = const [
     HarnessWorkspace('greenhouse', 'Greenhouse', ['tray']),
     HarnessWorkspace('terrarium', 'Terrarium', ['fern']),
   ];
+
+  @override
+  Future<List<HarnessWorkspace>> listWorkspaces() async => workspaces;
 
   @override
   Future<String> createSession({required String workspaceId}) async {
@@ -61,8 +64,13 @@ class _Client extends Fake implements DeepSeekHarnessClient {
   }
 
   @override
-  Future<void> send(String sessionId, String text) async {
+  Future<void> send(
+    String sessionId,
+    String text, {
+    required String requestId,
+  }) async {
     sent.add((sessionId, text));
+    requestIds.add(requestId);
     await acknowledgment?.future;
     if (sendFails) {
       throw const DeepSeekHarnessException(DeepSeekHarnessFailure.unavailable);
@@ -176,6 +184,27 @@ void main() {
     expect(find.text('Tray notes'), findsOneWidget);
   });
 
+  testWidgets('a refreshed single workspace can still be unfiltered', (
+    tester,
+  ) async {
+    await open(tester);
+    await choose(tester, 'All');
+    await tester.pumpAndSettle();
+    await choose(tester, 'Greenhouse');
+    await tester.pumpAndSettle();
+    expect(find.text('Fern log'), findsNothing);
+    client.workspaces = [client.workspaces.first];
+    await choose(tester, 'Reload');
+    await tester.pumpAndSettle();
+    await choose(tester, 'Greenhouse');
+    await tester.pumpAndSettle();
+    await choose(tester, 'All');
+    await tester.pumpAndSettle();
+    expect(find.text('Fern log'), findsOneWidget);
+    expect(find.text('Greenhouse'), findsNothing);
+    expect(find.text('All'), findsNothing);
+  });
+
   testWidgets(
     'failed send and navigating between sessions preserve only the matching draft',
     (tester) async {
@@ -207,6 +236,27 @@ void main() {
       await tester.tap(action('Send'));
       await tester.pumpAndSettle();
       expect(tester.widget<EditableText>(field()).controller.text, isEmpty);
+      expect(client.requestIds, [
+        client.requestIds.first,
+        client.requestIds.first,
+      ]);
+      await tester.enterText(field(), 'Label the tray');
+      await tester.pump();
+      await tester.tap(action('Send'));
+      await tester.pumpAndSettle();
+      expect(client.requestIds.last, isNot(client.requestIds.first));
+      client.sendFails = true;
+      await tester.enterText(field(), 'Water the tray');
+      await tester.pump();
+      await tester.tap(action('Send'));
+      await tester.pumpAndSettle();
+      final editedId = client.requestIds.last;
+      await tester.enterText(field(), 'Check tray');
+      await tester.enterText(field(), 'Water the tray');
+      await tester.pump();
+      await tester.tap(action('Send'));
+      await tester.pumpAndSettle();
+      expect(client.requestIds.last, isNot(editedId));
     },
   );
 
@@ -270,16 +320,39 @@ void main() {
       await choose(tester, 'Load More');
       expect(client.observed.last, ('tray', 200));
       expect(find.text('Inspect tray'), findsOneWidget);
+      expect(
+        tester.widget<AdaptiveButton>(action('Stop Generating')).onPressed,
+        isNull,
+      );
       client.streams.last.addError(
         const DeepSeekHarnessException(DeepSeekHarnessFailure.unavailable),
       );
       await tester.pumpAndSettle();
+      expect(
+        tester.widget<AdaptiveButton>(action('Stop Generating')).onPressed,
+        isNull,
+      );
       await choose(tester, 'Retry');
       expect(client.observed.last, ('tray', 200));
+      expect(
+        tester.widget<AdaptiveButton>(action('Stop Generating')).onPressed,
+        isNull,
+      );
+      client.emit(running: true);
+      await tester.pumpAndSettle();
+      await tester.tap(action('Stop Generating'));
+      await tester.pump();
+      expect(client.stopped, ['tray', 'tray']);
       client.emit(failed: true);
       await tester.pumpAndSettle();
       expect(find.text("The reply couldn't be finished."), findsOneWidget);
       expect(find.text('Open Harness workspace'), findsOneWidget);
+      client.emit(
+        messages: const [HarnessMessage('assistant', 'Tray counted')],
+      );
+      await tester.pumpAndSettle();
+      expect(find.text("The reply couldn't be finished."), findsNothing);
+      expect(find.text('Open Harness workspace'), findsNothing);
       client.emit(needsWorkspace: true);
       await tester.pumpAndSettle();
       expect(find.text('Review request in Harness'), findsNothing);

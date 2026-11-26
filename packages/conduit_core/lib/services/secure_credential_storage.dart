@@ -4,7 +4,10 @@ import 'package:conduit_core/conduit_core.dart';
 
 import 'dart:math';
 
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:synchronized/synchronized.dart';
 
 /// Secure credential storage with platform-specific options.
 ///
@@ -42,6 +45,8 @@ class SecureCredentialStorage {
   // finished fake-async widget test does).
   static Future<void>? _openWebUiDirectIdentityKeyQueue;
   static bool _openWebUiDirectIdentityWritesBlocked = false;
+  static final _harnessWriteLock = Lock();
+  static Object? _harnessWriteScope = Object();
 
   /// Save user credentials securely.
   ///
@@ -900,11 +905,35 @@ class SecureCredentialStorage {
   Future<void> deleteOpenWebUiRegistry() =>
       _secureStorage.delete(key: _openWebUiRegistryKey);
 
-  Future<String?> readDeepSeekHarnessConnection() =>
-      _secureStorage.read(key: _deepSeekHarnessKey);
+  /// A sign-in holds the scope it started in, even if the clear finishes
+  /// while the server is still authenticating it.
+  static Object? get harnessWriteScope =>
+      PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear) == true
+      ? null
+      : _harnessWriteScope;
 
-  Future<void> saveDeepSeekHarnessConnection(String connection) =>
-      _secureStorage.write(key: _deepSeekHarnessKey, value: connection);
+  static Future<void> blockHarnessWritesForAppDataClear() {
+    _harnessWriteScope = null;
+    return _harnessWriteLock.synchronized(() {});
+  }
+
+  static void resumeHarnessWritesAfterAppDataClear() {
+    _harnessWriteScope ??= Object();
+  }
+
+  Future<String?> readDeepSeekHarnessConnection() async {
+    final scope = harnessWriteScope;
+    if (scope == null) return null;
+    final saved = await _secureStorage.read(key: _deepSeekHarnessKey);
+    return identical(scope, harnessWriteScope) ? saved : null;
+  }
+
+  Future<bool> saveDeepSeekHarnessConnection(String connection, Object scope) =>
+      _harnessWriteLock.synchronized(() async {
+        if (!identical(harnessWriteScope, scope)) return false;
+        await _secureStorage.write(key: _deepSeekHarnessKey, value: connection);
+        return identical(harnessWriteScope, scope);
+      });
 
   Future<void> deleteDeepSeekHarnessConnection() =>
       _secureStorage.delete(key: _deepSeekHarnessKey);

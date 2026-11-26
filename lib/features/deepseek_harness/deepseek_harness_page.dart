@@ -117,7 +117,11 @@ class _HarnessPageState extends ConsumerState<DeepSeekHarnessPage> {
       isDestructive: true,
     );
     if (!confirmed || !mounted || _busy) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _cleanupFailed = false;
+      _error = null;
+    });
     try {
       final connections = ref.read(deepSeekHarnessConnectionProvider.notifier);
       await ref.read(deepSeekHarnessBrowserDataProvider).forget(saved);
@@ -248,6 +252,7 @@ class _ConnectionFormState extends State<_ConnectionForm> {
       return TextEditingValue.empty;
     }
     if (separator < 0) {
+      if (value != old.text.trim()) _token.clear();
       if (_badLink) setState(() => _badLink = false);
       return update;
     }
@@ -288,6 +293,7 @@ class _ConnectionFormState extends State<_ConnectionForm> {
       setState(() => _badLink = true);
       return;
     }
+    if (_badLink) setState(() => _badLink = false);
     widget.onConnect(
       root.replace(queryParameters: {'token': token}).toString(),
     );

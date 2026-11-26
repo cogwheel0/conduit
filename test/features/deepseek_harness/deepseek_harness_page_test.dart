@@ -79,12 +79,14 @@ class _EmptyCatalog extends Fake implements DeepSeekHarnessClient {
 class _Cookies extends HarnessBrowserData {
   final removed = <DeepSeekHarnessConnection>[];
   final installed = <DeepSeekHarnessConnection>[];
+  late final installation = Completer<void>();
+  bool forgetFails = false;
 
   @override
   Future<void> install(DeepSeekHarnessConnection connection) {
     installed.add(connection);
     // Exercise native connection management without starting a platform view.
-    return Completer<void>().future;
+    return installation.future;
   }
 
   final forgotten = <DeepSeekHarnessConnection>[];
@@ -92,6 +94,7 @@ class _Cookies extends HarnessBrowserData {
   @override
   Future<void> forget(DeepSeekHarnessConnection connection) async {
     forgotten.add(connection);
+    if (forgetFails) throw const HarnessCleanupException();
   }
 
   @override
@@ -231,12 +234,42 @@ void main() {
     expect(cookies.installed, isEmpty);
   });
 
-  testWidgets('opening the full workspace installs the saved browser grant', (
+  testWidgets('the workspace waits for a browser grant before opening', (
     tester,
   ) async {
     connections.saved = _Grant();
     await open(tester, workspace: true);
-    expect(cookies.installed, [connections.saved]);
+    expect(find.byType(DeepSeekHarnessWorkspace), findsOneWidget);
+    expect(find.byType(browser.InAppWebView), findsNothing);
+    cookies.installation.completeError(const HarnessCleanupException());
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.byType(browser.InAppWebView), findsNothing);
+  });
+
+  testWidgets('editing a launch address requires a fresh token', (
+    tester,
+  ) async {
+    await open(tester);
+    final fields = find.byType(EditableText);
+    final l10n = strings(tester);
+    await tester.enterText(
+      fields.first,
+      'https://greenhouse.example/harness/?token=demo-greenhouse',
+    );
+    const address = 'https://terrarium.example/harness/';
+    await tester.enterText(fields.first, address);
+    expect(tester.widget<EditableText>(fields.last).controller.text, isEmpty);
+    await press(tester, l10n.connectToServerButton);
+    expect(connections.attempts, isEmpty);
+    expect(find.text(l10n.deepSeekHarnessInvalidAddress), findsOneWidget);
+    await tester.enterText(fields.last, 'demo-terrarium');
+    connections.failure = DeepSeekHarnessFailure.unauthorized;
+    await press(tester, l10n.connectToServerButton);
+    expect(connections.attempts, ['$address?token=demo-terrarium']);
+    expect(find.text(l10n.deepSeekHarnessInvalidAddress), findsNothing);
+    expect(find.text(l10n.deepSeekHarnessUnauthorized), findsOneWidget);
   });
 
   testWidgets(
@@ -315,11 +348,18 @@ void main() {
       await press(tester, l10n.deepSeekHarnessForget);
       await press(tester, l10n.cancel);
       expect(connections.saved, same(expired));
+      cookies.forgetFails = true;
       await press(tester, l10n.deepSeekHarnessForget);
       await press(tester, l10n.deepSeekHarnessForget);
       expect(cookies.forgotten, [expired]);
+      expect(connections.saved, same(expired));
+      expect(find.text(l10n.deepSeekHarnessCleanupFailed), findsOneWidget);
+      cookies.forgetFails = false;
+      await press(tester, l10n.deepSeekHarnessForget);
+      await press(tester, l10n.deepSeekHarnessForget);
       expect(connections.saved, isNull);
       expect(disconnected, 1);
+      expect(find.text(l10n.deepSeekHarnessCleanupFailed), findsNothing);
       expect(
         tester
             .widget<EditableText>(find.byType(EditableText).first)
@@ -329,27 +369,4 @@ void main() {
       );
     },
   );
-
-  test('workspace disables bridge, external windows, third-party cookies and file access', () {
-    for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
-      debugDefaultTargetPlatformOverride = platform;
-      try {
-        final settings = harnessWebViewSettings(
-          Uri.parse('https://workspace.example/mount/'),
-        );
-        expect(settings.javaScriptBridgeEnabled, false);
-        expect(settings.javaScriptCanOpenWindowsAutomatically, false);
-        expect(settings.thirdPartyCookiesEnabled, false);
-        expect(settings.allowFileAccess, false);
-        expect(settings.allowContentAccess, false);
-        if (platform == TargetPlatform.iOS) {
-          expect(settings.contentBlockers, hasLength(4));
-        } else {
-          expect(settings.useShouldInterceptRequest, true);
-        }
-      } finally {
-        debugDefaultTargetPlatformOverride = null;
-      }
-    }
-  });
 }

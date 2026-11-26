@@ -5604,14 +5604,17 @@ class OptimizedStorageService {
           expectedServerId: initiatingServerId,
         ),
       );
-      await attempt(
-        () => PreferencesStore.clear(
+      await attempt(() async {
+        // A restart while preferences are clearing must not expose a grant
+        // whose durable sign-out fence was stored in those preferences.
+        await _secureCredentialStorage.deleteDeepSeekHarnessConnection();
+        await PreferencesStore.clear(
           preserve: {
             PreferenceKeys.hiveToPrefsMigrationV1,
             if (preserveLogoutFence) PreferenceKeys.incompleteLogoutFence,
           },
-        ),
-      );
+        );
+      });
       await attempt(_secureCredentialStorage.clearAll);
       await attempt(_cachesBox.clear);
       await attempt(_attachmentQueueBox.clear);

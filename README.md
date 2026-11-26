@@ -298,7 +298,9 @@ signing key each time it starts, so every restart signs Conduit out.
 1. Start the Harness web interface with `dsh web` on a computer your phone
    can reach. Its default loopback address works only on the same computer.
    To connect over a private network, run `dsh web --host <private-address>`.
-   Use HTTPS when connecting over an untrusted network.
+   Use HTTPS when connecting over an untrusted network. Give Harness its own
+   origin if you also host applications you do not trust. Browsers share an
+   origin across paths on the same scheme, host, and port.
 2. In Conduit, choose **DeepSeek Harness** on first launch or in
    **Settings → Accounts**. Paste the launch link printed by Harness.
 3. Pick a session or tap **New Chat**. Conduit streams replies from the server
