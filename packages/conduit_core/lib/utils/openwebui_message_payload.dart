@@ -1,4 +1,29 @@
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/services/structured_output.dart';
+import 'package:conduit_core/services/structured_output_renderer.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
+
+/// Only replace a display projection proven to come from retained output.
+/// Literal user text, old messages without output, and partial/mismatched
+/// presentations pass through unchanged; never strip HTML heuristically.
+String projectOpenWebUiContent(
+  String role,
+  String content,
+  List<dynamic>? output,
+) {
+  if (role != 'assistant' ||
+      output == null ||
+      output.isEmpty ||
+      !containsRenderedSemanticDetails(content)) {
+    return content;
+  }
+  final blocks = parseOpenWebUIStructuredOutput(output);
+  if (!structuredOutputBlocksContainDetails(blocks) ||
+      renderStructuredOutputBlocks(blocks) != content) {
+    return content;
+  }
+  return structuredOutputBlocksPlainText(blocks);
+}
 
 /// Serializers for message fields OpenWebUI persists inside chat blobs.
 ///
